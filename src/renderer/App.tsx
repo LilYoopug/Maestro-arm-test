@@ -272,26 +272,29 @@ export default function MaestroConsole() {
   const restoreSession = async (session: Session): Promise<Session> => {
     try {
       // Detect and fix inputMode/toolType mismatch
-      // If inputMode is 'terminal' but toolType is not 'terminal', fix it
+      // The AI agent should never use 'terminal' as toolType
       let correctedSession = { ...session };
-      if (session.inputMode === 'terminal' && session.toolType !== 'terminal') {
-        console.warn(`[restoreSession] Fixing corrupted session: inputMode='terminal' but toolType='${session.toolType}'`);
-        correctedSession.toolType = 'terminal' as ToolType;
+      let aiAgentType = correctedSession.toolType;
 
-        const targetLogKey = 'shellLogs';
+      // If toolType is 'terminal', use the default agent instead for AI process
+      if (aiAgentType === 'terminal') {
+        console.warn(`[restoreSession] Session has toolType='terminal', using default agent for AI process`);
+        aiAgentType = defaultAgent as ToolType;
+
+        const targetLogKey = 'aiLogs';
         correctedSession[targetLogKey] = [
           ...correctedSession[targetLogKey],
           {
             id: generateId(),
             timestamp: Date.now(),
             source: 'system',
-            text: '⚠️ Session was corrupted (wrong process type). Fixed automatically.'
+            text: '⚠️ Using default AI agent (Claude Code) for this session.'
           }
         ];
       }
 
       // Get agent definitions for both processes
-      const agent = await window.maestro.agents.get(correctedSession.toolType);
+      const agent = await window.maestro.agents.get(aiAgentType);
       if (!agent) {
         console.error(`Agent not found for toolType: ${correctedSession.toolType}`);
         return {
@@ -314,10 +317,10 @@ export default function MaestroConsole() {
       }
 
       // Spawn BOTH processes for dual-process architecture
-      // 1. Spawn AI agent process
+      // 1. Spawn AI agent process (never use 'terminal' as toolType here)
       const aiSpawnResult = await window.maestro.process.spawn({
         sessionId: `${correctedSession.id}-ai`,
-        toolType: correctedSession.toolType,
+        toolType: aiAgentType,  // Use aiAgentType, not correctedSession.toolType
         cwd: correctedSession.cwd,
         command: agent.command,
         args: agent.args || []
@@ -971,7 +974,7 @@ export default function MaestroConsole() {
 
   // Auto-scroll logs
   useEffect(() => {
-    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    logsEndRef.current?.scrollIntoView({ behavior: 'instant' });
   }, [activeSession?.aiLogs, activeSession?.shellLogs, activeSession?.inputMode]);
 
   // --- ACTIONS ---
