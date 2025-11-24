@@ -25,6 +25,7 @@ import { RenameGroupModal } from './components/RenameGroupModal';
 import { ConfirmModal } from './components/ConfirmModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { MainPanel } from './components/MainPanel';
+import { ProcessMonitor } from './components/ProcessMonitor';
 
 // Import custom hooks
 import { useSettings, useSessionManager, useFileExplorer } from './hooks';
@@ -112,6 +113,7 @@ export default function MaestroConsole() {
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [aboutModalOpen, setAboutModalOpen] = useState(false);
   const [logViewerOpen, setLogViewerOpen] = useState(false);
+  const [processMonitorOpen, setProcessMonitorOpen] = useState(false);
   const [createGroupModalOpen, setCreateGroupModalOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupEmoji, setNewGroupEmoji] = useState('📂');
@@ -753,7 +755,7 @@ export default function MaestroConsole() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't intercept if modals are open
-      const modalOpen = quickActionOpen || settingsModalOpen || shortcutsHelpOpen || newInstanceModalOpen || aboutModalOpen || createGroupModalOpen || confirmModalOpen || renameInstanceModalOpen || renameGroupModalOpen;
+      const modalOpen = quickActionOpen || settingsModalOpen || shortcutsHelpOpen || newInstanceModalOpen || aboutModalOpen || processMonitorOpen || createGroupModalOpen || confirmModalOpen || renameInstanceModalOpen || renameGroupModalOpen;
 
       // If any modal is open, only handle Escape key here and let modals handle everything else
       if (modalOpen) {
@@ -778,6 +780,8 @@ export default function MaestroConsole() {
             setShortcutsHelpOpen(false);
           } else if (aboutModalOpen) {
             setAboutModalOpen(false);
+          } else if (processMonitorOpen) {
+            setProcessMonitorOpen(false);
           } else if (settingsModalOpen) {
             setSettingsModalOpen(false);
           } else if (lightboxImage) {
@@ -1889,6 +1893,7 @@ export default function MaestroConsole() {
           setShortcutsHelpOpen={setShortcutsHelpOpen}
           setAboutModalOpen={setAboutModalOpen}
           setLogViewerOpen={setLogViewerOpen}
+          setProcessMonitorOpen={setProcessMonitorOpen}
           setActiveRightTab={setActiveRightTab}
         />
       )}
@@ -1915,6 +1920,16 @@ export default function MaestroConsole() {
         <AboutModal
           theme={theme}
           onClose={() => setAboutModalOpen(false)}
+        />
+      )}
+
+      {/* --- PROCESS MONITOR --- */}
+      {processMonitorOpen && (
+        <ProcessMonitor
+          theme={theme}
+          sessions={sessions}
+          groups={groups}
+          onClose={() => setProcessMonitorOpen(false)}
         />
       )}
 

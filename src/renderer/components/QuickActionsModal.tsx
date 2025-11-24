@@ -40,6 +40,7 @@ interface QuickActionsModalProps {
   setShortcutsHelpOpen: (open: boolean) => void;
   setAboutModalOpen: (open: boolean) => void;
   setLogViewerOpen: (open: boolean) => void;
+  setProcessMonitorOpen: (open: boolean) => void;
 }
 
 export function QuickActionsModal(props: QuickActionsModalProps) {
@@ -50,7 +51,7 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
     setCreateGroupModalOpen, setNewGroupName, setMoveSessionToNewGroup,
     setLeftSidebarOpen, setRightPanelOpen, setActiveRightTab, toggleInputMode,
     deleteSession, addNewSession, setSettingsModalOpen, setSettingsTab,
-    setShortcutsHelpOpen, setAboutModalOpen, setLogViewerOpen
+    setShortcutsHelpOpen, setAboutModalOpen, setLogViewerOpen, setProcessMonitorOpen
   } = props;
 
   const [search, setSearch] = useState('');
@@ -154,6 +155,7 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
     { id: 'theme', label: 'Change Theme', action: () => { setSettingsModalOpen(true); setSettingsTab('theme'); setQuickActionOpen(false); } },
     { id: 'shortcuts', label: 'View Shortcuts', shortcut: shortcuts.help, action: () => { setShortcutsHelpOpen(true); setQuickActionOpen(false); } },
     { id: 'logs', label: 'View System Logs', action: () => { setLogViewerOpen(true); setQuickActionOpen(false); } },
+    { id: 'processes', label: 'View System Processes', action: () => { setProcessMonitorOpen(true); setQuickActionOpen(false); } },
     { id: 'devtools', label: 'Toggle JavaScript Console', action: () => { window.maestro.devtools.toggle(); setQuickActionOpen(false); } },
     { id: 'about', label: 'About Maestro', action: () => { setAboutModalOpen(true); setQuickActionOpen(false); } },
     { id: 'goToFiles', label: 'Go to Files Tab', action: () => { setRightPanelOpen(true); setActiveRightTab('files'); setQuickActionOpen(false); } },
