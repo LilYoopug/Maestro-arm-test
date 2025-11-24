@@ -3,6 +3,28 @@ import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import { FastifyInstance } from 'fastify';
 
+/**
+ * WebServer - HTTP and WebSocket server for remote access
+ *
+ * STATUS: Partial implementation (Phase 6 - Remote Access & Tunneling)
+ *
+ * Current functionality:
+ * - Health check endpoint (/health) - WORKING
+ * - WebSocket echo endpoint (/ws) - PLACEHOLDER (echoes messages for connectivity testing)
+ * - Session list endpoint (/api/sessions) - PLACEHOLDER (returns empty array)
+ * - Session detail endpoint (/api/sessions/:id) - PLACEHOLDER (returns stub data)
+ *
+ * Phase 6 implementation plan:
+ * - Integrate with ProcessManager to expose real session data
+ * - Implement real-time session state broadcasting via WebSocket
+ * - Stream process output to connected clients
+ * - Handle input commands from remote clients
+ * - Add authentication and authorization
+ * - Support mobile/tablet responsive UI
+ * - Integrate with ngrok tunneling for public access
+ *
+ * See PRD.md Phase 6 for full requirements.
+ */
 export class WebServer {
   private server: FastifyInstance;
   private port: number;
@@ -37,9 +59,17 @@ export class WebServer {
     });
 
     // WebSocket endpoint for real-time updates
+    // NOTE: This is a placeholder implementation for Phase 6 (Remote Access & Tunneling)
+    // Current behavior: Echoes messages back to test connectivity
+    // Future implementation (Phase 6):
+    // - Broadcast session state changes to all connected clients
+    // - Stream process output in real-time
+    // - Handle input commands from remote clients
+    // - Implement authentication and authorization
+    // - Support multiple simultaneous connections
     this.server.get('/ws', { websocket: true }, (connection) => {
       connection.socket.on('message', (message) => {
-        // Echo back for now - will implement proper session handling
+        // PLACEHOLDER: Echo back for testing connectivity only
         connection.socket.send(JSON.stringify({
           type: 'echo',
           data: message.toString(),
@@ -53,6 +83,8 @@ export class WebServer {
     });
 
     // Session list endpoint
+    // NOTE: Placeholder for Phase 6. Currently returns empty array.
+    // Future: Return actual session list from ProcessManager
     this.server.get('/api/sessions', async () => {
       return {
         sessions: [],
@@ -61,6 +93,8 @@ export class WebServer {
     });
 
     // Session detail endpoint
+    // NOTE: Placeholder for Phase 6. Currently returns stub data.
+    // Future: Return actual session details including state, output, etc.
     this.server.get('/api/sessions/:id', async (request) => {
       const { id } = request.params as { id: string };
       return {
