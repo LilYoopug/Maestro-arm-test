@@ -375,6 +375,19 @@ export function SessionList(props: SessionListProps) {
                             </div>
                           </div>
                           <div className="flex items-center gap-2 ml-2">
+                            {/* Git vs Local Indicator */}
+                            {session.toolType !== 'terminal' && (
+                              <div
+                                className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
+                                style={{
+                                  backgroundColor: session.isGitRepo ? theme.colors.accent + '30' : theme.colors.textDim + '20',
+                                  color: session.isGitRepo ? theme.colors.accent : theme.colors.textDim
+                                }}
+                                title={session.isGitRepo ? 'Git repository' : 'Local directory (not a git repo)'}
+                              >
+                                {session.isGitRepo ? 'GIT' : 'LOCAL'}
+                              </div>
+                            )}
                             {/* Git Dirty Indicator (only in wide mode) */}
                             {leftSidebarOpen && session.isGitRepo && gitFileCounts.has(session.id) && gitFileCounts.get(session.id)! > 0 && (
                               <div className="flex items-center gap-0.5 text-[10px]" style={{ color: theme.colors.warning }}>
@@ -501,6 +514,19 @@ export function SessionList(props: SessionListProps) {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 ml-2">
+                    {/* Git vs Local Indicator */}
+                    {session.toolType !== 'terminal' && (
+                      <div
+                        className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
+                        style={{
+                          backgroundColor: session.isGitRepo ? theme.colors.accent + '30' : theme.colors.textDim + '20',
+                          color: session.isGitRepo ? theme.colors.accent : theme.colors.textDim
+                        }}
+                        title={session.isGitRepo ? 'Git repository' : 'Local directory (not a git repo)'}
+                      >
+                        {session.isGitRepo ? 'GIT' : 'LOCAL'}
+                      </div>
+                    )}
                     {/* Git Dirty Indicator (only in wide mode) */}
                     {leftSidebarOpen && session.isGitRepo && gitFileCounts.has(session.id) && gitFileCounts.get(session.id)! > 0 && (
                       <div className="flex items-center gap-0.5 text-[10px]" style={{ color: theme.colors.warning }}>
@@ -562,7 +588,20 @@ export function SessionList(props: SessionListProps) {
                     {groups.find(g => g.id === session.groupId)?.name}
                   </div>
                 )}
-                <div className="text-xs font-bold mb-2" style={{ color: theme.colors.textMain }}>{session.name}</div>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xs font-bold" style={{ color: theme.colors.textMain }}>{session.name}</span>
+                  {session.toolType !== 'terminal' && (
+                    <span
+                      className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
+                      style={{
+                        backgroundColor: session.isGitRepo ? theme.colors.accent + '30' : theme.colors.textDim + '20',
+                        color: session.isGitRepo ? theme.colors.accent : theme.colors.textDim
+                      }}
+                    >
+                      {session.isGitRepo ? 'GIT' : 'LOCAL'}
+                    </span>
+                  )}
+                </div>
                 <div className="text-[10px] capitalize mb-2" style={{ color: theme.colors.textDim }}>{session.state} • {session.toolType}</div>
 
                 <div className="pt-2 mt-2 space-y-1.5" style={{ borderTop: `1px solid ${theme.colors.border}` }}>
