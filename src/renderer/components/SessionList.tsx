@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
   Wand2, Plus, Settings, ChevronRight, ChevronDown, Activity, X, Keyboard,
-  Globe, Network, PanelLeftClose, PanelLeftOpen, Folder, Info, FileText, GitBranch, Bot, Clock
+  Globe, Network, PanelLeftClose, PanelLeftOpen, Folder, Info, FileText, GitBranch, Bot, Clock,
+  ScrollText, Cpu
 } from 'lucide-react';
 import type { Session, Group, Theme, Shortcut } from '../types';
 import { getStatusColor, getContextColor, formatActiveTime } from '../utils/theme';
@@ -34,6 +35,7 @@ interface SessionListProps {
   setSettingsTab: (tab: string) => void;
   setAboutModalOpen: (open: boolean) => void;
   setLogViewerOpen: (open: boolean) => void;
+  setProcessMonitorOpen: (open: boolean) => void;
   toggleGroup: (groupId: string) => void;
   handleDragStart: (sessionId: string) => void;
   handleDragOver: (e: React.DragEvent) => void;
@@ -58,7 +60,7 @@ export function SessionList(props: SessionListProps) {
     leftSidebarWidthState, activeFocus, selectedSidebarIndex, editingGroupId,
     editingSessionId, draggingSessionId, anyTunnelActive, shortcuts,
     setActiveFocus, setActiveSessionId, setLeftSidebarOpen, setLeftSidebarWidthState,
-    setShortcutsHelpOpen, setSettingsModalOpen, setSettingsTab, setAboutModalOpen, setLogViewerOpen, toggleGroup,
+    setShortcutsHelpOpen, setSettingsModalOpen, setSettingsTab, setAboutModalOpen, setLogViewerOpen, setProcessMonitorOpen, toggleGroup,
     handleDragStart, handleDragOver, handleDropOnGroup, handleDropOnUngrouped,
     finishRenamingGroup, finishRenamingSession, startRenamingGroup,
     startRenamingSession, showConfirmation, setGroups, createNewGroup, addNewSession,
@@ -183,43 +185,77 @@ export function SessionList(props: SessionListProps) {
         />
       )}
 
-      {/* Branding & Global Actions */}
+      {/* Branding Header */}
       <div className="p-4 border-b flex items-center justify-between h-16 shrink-0" style={{ borderColor: theme.colors.border }}>
         {leftSidebarOpen ? (
-          <>
-            <div className="flex items-center gap-2">
-              <Wand2 className="w-5 h-5" style={{ color: theme.colors.accent }} />
-              <h1 className="font-bold tracking-widest text-lg" style={{ color: theme.colors.textMain }}>MAESTRO</h1>
-              <div className="ml-2 relative group cursor-help" title={anyTunnelActive ? "Index Active" : "No Public Tunnels"}>
-                <Globe className={`w-3 h-3 ${anyTunnelActive ? 'text-green-500 animate-pulse' : 'opacity-30'}`} />
-                {anyTunnelActive && (
-                  <div className="absolute top-full left-0 mt-2 w-56 bg-black border border-gray-700 rounded p-3 shadow-xl z-50 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                    <div className="text-[10px] uppercase font-bold text-gray-500 mb-2">Maestro Index</div>
-                    <div className="flex items-center gap-1 text-xs text-green-400 font-mono mb-1">
-                      <Globe className="w-3 h-3" />
-                      https://maestro-index.ngrok.io
-                    </div>
-                    <div className="flex items-center gap-1 text-xs text-gray-400 font-mono">
-                      <Network className="w-3 h-3" />
-                      http://192.168.1.42:8000
-                    </div>
+          <div className="flex items-center gap-2">
+            <Wand2 className="w-5 h-5" style={{ color: theme.colors.accent }} />
+            <h1 className="font-bold tracking-widest text-lg" style={{ color: theme.colors.textMain }}>MAESTRO</h1>
+            <div className="ml-2 relative group cursor-help" title={anyTunnelActive ? "Index Active" : "No Public Tunnels"}>
+              <Globe className={`w-3 h-3 ${anyTunnelActive ? 'text-green-500 animate-pulse' : 'opacity-30'}`} />
+              {anyTunnelActive && (
+                <div className="absolute top-full left-0 mt-2 w-56 bg-black border border-gray-700 rounded p-3 shadow-xl z-50 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                  <div className="text-[10px] uppercase font-bold text-gray-500 mb-2">Maestro Index</div>
+                  <div className="flex items-center gap-1 text-xs text-green-400 font-mono mb-1">
+                    <Globe className="w-3 h-3" />
+                    https://maestro-index.ngrok.io
                   </div>
-                )}
-              </div>
-              <button onClick={() => setShortcutsHelpOpen(true)} className="p-1.5 rounded hover:bg-white/5 text-xs" title={`Shortcuts (${shortcuts.help.keys.join('+').replace('Meta', 'Cmd')})`} style={{ color: theme.colors.textDim }}>
-                <Keyboard className="w-4 h-4" />
-              </button>
-              <button onClick={() => { setSettingsModalOpen(true); setSettingsTab('general'); }} className="p-1.5 rounded hover:bg-white/5" title="Settings" style={{ color: theme.colors.textDim }}>
-                <Settings className="w-4 h-4" />
-              </button>
+                  <div className="flex items-center gap-1 text-xs text-gray-400 font-mono">
+                    <Network className="w-3 h-3" />
+                    http://192.168.1.42:8000
+                  </div>
+                </div>
+              )}
             </div>
-          </>
+          </div>
         ) : (
           <div className="w-full flex flex-col items-center gap-2">
             <Wand2 className="w-6 h-6" style={{ color: theme.colors.accent }} />
           </div>
         )}
       </div>
+
+      {/* Command Panel - Quick Action Buttons */}
+      {leftSidebarOpen && (
+        <div className="px-3 py-2 border-b flex items-center justify-center gap-2" style={{ borderColor: theme.colors.border }}>
+          <button
+            onClick={() => setShortcutsHelpOpen(true)}
+            className="relative group p-2 rounded hover:bg-white/10 transition-colors"
+            title={`Keyboard Shortcuts (${shortcuts.help.keys.join('+').replace('Meta', 'Cmd')})`}
+            style={{ color: theme.colors.textDim }}
+          >
+            <Keyboard className="w-4 h-4" />
+            <span className="absolute -bottom-1 -right-1 text-[8px] font-bold px-1 rounded" style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textDim }}>⌘?</span>
+          </button>
+          <button
+            onClick={() => { setSettingsModalOpen(true); setSettingsTab('general'); }}
+            className="relative group p-2 rounded hover:bg-white/10 transition-colors"
+            title="Settings"
+            style={{ color: theme.colors.textDim }}
+          >
+            <Settings className="w-4 h-4" />
+            <span className="absolute -bottom-1 -right-1 text-[8px] font-bold px-1 rounded" style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textDim }}>⌘,</span>
+          </button>
+          <button
+            onClick={() => setLogViewerOpen(true)}
+            className="relative group p-2 rounded hover:bg-white/10 transition-colors"
+            title="System Log Viewer"
+            style={{ color: theme.colors.textDim }}
+          >
+            <ScrollText className="w-4 h-4" />
+            <span className="absolute -bottom-1 -right-1 text-[8px] font-bold px-1 rounded" style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textDim }}>LOG</span>
+          </button>
+          <button
+            onClick={() => setProcessMonitorOpen(true)}
+            className="relative group p-2 rounded hover:bg-white/10 transition-colors"
+            title="System Process Monitor"
+            style={{ color: theme.colors.textDim }}
+          >
+            <Cpu className="w-4 h-4" />
+            <span className="absolute -bottom-1 -right-1 text-[8px] font-bold px-1 rounded" style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textDim }}>CPU</span>
+          </button>
+        </div>
+      )}
 
       {/* SIDEBAR CONTENT: EXPANDED */}
       {leftSidebarOpen ? (

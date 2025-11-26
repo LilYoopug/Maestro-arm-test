@@ -2805,6 +2805,7 @@ export default function MaestroConsole() {
           setSettingsTab={setSettingsTab}
           setAboutModalOpen={setAboutModalOpen}
           setLogViewerOpen={setLogViewerOpen}
+          setProcessMonitorOpen={setProcessMonitorOpen}
           toggleGroup={toggleGroup}
           handleDragStart={handleDragStart}
           handleDragOver={handleDragOver}
