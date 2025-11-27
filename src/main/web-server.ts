@@ -102,6 +102,84 @@ export class WebServer {
         status: 'idle',
       };
     });
+
+    // Setup web interface routes under /web/* namespace
+    this.setupWebInterfaceRoutes();
+  }
+
+  /**
+   * Setup routes for the web interface under /web/* namespace
+   *
+   * This namespace is dedicated to the new web interface that provides:
+   * - Desktop Web: Full-featured collaborative interface for hackathons/team coding
+   * - Mobile Web: Lightweight remote control for sending commands from phone
+   *
+   * Future routes planned:
+   * - /web/desktop - Desktop web interface entry point
+   * - /web/mobile - Mobile web interface entry point
+   * - /web/api/* - REST API endpoints for web clients
+   * - /ws/web - WebSocket endpoint for real-time updates to web clients
+   */
+  private setupWebInterfaceRoutes() {
+    // Web interface root - returns info about available interfaces
+    this.server.get('/web', async () => {
+      return {
+        name: 'Maestro Web Interface',
+        version: '1.0.0',
+        interfaces: {
+          desktop: '/web/desktop',
+          mobile: '/web/mobile',
+        },
+        api: '/web/api',
+        websocket: '/ws/web',
+        timestamp: Date.now(),
+      };
+    });
+
+    // Desktop web interface entry point (placeholder)
+    this.server.get('/web/desktop', async () => {
+      return {
+        message: 'Desktop web interface - Coming soon',
+        description: 'Full-featured collaborative interface for hackathons/team coding',
+      };
+    });
+
+    // Desktop web interface with wildcard for client-side routing
+    this.server.get('/web/desktop/*', async () => {
+      return {
+        message: 'Desktop web interface - Coming soon',
+        description: 'Full-featured collaborative interface for hackathons/team coding',
+      };
+    });
+
+    // Mobile web interface entry point (placeholder)
+    this.server.get('/web/mobile', async () => {
+      return {
+        message: 'Mobile web interface - Coming soon',
+        description: 'Lightweight remote control for sending commands from your phone',
+      };
+    });
+
+    // Mobile web interface with wildcard for client-side routing
+    this.server.get('/web/mobile/*', async () => {
+      return {
+        message: 'Mobile web interface - Coming soon',
+        description: 'Lightweight remote control for sending commands from your phone',
+      };
+    });
+
+    // Web API namespace root
+    this.server.get('/web/api', async () => {
+      return {
+        name: 'Maestro Web API',
+        version: '1.0.0',
+        endpoints: {
+          sessions: '/web/api/sessions',
+          theme: '/web/api/theme',
+        },
+        timestamp: Date.now(),
+      };
+    });
   }
 
   async start() {
