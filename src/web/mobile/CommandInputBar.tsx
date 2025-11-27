@@ -10,6 +10,7 @@
  * - Supports safe area insets for notched devices
  * - Disabled state when disconnected or offline
  * - Large touch-friendly textarea for easy mobile input
+ * - Auto-expanding textarea for multi-line commands (up to 4 lines)
  * - Minimum 44px touch targets per Apple HIG guidelines
  * - Mode toggle button (AI / Terminal) with visual indicator
  * - Interrupt button (red X) visible when session is busy
@@ -26,6 +27,15 @@ const MIN_INPUT_HEIGHT = 48;
 
 /** Line height for text calculations */
 const LINE_HEIGHT = 22;
+
+/** Maximum number of lines before scrolling */
+const MAX_LINES = 4;
+
+/** Vertical padding inside textarea (top + bottom) */
+const TEXTAREA_VERTICAL_PADDING = 28; // 14px top + 14px bottom
+
+/** Maximum height for textarea based on max lines */
+const MAX_TEXTAREA_HEIGHT = LINE_HEIGHT * MAX_LINES + TEXTAREA_VERTICAL_PADDING;
 
 /** Input mode type - AI assistant or terminal */
 export type InputMode = 'ai' | 'terminal';
@@ -82,6 +92,9 @@ export function CommandInputBar({
   const [keyboardOffset, setKeyboardOffset] = useState(0);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
+  // Track textarea height for auto-expansion
+  const [textareaHeight, setTextareaHeight] = useState(MIN_INPUT_HEIGHT);
+
   // Internal state for uncontrolled mode
   const [internalValue, setInternalValue] = useState('');
   const value = controlledValue !== undefined ? controlledValue : internalValue;
@@ -95,6 +108,27 @@ export function CommandInputBar({
     if (!isConnected) return 'Connecting...';
     return placeholder || 'Enter command...';
   };
+
+  /**
+   * Auto-resize textarea based on content
+   * Expands up to MAX_LINES (4 lines) then enables scrolling
+   */
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    // Reset height to minimum to get accurate scrollHeight measurement
+    textarea.style.height = `${MIN_INPUT_HEIGHT}px`;
+
+    // Calculate the new height based on content
+    const scrollHeight = textarea.scrollHeight;
+
+    // Clamp height between minimum and maximum
+    const newHeight = Math.min(Math.max(scrollHeight, MIN_INPUT_HEIGHT), MAX_TEXTAREA_HEIGHT);
+
+    setTextareaHeight(newHeight);
+    textarea.style.height = `${newHeight}px`;
+  }, [value]);
 
   /**
    * Handle Visual Viewport resize for keyboard detection
@@ -319,7 +353,7 @@ export function CommandInputBar({
           </span>
         </button>
 
-        {/* Large touch-friendly command textarea */}
+        {/* Large touch-friendly command textarea with auto-expansion */}
         <textarea
           ref={textareaRef}
           value={value}
@@ -347,22 +381,24 @@ export function CommandInputBar({
             lineHeight: `${LINE_HEIGHT}px`,
             opacity: isDisabled ? 0.5 : 1,
             outline: 'none',
+            // Dynamic height for auto-expansion (controlled by useEffect)
+            height: `${textareaHeight}px`,
             // Large minimum height for easy touch targeting
             minHeight: `${MIN_INPUT_HEIGHT}px`,
-            // Allow vertical resize but limit max height
-            maxHeight: '120px',
+            // Maximum height based on MAX_LINES (4 lines) before scrolling
+            maxHeight: `${MAX_TEXTAREA_HEIGHT}px`,
             // Reset appearance for consistent styling
             WebkitAppearance: 'none',
             appearance: 'none',
             // Remove default textarea resize handle
             resize: 'none',
-            // Smooth transitions
-            transition: 'border-color 150ms ease, opacity 150ms ease, box-shadow 150ms ease',
+            // Smooth height transitions for auto-expansion
+            transition: 'height 100ms ease-out, border-color 150ms ease, opacity 150ms ease, box-shadow 150ms ease',
             // Better text rendering on mobile
             WebkitFontSmoothing: 'antialiased',
             MozOsxFontSmoothing: 'grayscale',
-            // Ensure text doesn't overflow
-            overflowY: 'auto',
+            // Enable scrolling only when content exceeds max height
+            overflowY: textareaHeight >= MAX_TEXTAREA_HEIGHT ? 'auto' : 'hidden',
             overflowX: 'hidden',
             wordWrap: 'break-word',
           }}
