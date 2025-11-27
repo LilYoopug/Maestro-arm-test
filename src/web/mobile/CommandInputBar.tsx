@@ -16,6 +16,7 @@
  * - Interrupt button (red X) visible when session is busy
  * - Recent command chips for quick access to recently sent commands
  * - Slash command autocomplete popup when typing `/`
+ * - Haptic feedback on send (if device supports vibration)
  */
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
@@ -42,6 +43,33 @@ const TEXTAREA_VERTICAL_PADDING = 28; // 14px top + 14px bottom
 
 /** Maximum height for textarea based on max lines */
 const MAX_TEXTAREA_HEIGHT = LINE_HEIGHT * MAX_LINES + TEXTAREA_VERTICAL_PADDING;
+
+/**
+ * Trigger haptic feedback using the Vibration API
+ * Uses short vibrations for tactile confirmation on mobile devices
+ *
+ * @param pattern - Vibration pattern in milliseconds or single duration
+ *   - 'light' (10ms) - subtle tap for button presses
+ *   - 'medium' (25ms) - standard confirmation feedback
+ *   - 'strong' (50ms) - important action confirmation
+ *   - number - custom duration in milliseconds
+ */
+function triggerHapticFeedback(pattern: 'light' | 'medium' | 'strong' | number = 'medium'): void {
+  // Check if the Vibration API is supported
+  if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+    const duration =
+      pattern === 'light' ? 10 :
+      pattern === 'medium' ? 25 :
+      pattern === 'strong' ? 50 :
+      pattern;
+
+    try {
+      navigator.vibrate(duration);
+    } catch {
+      // Silently fail if vibration is not allowed (e.g., permissions, battery saver)
+    }
+  }
+}
 
 /** Input mode type - AI assistant or terminal */
 export type InputMode = 'ai' | 'terminal';
@@ -268,6 +296,9 @@ export function CommandInputBar({
       e.preventDefault();
       if (!value.trim() || isDisabled) return;
 
+      // Trigger haptic feedback on successful send
+      triggerHapticFeedback('medium');
+
       onSubmit?.(value.trim());
 
       // Clear input after submit (for uncontrolled mode)
@@ -300,6 +331,8 @@ export function CommandInputBar({
    * Handle mode toggle between AI and Terminal
    */
   const handleModeToggle = useCallback(() => {
+    // Light haptic feedback for mode switch
+    triggerHapticFeedback('light');
     const newMode = inputMode === 'ai' ? 'terminal' : 'ai';
     onModeToggle?.(newMode);
   }, [inputMode, onModeToggle]);
@@ -308,6 +341,8 @@ export function CommandInputBar({
    * Handle interrupt button press
    */
   const handleInterrupt = useCallback(() => {
+    // Strong haptic feedback for interrupt action (important action)
+    triggerHapticFeedback('strong');
     onInterrupt?.();
   }, [onInterrupt]);
 
