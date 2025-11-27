@@ -391,6 +391,16 @@ function setupIpcHandlers() {
   ipcMain.handle('settings:set', async (_, key: string, value: any) => {
     store.set(key, value);
     logger.info(`Settings updated: ${key}`, 'Settings', { key, value });
+
+    // Broadcast theme changes to connected web clients
+    if (key === 'activeThemeId' && webServer && webServer.getWebClientCount() > 0) {
+      const theme = getThemeById(value);
+      if (theme) {
+        webServer.broadcastThemeChange(theme);
+        logger.info(`Broadcasted theme change to web clients: ${value}`, 'WebServer');
+      }
+    }
+
     return true;
   });
 

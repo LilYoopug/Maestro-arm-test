@@ -620,6 +620,18 @@ export class WebServer {
   }
 
   /**
+   * Broadcast theme change to all connected web clients
+   * Called when the user changes the theme in the desktop app
+   */
+  broadcastThemeChange(theme: WebTheme) {
+    this.broadcastToWebClients({
+      type: 'theme',
+      theme,
+      timestamp: Date.now(),
+    });
+  }
+
+  /**
    * Get the number of connected web clients
    */
   getWebClientCount(): number {
