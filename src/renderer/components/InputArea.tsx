@@ -261,7 +261,7 @@ export function InputArea(props: InputAreaProps) {
               ref={inputRef}
               className={`flex-1 bg-transparent text-sm outline-none ${isTerminalMode ? 'pl-1.5' : 'pl-3'} pt-3 pr-3 resize-none min-h-[2.5rem] scrollbar-thin`}
               style={{ color: theme.colors.textMain, maxHeight: '7rem' }}
-              placeholder={isReadOnlyMode ? "Auto mode active - Claude in read-only mode..." : (isTerminalMode ? "Run shell command..." : "Ask Claude...")}
+              placeholder={isReadOnlyMode ? "Auto mode active - Claude in read-only mode..." : (isTerminalMode ? "Run shell command..." : `askClaudeAbout${session.name}`)}
               value={inputValue}
               onFocus={onInputFocus}
               onChange={e => {

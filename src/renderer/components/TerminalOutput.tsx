@@ -43,19 +43,37 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
 
   // Track which log entries are expanded (by log ID)
   const [expandedLogs, setExpandedLogs] = useState<Set<string>>(new Set());
+  // Use a ref to access current value without recreating LogItem callback
+  const expandedLogsRef = useRef(expandedLogs);
+  expandedLogsRef.current = expandedLogs;
+  // Counter to force re-render of LogItem when expanded state changes
+  const [expandedTrigger, setExpandedTrigger] = useState(0);
 
   // Track if any log is currently expanded (to disable auto-scroll during expansion)
   const hasExpandedLogs = expandedLogs.size > 0;
 
   // Track local filters per log entry (log ID -> filter query)
   const [localFilters, setLocalFilters] = useState<Map<string, string>>(new Map());
+  // Use refs to access current values without recreating LogItem callback
+  const localFiltersRef = useRef(localFilters);
+  localFiltersRef.current = localFilters;
   const [activeLocalFilter, setActiveLocalFilter] = useState<string | null>(null);
+  const activeLocalFilterRef = useRef(activeLocalFilter);
+  activeLocalFilterRef.current = activeLocalFilter;
+  // Counter to force re-render when local filter state changes
+  const [filterTrigger, setFilterTrigger] = useState(0);
 
   // Track filter modes per log entry (log ID -> {mode: 'include'|'exclude', regex: boolean})
   const [filterModes, setFilterModes] = useState<Map<string, { mode: 'include' | 'exclude'; regex: boolean }>>(new Map());
+  const filterModesRef = useRef(filterModes);
+  filterModesRef.current = filterModes;
 
   // Delete confirmation state
   const [deleteConfirmLogId, setDeleteConfirmLogId] = useState<string | null>(null);
+  const deleteConfirmLogIdRef = useRef(deleteConfirmLogId);
+  deleteConfirmLogIdRef.current = deleteConfirmLogId;
+  // Counter to force re-render when delete confirmation changes
+  const [deleteConfirmTrigger, setDeleteConfirmTrigger] = useState(0);
 
   // Queue removal confirmation state
   const [queueRemoveConfirmId, setQueueRemoveConfirmId] = useState<string | null>(null);
@@ -76,11 +94,16 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
 
   // Speak text using TTS command
   const speakText = useCallback(async (text: string) => {
-    if (!audioFeedbackCommand) return;
+    console.log('[TTS] speakText called, text length:', text.length, 'command:', audioFeedbackCommand);
+    if (!audioFeedbackCommand) {
+      console.log('[TTS] No audioFeedbackCommand configured, skipping');
+      return;
+    }
     try {
-      await window.maestro.notification.speak(text, audioFeedbackCommand);
+      const result = await window.maestro.notification.speak(text, audioFeedbackCommand);
+      console.log('[TTS] Speak result:', result);
     } catch (err) {
-      console.error('Failed to speak text:', err);
+      console.error('[TTS] Failed to speak text:', err);
     }
   }, [audioFeedbackCommand]);
 
@@ -167,10 +190,13 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
       }
       return newSet;
     });
+    // Trigger re-render after state update
+    setExpandedTrigger(t => t + 1);
   }, []);
 
   const toggleLocalFilter = useCallback((logId: string) => {
     setActiveLocalFilter(prev => prev === logId ? null : logId);
+    setFilterTrigger(t => t + 1);
   }, []);
 
   const setLocalFilterQuery = useCallback((logId: string, query: string) => {
@@ -533,9 +559,9 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
       ? { stdout: '', stderr: processedText }
       : { stdout: processedText, stderr: '' };
 
-    // Apply local filter if active for this log entry
-    const localFilterQuery = localFilters.get(log.id) || '';
-    const filterMode = filterModes.get(log.id) || { mode: 'include', regex: false };
+    // Apply local filter if active for this log entry (use refs for stable callback)
+    const localFilterQuery = localFiltersRef.current.get(log.id) || '';
+    const filterMode = filterModesRef.current.get(log.id) || { mode: 'include', regex: false };
     const filteredStdout = localFilterQuery && log.source !== 'user'
       ? filterTextByLines(separated.stdout, localFilterQuery, filterMode.mode, filterMode.regex)
       : separated.stdout;
@@ -562,7 +588,7 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
     // Count lines in the filtered text
     const lineCount = filteredText.split('\n').length;
     const shouldCollapse = lineCount > maxOutputLines && maxOutputLines !== Infinity;
-    const isExpanded = expandedLogs.has(log.id);
+    const isExpanded = expandedLogsRef.current.has(log.id);
 
     // Truncate text if collapsed
     const displayText = shouldCollapse && !isExpanded
@@ -605,13 +631,14 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
           {/* Delete button for user commands */}
           {log.source === 'user' && isTerminal && onDeleteLog && (
             <div className="absolute top-2 right-2 flex items-center gap-2">
-              {deleteConfirmLogId === log.id ? (
+              {deleteConfirmLogIdRef.current === log.id ? (
                 <div className="flex items-center gap-2 p-1 rounded border" style={{ backgroundColor: theme.colors.bgSidebar, borderColor: theme.colors.error }}>
                   <span className="text-xs px-1" style={{ color: theme.colors.error }}>Delete?</span>
                   <button
                     onClick={() => {
                       const nextIndex = onDeleteLog(log.id);
                       setDeleteConfirmLogId(null);
+                      setDeleteConfirmTrigger(t => t + 1);
                       // Scroll to the next user command after deletion
                       if (nextIndex !== null && nextIndex >= 0) {
                         setTimeout(() => {
@@ -629,7 +656,7 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
                     Yes
                   </button>
                   <button
-                    onClick={() => setDeleteConfirmLogId(null)}
+                    onClick={() => { setDeleteConfirmLogId(null); setDeleteConfirmTrigger(t => t + 1); }}
                     className="px-2 py-0.5 rounded text-xs hover:opacity-80"
                     style={{ color: theme.colors.textDim }}
                   >
@@ -638,7 +665,7 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
                 </div>
               ) : (
                 <button
-                  onClick={() => setDeleteConfirmLogId(log.id)}
+                  onClick={() => { setDeleteConfirmLogId(log.id); setDeleteConfirmTrigger(t => t + 1); }}
                   className="p-1.5 rounded opacity-0 group-hover:opacity-50 hover:!opacity-100 transition-opacity"
                   style={{ color: theme.colors.textDim }}
                   title="Delete command and output"
@@ -651,7 +678,7 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
           {/* Local filter icon for system output only */}
           {log.source !== 'user' && isTerminal && (
             <div className="absolute top-2 right-2 flex items-center gap-2">
-              {activeLocalFilter === log.id || localFilterQuery ? (
+              {activeLocalFilterRef.current === log.id || localFilterQuery ? (
                 <div className="flex items-center gap-2 p-2 rounded border" style={{ backgroundColor: theme.colors.bgSidebar, borderColor: theme.colors.border }}>
                   <button
                     onMouseDown={(e) => e.preventDefault()}
@@ -717,7 +744,7 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
                       color: theme.colors.textMain,
                       backgroundColor: theme.colors.bgMain
                     }}
-                    autoFocus={activeLocalFilter === log.id}
+                    autoFocus={activeLocalFilterRef.current === log.id}
                   />
                   <button
                     onClick={() => {
@@ -888,10 +915,14 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
         </div>
       </div>
     );
-  }, [session.inputMode, filteredLogs, theme, fontFamily, outputSearchQuery, localFilters, filterModes,
-      expandedLogs, maxOutputLines, deleteConfirmLogId, activeLocalFilter, onDeleteLog, ansiConverter,
+  // Note: We use refs (expandedLogsRef, localFiltersRef, filterModesRef, deleteConfirmLogIdRef, activeLocalFilterRef)
+  // instead of state values in the dependency array to prevent unnecessary re-renders when these change.
+  // The refs are updated synchronously before render, so LogItem always has access to current values.
+  // We use trigger counters (expandedTrigger, filterTrigger, deleteConfirmTrigger) to force re-renders when needed.
+  }, [session.inputMode, filteredLogs, theme, fontFamily, outputSearchQuery, maxOutputLines, onDeleteLog, ansiConverter,
       toggleExpanded, toggleLocalFilter, setLocalFilterQuery, setLightboxImage, highlightMatches,
-      addHighlightMarkers, filterTextByLines, processLogText, copyToClipboard, speakText, audioFeedbackCommand]);
+      addHighlightMarkers, filterTextByLines, processLogText, copyToClipboard, speakText, audioFeedbackCommand,
+      expandedTrigger, filterTrigger, deleteConfirmTrigger]);
 
   return (
     <div
@@ -977,12 +1008,14 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
         ref={virtuosoRef}
         data={filteredLogs}
         className="flex-1"
+        increaseViewportBy={{ top: 200, bottom: 200 }}
         followOutput={() => {
           // Don't auto-scroll if user has expanded logs (viewing full content)
           if (hasExpandedLogs) return false;
           // Don't follow output - we handle scrolling manually
           return false;
         }}
+        computeItemKey={(index, log) => log.id}
         itemContent={(index, log) => <LogItem index={index} log={log} />}
         components={{
           Footer: () => (
@@ -1015,9 +1048,7 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
                     <div className="flex items-center gap-4 mt-1 text-xs" style={{ color: theme.colors.textDim }}>
                       <span>In: {session.usageStats.inputTokens.toLocaleString()}</span>
                       <span>Out: {session.usageStats.outputTokens.toLocaleString()}</span>
-                      {session.usageStats.cacheReadInputTokens > 0 && (
-                        <span>Cache: {session.usageStats.cacheReadInputTokens.toLocaleString()}</span>
-                      )}
+                      <span>Total: {(session.usageStats.inputTokens + session.usageStats.outputTokens).toLocaleString()}</span>
                     </div>
                   )}
                 </div>

@@ -521,36 +521,36 @@ export function SettingsModal(props: SettingsModalProps) {
       aria-modal="true"
       aria-label="Settings"
     >
-      <div className="w-[800px] h-[600px] rounded-xl border shadow-2xl overflow-hidden flex flex-col"
+      <div className="w-[650px] h-[600px] rounded-xl border shadow-2xl overflow-hidden flex flex-col"
            style={{ backgroundColor: theme.colors.bgSidebar, borderColor: theme.colors.border }}>
 
         <div className="flex border-b" style={{ borderColor: theme.colors.border }}>
-          <button onClick={() => setActiveTab('general')} className={`px-6 py-4 text-sm font-bold border-b-2 ${activeTab === 'general' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`} tabIndex={-1}>
+          <button onClick={() => setActiveTab('general')} className={`px-4 py-4 text-sm font-bold border-b-2 ${activeTab === 'general' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`} tabIndex={-1} title="General">
             <Settings className="w-4 h-4" />
-            General
+            {activeTab === 'general' && <span>General</span>}
           </button>
           {FEATURE_FLAGS.LLM_SETTINGS && (
-            <button onClick={() => setActiveTab('llm')} className={`px-6 py-4 text-sm font-bold border-b-2 ${activeTab === 'llm' ? 'border-indigo-500' : 'border-transparent'}`} tabIndex={-1}>LLM</button>
+            <button onClick={() => setActiveTab('llm')} className={`px-4 py-4 text-sm font-bold border-b-2 ${activeTab === 'llm' ? 'border-indigo-500' : 'border-transparent'}`} tabIndex={-1} title="LLM">LLM</button>
           )}
-          <button onClick={() => setActiveTab('shortcuts')} className={`px-6 py-4 text-sm font-bold border-b-2 ${activeTab === 'shortcuts' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`} tabIndex={-1}>
+          <button onClick={() => setActiveTab('shortcuts')} className={`px-4 py-4 text-sm font-bold border-b-2 ${activeTab === 'shortcuts' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`} tabIndex={-1} title="Shortcuts">
             <Keyboard className="w-4 h-4" />
-            Shortcuts
+            {activeTab === 'shortcuts' && <span>Shortcuts</span>}
           </button>
-          <button onClick={() => setActiveTab('theme')} className={`px-6 py-4 text-sm font-bold border-b-2 ${activeTab === 'theme' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`} tabIndex={-1}>
+          <button onClick={() => setActiveTab('theme')} className={`px-4 py-4 text-sm font-bold border-b-2 ${activeTab === 'theme' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`} tabIndex={-1} title="Themes">
             <Palette className="w-4 h-4" />
-            Themes
+            {activeTab === 'theme' && <span>Themes</span>}
           </button>
-          <button onClick={() => setActiveTab('network')} className={`px-6 py-4 text-sm font-bold border-b-2 ${activeTab === 'network' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`} tabIndex={-1}>
+          <button onClick={() => setActiveTab('network')} className={`px-4 py-4 text-sm font-bold border-b-2 ${activeTab === 'network' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`} tabIndex={-1} title="Network">
             <Globe className="w-4 h-4" />
-            Network
+            {activeTab === 'network' && <span>Network</span>}
           </button>
-          <button onClick={() => setActiveTab('notifications')} className={`px-6 py-4 text-sm font-bold border-b-2 ${activeTab === 'notifications' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`} tabIndex={-1}>
+          <button onClick={() => setActiveTab('notifications')} className={`px-4 py-4 text-sm font-bold border-b-2 ${activeTab === 'notifications' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`} tabIndex={-1} title="Notifications">
             <Bell className="w-4 h-4" />
-            Notify
+            {activeTab === 'notifications' && <span>Notify</span>}
           </button>
-          <button onClick={() => setActiveTab('aicommands')} className={`px-6 py-4 text-sm font-bold border-b-2 ${activeTab === 'aicommands' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`} tabIndex={-1}>
+          <button onClick={() => setActiveTab('aicommands')} className={`px-4 py-4 text-sm font-bold border-b-2 ${activeTab === 'aicommands' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`} tabIndex={-1} title="AI Commands">
             <Cpu className="w-4 h-4" />
-            AI Cmds
+            {activeTab === 'aicommands' && <span>AI Commands</span>}
           </button>
           <div className="flex-1 flex justify-end items-center pr-4">
             <button onClick={onClose} tabIndex={-1}><X className="w-5 h-5 opacity-50 hover:opacity-100" /></button>
@@ -1435,7 +1435,15 @@ export function SettingsModal(props: SettingsModalProps) {
                       style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
                     />
                     <button
-                      onClick={() => window.maestro.notification.speak("Howdy, I'm Maestro, here to conduct your agentic tools into a well-tuned symphony.", props.audioFeedbackCommand)}
+                      onClick={async () => {
+                        console.log('[TTS] Test button clicked, command:', props.audioFeedbackCommand);
+                        try {
+                          const result = await window.maestro.notification.speak("Howdy, I'm Maestro, here to conduct your agentic tools into a well-tuned symphony.", props.audioFeedbackCommand);
+                          console.log('[TTS] Speak result:', result);
+                        } catch (err) {
+                          console.error('[TTS] Speak error:', err);
+                        }
+                      }}
                       className="px-3 py-2 rounded text-xs font-medium transition-all"
                       style={{
                         backgroundColor: theme.colors.bgActivity,

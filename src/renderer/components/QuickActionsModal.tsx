@@ -303,7 +303,7 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
         aria-modal="true"
         aria-label="Quick Actions"
         tabIndex={-1}
-        className="w-[500px] rounded-xl shadow-2xl border overflow-hidden flex flex-col max-h-[550px] outline-none"
+        className="w-[600px] rounded-xl shadow-2xl border overflow-hidden flex flex-col max-h-[550px] outline-none"
         style={{ backgroundColor: theme.colors.bgActivity, borderColor: theme.colors.border }}>
         <div className="p-4 border-b flex items-center gap-3" style={{ borderColor: theme.colors.border }}>
           <Search className="w-5 h-5" style={{ color: theme.colors.textDim }} />

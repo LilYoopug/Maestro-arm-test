@@ -247,7 +247,7 @@ export const THEMES: Record<ThemeId, Theme> = {
       accentDim: 'rgba(212, 175, 55, 0.25)',
       accentText: '#ffd700',
       success: '#7cb342',
-      warning: '#c77dff',
+      warning: '#ff69b4',
       error: '#da70d6'
     }
   },
