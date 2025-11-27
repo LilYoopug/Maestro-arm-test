@@ -48,6 +48,9 @@ export interface RateLimitConfig {
  * - WebSocket echo endpoint (/ws) - PLACEHOLDER (echoes messages for connectivity testing)
  * - Session list endpoint (/api/sessions) - WORKING (returns actual session data)
  * - Session detail endpoint (/api/session/:id) - WORKING (returns detailed session info)
+ * - Session send endpoint (/api/session/:id/send) - WORKING (sends commands to session)
+ * - Session interrupt endpoint (/api/session/:id/interrupt) - WORKING (sends SIGINT to session)
+ * - Theme endpoint (/api/theme) - WORKING (returns current theme configuration)
  * - Web interface WebSocket (/ws/web) - WORKING (real-time updates, authentication)
  * - Authentication (token-based) - WORKING
  * - Rate limiting - WORKING
@@ -486,6 +489,43 @@ export class WebServer {
         success: true,
         message: 'Command sent successfully',
         sessionId: id,
+        timestamp: Date.now(),
+      };
+    });
+
+    // Theme endpoint - returns the current theme configuration
+    // Rate limited using GET rate limit config
+    this.server.get('/api/theme', {
+      preHandler: this.authenticateRequest.bind(this),
+      config: {
+        rateLimit: {
+          max: this.rateLimitConfig.max,
+          timeWindow: this.rateLimitConfig.timeWindow,
+        },
+      },
+    }, async (_request, reply) => {
+      if (!this.getThemeCallback) {
+        reply.code(503).send({
+          error: 'Service Unavailable',
+          message: 'Theme service not configured',
+          timestamp: Date.now(),
+        });
+        return;
+      }
+
+      const theme = this.getThemeCallback();
+
+      if (!theme) {
+        reply.code(404).send({
+          error: 'Not Found',
+          message: 'No theme currently configured',
+          timestamp: Date.now(),
+        });
+        return;
+      }
+
+      return {
+        theme,
         timestamp: Date.now(),
       };
     });
