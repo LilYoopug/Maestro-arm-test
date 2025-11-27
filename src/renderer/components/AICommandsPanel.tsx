@@ -99,7 +99,7 @@ export function AICommandsPanel({ theme, customAICommands, setCustomAICommands }
       </div>
 
       {!isCreating && (
-        <div className="flex justify-end">
+        <div className="flex justify-start">
           <button
             onClick={() => setIsCreating(true)}
             className="flex items-center gap-2 px-4 py-2 rounded text-sm font-medium transition-all"

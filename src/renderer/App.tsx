@@ -2025,7 +2025,7 @@ export default function MaestroConsole() {
           setSlashCommandOpen(false);
           if (inputRef.current) inputRef.current.style.height = 'auto';
 
-          // Add user log showing the command was executed
+          // Add user log showing the command was executed with its prompt
           setSessions(prev => prev.map(s => {
             if (s.id !== activeSessionId) return s;
             return {
@@ -2034,7 +2034,7 @@ export default function MaestroConsole() {
                 id: generateId(),
                 timestamp: Date.now(),
                 source: 'user',
-                text: `${commandText}: ${matchingCustomCommand.description}`
+                text: matchingCustomCommand.prompt
               }],
               aiCommandHistory: Array.from(new Set([...(s.aiCommandHistory || []), commandText])).slice(-50)
             };
