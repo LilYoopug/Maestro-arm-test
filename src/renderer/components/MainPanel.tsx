@@ -152,8 +152,8 @@ export function MainPanel(props: MainPanelProps) {
   const [sessionPillRenaming, setSessionPillRenaming] = useState(false);
   const [sessionPillRenameValue, setSessionPillRenameValue] = useState('');
   const sessionPillHoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Bookmarked and named Claude sessions (stored globally)
-  const [bookmarkedSessions, setBookmarkedSessions] = useState<Set<string>>(new Set());
+  // Starred and named Claude sessions (stored per project cwd)
+  const [starredSessions, setStarredSessions] = useState<Set<string>>(new Set());
   const [namedSessions, setNamedSessions] = useState<Record<string, string>>({});
   const sessionPillRef = useRef<HTMLDivElement>(null);
   // Panel width for responsive hiding of widgets
@@ -218,13 +218,17 @@ export function MainPanel(props: MainPanelProps) {
     return () => clearInterval(interval);
   }, [activeSession?.id, activeSession?.isGitRepo, activeSession?.cwd, activeSession?.shellCwd, activeSession?.inputMode]);
 
-  // Load bookmarked and named Claude sessions from settings
+  // Load starred and named Claude sessions from settings (per project cwd)
   useEffect(() => {
     const loadSessionMetadata = async () => {
+      if (!activeSession?.cwd) return;
       try {
-        const savedBookmarked = await window.maestro.settings.get('bookmarkedClaudeSessions');
-        if (savedBookmarked && Array.isArray(savedBookmarked)) {
-          setBookmarkedSessions(new Set(savedBookmarked));
+        const starredKey = `starredClaudeSessions:${activeSession.cwd}`;
+        const savedStarred = await window.maestro.settings.get(starredKey);
+        if (savedStarred && Array.isArray(savedStarred)) {
+          setStarredSessions(new Set(savedStarred));
+        } else {
+          setStarredSessions(new Set());
         }
         const savedNamed = await window.maestro.settings.get('namedClaudeSessions');
         if (savedNamed && typeof savedNamed === 'object') {
@@ -235,25 +239,26 @@ export function MainPanel(props: MainPanelProps) {
       }
     };
     loadSessionMetadata();
-  }, []);
+  }, [activeSession?.cwd]);
 
-  // Toggle bookmark for current session
-  const toggleBookmark = useCallback(async () => {
-    if (!activeSession?.claudeSessionId) return;
+  // Toggle star for current session
+  const toggleStar = useCallback(async () => {
+    if (!activeSession?.claudeSessionId || !activeSession?.cwd) return;
     const sessionId = activeSession.claudeSessionId;
-    const newBookmarked = new Set(bookmarkedSessions);
-    if (newBookmarked.has(sessionId)) {
-      newBookmarked.delete(sessionId);
+    const newStarred = new Set(starredSessions);
+    if (newStarred.has(sessionId)) {
+      newStarred.delete(sessionId);
     } else {
-      newBookmarked.add(sessionId);
+      newStarred.add(sessionId);
     }
-    setBookmarkedSessions(newBookmarked);
+    setStarredSessions(newStarred);
     try {
-      await window.maestro.settings.set('bookmarkedClaudeSessions', Array.from(newBookmarked));
+      const starredKey = `starredClaudeSessions:${activeSession.cwd}`;
+      await window.maestro.settings.set(starredKey, Array.from(newStarred));
     } catch (error) {
-      console.error('Failed to save bookmarked sessions:', error);
+      console.error('Failed to save starred sessions:', error);
     }
-  }, [activeSession?.claudeSessionId, bookmarkedSessions]);
+  }, [activeSession?.claudeSessionId, activeSession?.cwd, starredSessions]);
 
   // Rename current session
   const saveSessionName = useCallback(async () => {
@@ -538,7 +543,7 @@ export function MainPanel(props: MainPanelProps) {
                     className="flex items-center gap-1 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border cursor-default hover:opacity-80 transition-opacity"
                     style={{ backgroundColor: theme.colors.accent + '20', color: theme.colors.accent, borderColor: theme.colors.accent + '30' }}
                   >
-                    {bookmarkedSessions.has(activeSession.claudeSessionId) && (
+                    {starredSessions.has(activeSession.claudeSessionId) && (
                       <Star className="w-2.5 h-2.5 fill-current" />
                     )}
                     {namedSessions[activeSession.claudeSessionId] || activeSession.claudeSessionId.split('-')[0].toUpperCase()}
@@ -630,19 +635,19 @@ export function MainPanel(props: MainPanelProps) {
                           )}
                         </button>
 
-                        {/* Bookmark */}
+                        {/* Star */}
                         <button
                           onClick={() => {
-                            toggleBookmark();
+                            toggleStar();
                           }}
                           className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-white/5 transition-colors"
                           style={{ color: theme.colors.textMain }}
                         >
                           <Star
-                            className={`w-3.5 h-3.5 ${bookmarkedSessions.has(activeSession.claudeSessionId!) ? 'fill-current' : ''}`}
-                            style={{ color: bookmarkedSessions.has(activeSession.claudeSessionId!) ? theme.colors.warning : theme.colors.textDim }}
+                            className={`w-3.5 h-3.5 ${starredSessions.has(activeSession.claudeSessionId!) ? 'fill-current' : ''}`}
+                            style={{ color: starredSessions.has(activeSession.claudeSessionId!) ? theme.colors.warning : theme.colors.textDim }}
                           />
-                          {bookmarkedSessions.has(activeSession.claudeSessionId!) ? 'Remove Bookmark' : 'Bookmark Session'}
+                          {starredSessions.has(activeSession.claudeSessionId!) ? 'Unstar Session' : 'Star Session'}
                         </button>
 
                         {/* Rename */}
