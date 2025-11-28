@@ -200,8 +200,8 @@ export function AICommandsPanel({ theme, customAICommands, setCustomAICommands }
               value={newCommand.prompt}
               onChange={(e) => setNewCommand({ ...newCommand, prompt: e.target.value })}
               placeholder="The actual prompt sent to the AI agent when this command is invoked..."
-              rows={4}
-              className="w-full p-2 rounded border bg-transparent outline-none text-sm resize-none scrollbar-thin"
+              rows={10}
+              className="w-full p-2 rounded border bg-transparent outline-none text-sm resize-y scrollbar-thin min-h-[150px]"
               style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
             />
           </div>
@@ -243,8 +243,8 @@ export function AICommandsPanel({ theme, customAICommands, setCustomAICommands }
             style={{ backgroundColor: theme.colors.bgMain, borderColor: theme.colors.border }}
           >
             {editingCommand?.id === cmd.id ? (
-              // Editing mode
-              <div className="space-y-3">
+              // Editing mode - expanded to maximize space
+              <div className="space-y-3 flex flex-col">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium opacity-70 mb-1">Command</label>
@@ -267,13 +267,13 @@ export function AICommandsPanel({ theme, customAICommands, setCustomAICommands }
                     />
                   </div>
                 </div>
-                <div>
+                <div className="flex-1 flex flex-col min-h-0">
                   <label className="block text-xs font-medium opacity-70 mb-1">Prompt</label>
                   <textarea
                     value={editingCommand.prompt}
                     onChange={(e) => setEditingCommand({ ...editingCommand, prompt: e.target.value })}
-                    rows={4}
-                    className="w-full p-2 rounded border bg-transparent outline-none text-sm resize-none scrollbar-thin"
+                    rows={12}
+                    className="w-full flex-1 p-2 rounded border bg-transparent outline-none text-sm resize-y scrollbar-thin min-h-[200px]"
                     style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
                   />
                 </div>
@@ -352,9 +352,8 @@ export function AICommandsPanel({ theme, customAICommands, setCustomAICommands }
                   {cmd.description}
                 </div>
                 <div
-                  className="text-xs p-2 rounded font-mono overflow-hidden line-clamp-3"
+                  className="text-xs p-2 rounded font-mono overflow-y-auto max-h-24 scrollbar-thin whitespace-pre-wrap"
                   style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textMain }}
-                  title={cmd.prompt}
                 >
                   {cmd.prompt}
                 </div>
