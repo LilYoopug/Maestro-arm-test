@@ -153,6 +153,12 @@ export function AutoRunnerHelpModal({ theme, onClose }: AutoRunnerHelpModalProps
                 ensuring each completes before the next begins.
               </p>
               <p>
+                Each session starts with a clean context that's pre-loaded with the
+                project instructions and all requisite information to work intelligently—without
+                carrying over context from previous tasks. This isolation prevents
+                cross-contamination between tasks while keeping each agent fully informed.
+              </p>
+              <p>
                 The scratchpad file is passed to the AI via the <code>$$SCRATCHPAD$$</code> placeholder,
                 so the agent can read and modify tasks directly.
               </p>
