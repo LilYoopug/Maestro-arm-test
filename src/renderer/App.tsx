@@ -445,6 +445,11 @@ export default function MaestroConsole() {
       } finally {
         // Mark initial load as complete to enable persistence
         initialLoadComplete.current = true;
+
+        // Hide the splash screen now that the app is ready
+        if (typeof window.__hideSplash === 'function') {
+          window.__hideSplash();
+        }
       }
     };
     loadSessionsAndGroups();

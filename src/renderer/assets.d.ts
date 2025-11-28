@@ -30,3 +30,10 @@ declare module '*.webp' {
 
 // Vite-injected build-time constants
 declare const __APP_VERSION__: string;
+
+// Splash screen global functions (defined in index.html)
+interface Window {
+  __hideSplash?: () => void;
+  __splashProgress?: () => number;
+  __splashInterval?: ReturnType<typeof setInterval>;
+}
