@@ -1070,7 +1070,7 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
       <Virtuoso
         ref={virtuosoRef}
         data={filteredLogs}
-        className="flex-1"
+        className="flex-1 scrollbar-thin"
         increaseViewportBy={{ top: 200, bottom: 200 }}
         atBottomStateChange={(atBottom) => {
           // Track when user scrolls away from bottom to prevent auto-scroll hijacking
