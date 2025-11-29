@@ -908,19 +908,7 @@ export function CommandInputBar({
           </button>
         )}
 
-        {/* Inline CSS for pulse animation */}
-        <style>
-          {`
-            @keyframes pulse {
-              0%, 100% {
-                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
-              }
-              50% {
-                box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
-              }
-            }
-          `}
-        </style>
+        {/* Inline CSS styles moved to bottom of component */}
 
         {/* Slash command button - only shown in AI mode */}
         {inputMode === 'ai' && (
@@ -1234,25 +1222,50 @@ export function CommandInputBar({
         )}
       </form>
 
-      {/* Current working directory display - shown in terminal mode */}
+      {/* Current working directory display - shown in terminal mode, below the input */}
+      {/* Hidden on narrow screens (mobile) to save space */}
       {inputMode === 'terminal' && cwd && (
         <div
+          className="cwd-display"
           style={{
             display: 'flex',
             alignItems: 'center',
             gap: '4px',
-            fontSize: '12px',
+            fontSize: '11px',
             fontFamily: 'ui-monospace, monospace',
             color: colors.textDim,
-            paddingLeft: '4px',
-            marginTop: '4px',
+            paddingLeft: '16px',
+            paddingRight: '16px',
+            marginTop: '6px',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
           }}
         >
-          <span style={{ opacity: 0.7 }}>
+          <span style={{ opacity: 0.6 }}>
             {cwd.replace(/^\/Users\/[^/]+/, '~')}
           </span>
         </div>
       )}
+
+      {/* Inline CSS for animations and responsive hiding */}
+      <style>
+        {`
+          @keyframes pulse {
+            0%, 100% {
+              box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+            }
+            50% {
+              box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+            }
+          }
+          @media (max-width: 400px) {
+            .cwd-display {
+              display: none !important;
+            }
+          }
+        `}
+      </style>
 
       {/* Quick actions menu - shown on long-press of send button */}
       <QuickActionsMenu
