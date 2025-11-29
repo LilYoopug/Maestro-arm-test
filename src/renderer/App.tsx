@@ -1269,7 +1269,7 @@ export default function MaestroConsole() {
 
   // --- BATCH PROCESSOR ---
   // Helper to spawn a Claude agent and wait for completion (for a specific session)
-  const spawnAgentForSession = useCallback(async (sessionId: string, prompt: string): Promise<{ success: boolean; response?: string; claudeSessionId?: string }> => {
+  const spawnAgentForSession = useCallback(async (sessionId: string, prompt: string): Promise<{ success: boolean; response?: string; claudeSessionId?: string; usageStats?: UsageStats }> => {
     const session = sessions.find(s => s.id === sessionId);
     if (!session) return { success: false };
 
@@ -1308,16 +1308,19 @@ export default function MaestroConsole() {
       return new Promise((resolve) => {
         let claudeSessionId: string | undefined;
         let responseText = '';
+        let taskUsageStats: UsageStats | undefined;
 
         // Cleanup functions will be set when listeners are registered
         let cleanupData: (() => void) | undefined;
         let cleanupSessionId: (() => void) | undefined;
         let cleanupExit: (() => void) | undefined;
+        let cleanupUsage: (() => void) | undefined;
 
         const cleanup = () => {
           cleanupData?.();
           cleanupSessionId?.();
           cleanupExit?.();
+          cleanupUsage?.();
         };
 
         // Set up listeners for this specific agent run
@@ -1330,6 +1333,26 @@ export default function MaestroConsole() {
         cleanupSessionId = window.maestro.process.onSessionId((sid: string, capturedId: string) => {
           if (sid === targetSessionId) {
             claudeSessionId = capturedId;
+          }
+        });
+
+        // Capture usage stats for this specific task
+        cleanupUsage = window.maestro.process.onUsage((sid: string, usageStats) => {
+          if (sid === targetSessionId) {
+            // Accumulate usage stats for this task (there may be multiple usage events per task)
+            if (!taskUsageStats) {
+              taskUsageStats = { ...usageStats };
+            } else {
+              // Accumulate tokens and cost
+              taskUsageStats = {
+                ...usageStats,
+                inputTokens: taskUsageStats.inputTokens + usageStats.inputTokens,
+                outputTokens: taskUsageStats.outputTokens + usageStats.outputTokens,
+                cacheReadInputTokens: taskUsageStats.cacheReadInputTokens + usageStats.cacheReadInputTokens,
+                cacheCreationInputTokens: taskUsageStats.cacheCreationInputTokens + usageStats.cacheCreationInputTokens,
+                totalCostUsd: taskUsageStats.totalCostUsd + usageStats.totalCostUsd,
+              };
+            }
           }
         });
 
@@ -1395,7 +1418,7 @@ export default function MaestroConsole() {
               }, 0);
             }
 
-            resolve({ success: true, response: responseText, claudeSessionId });
+            resolve({ success: true, response: responseText, claudeSessionId, usageStats: taskUsageStats });
           }
         });
 
@@ -1574,6 +1597,7 @@ export default function MaestroConsole() {
       ));
     },
     onSpawnAgent: spawnAgentForSession,
+    onSpawnSynopsis: spawnBackgroundSynopsis,
     onAddHistoryEntry: async (entry) => {
       await window.maestro.history.add({
         ...entry,

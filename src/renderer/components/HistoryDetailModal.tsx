@@ -97,7 +97,12 @@ export function HistoryDetailModal({
   const colors = getPillColor();
   const Icon = entry.type === 'AUTO' ? Bot : User;
 
-  // Clean up the response for display - remove ANSI codes
+  // For AUTO entries:
+  //   - summary = short 1-2 sentence synopsis (shown in list view and toast)
+  //   - fullResponse = complete synopsis with details (shown in detail view)
+  // For USER entries:
+  //   - summary = the synopsis text
+  //   - fullResponse = may contain more context
   const rawResponse = entry.fullResponse || entry.summary || '';
   const cleanResponse = rawResponse.replace(/\x1b\[[0-9;]*m/g, ''); // Remove ANSI codes
 
@@ -288,11 +293,6 @@ export function HistoryDetailModal({
                     <span style={{ color: theme.colors.success }}>
                       <span style={{ color: theme.colors.textDim }}>Out:</span> {entry.usageStats.outputTokens.toLocaleString()}
                     </span>
-                    {entry.usageStats.cacheReadInputTokens > 0 && (
-                      <span style={{ color: theme.colors.warning }}>
-                        <span style={{ color: theme.colors.textDim }}>Cache:</span> {entry.usageStats.cacheReadInputTokens.toLocaleString()}
-                      </span>
-                    )}
                   </div>
                 </div>
               )}

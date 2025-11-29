@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import type { BatchRunState, Session, HistoryEntry } from '../types';
+import type { BatchRunState, Session, HistoryEntry, UsageStats } from '../types';
 
 // Regex to count unchecked markdown checkboxes: - [ ] task
 const UNCHECKED_TASK_REGEX = /^[\s]*-\s*\[\s*\]\s*.+$/gm;
@@ -27,7 +27,8 @@ interface BatchCompleteInfo {
 interface UseBatchProcessorProps {
   sessions: Session[];
   onUpdateSession: (sessionId: string, updates: Partial<Session>) => void;
-  onSpawnAgent: (sessionId: string, prompt: string) => Promise<{ success: boolean; response?: string; claudeSessionId?: string }>;
+  onSpawnAgent: (sessionId: string, prompt: string) => Promise<{ success: boolean; response?: string; claudeSessionId?: string; usageStats?: UsageStats }>;
+  onSpawnSynopsis: (sessionId: string, cwd: string, claudeSessionId: string, prompt: string) => Promise<{ success: boolean; response?: string }>;
   onAddHistoryEntry: (entry: Omit<HistoryEntry, 'id'>) => void;
   onComplete?: (info: BatchCompleteInfo) => void;
 }
@@ -62,10 +63,47 @@ export function countUnfinishedTasks(content: string): number {
 /**
  * Hook for managing batch processing of scratchpad tasks across multiple sessions
  */
+// Synopsis prompt for batch tasks - requests a two-part response
+const BATCH_SYNOPSIS_PROMPT = `Provide a synopsis of what you just accomplished in this task using this exact format:
+
+**Summary:** [1-2 sentences describing the key outcome]
+
+**Details:** [A paragraph with more specifics about what was done, files changed, etc.]
+
+Be specific about what was actually accomplished, not what was attempted.`;
+
+/**
+ * Parse a synopsis response into short summary and full synopsis
+ * Expected format:
+ *   **Summary:** Short 1-2 sentence summary
+ *   **Details:** Detailed paragraph...
+ */
+function parseSynopsis(response: string): { shortSummary: string; fullSynopsis: string } {
+  // Clean up ANSI codes and box drawing characters
+  const clean = response
+    .replace(/\x1b\[[0-9;]*m/g, '')
+    .replace(/─+/g, '')
+    .replace(/[│┌┐└┘├┤┬┴┼]/g, '')
+    .trim();
+
+  // Try to extract Summary and Details sections
+  const summaryMatch = clean.match(/\*\*Summary:\*\*\s*(.+?)(?=\*\*Details:\*\*|$)/is);
+  const detailsMatch = clean.match(/\*\*Details:\*\*\s*(.+?)$/is);
+
+  const shortSummary = summaryMatch?.[1]?.trim() || clean.split('\n')[0]?.trim() || 'Task completed';
+  const details = detailsMatch?.[1]?.trim() || '';
+
+  // Full synopsis includes both parts
+  const fullSynopsis = details ? `${shortSummary}\n\n${details}` : shortSummary;
+
+  return { shortSummary, fullSynopsis };
+}
+
 export function useBatchProcessor({
   sessions,
   onUpdateSession,
   onSpawnAgent,
+  onSpawnSynopsis,
   onAddHistoryEntry,
   onComplete
 }: UseBatchProcessorProps): UseBatchProcessorReturn {
@@ -179,8 +217,6 @@ export function useBatchProcessor({
     const claudeSessionIds: string[] = [];
     let completedCount = 0;
 
-    // Helper to get current session state (for capturing updated usage stats)
-    const getCurrentSession = () => sessions.find(s => s.id === sessionId);
 
     for (let i = 0; i < totalTasks; i++) {
       // Check if stop was requested for this session
@@ -227,53 +263,46 @@ export function useBatchProcessor({
           }
         }));
 
-        // Get current session state to capture usage stats
-        const currentSession = getCurrentSession();
+        // Generate synopsis for successful tasks with a Claude session
+        let shortSummary = `Task ${i + 1} of ${totalTasks}`;
+        let fullSynopsis = shortSummary;
 
-        // Add history entry for this task (both success and failure)
-        const fullResponse = result.response || '';
-        let summary = `Task ${i + 1} of ${totalTasks}`;
+        if (result.success && result.claudeSessionId) {
+          // Request a synopsis from the agent by resuming the session
+          try {
+            const synopsisResult = await onSpawnSynopsis(
+              sessionId,
+              session.cwd,
+              result.claudeSessionId,
+              BATCH_SYNOPSIS_PROMPT
+            );
 
-        if (fullResponse) {
-          // Try to extract meaningful text - skip ANSI codes and find actual content
-          const cleanResponse = fullResponse
-            .replace(/\x1b\[[0-9;]*m/g, '') // Remove ANSI codes
-            .replace(/─+/g, '') // Remove horizontal lines
-            .replace(/[│┌┐└┘├┤┬┴┼]/g, '') // Remove box drawing chars
-            .trim();
-
-          // Find first meaningful sentence(s) - skip empty lines and very short lines
-          const lines = cleanResponse.split('\n').filter(l => l.trim().length > 10);
-          if (lines.length > 0) {
-            // Take first line that looks like content, truncate to ~150 chars
-            const firstContent = lines[0].trim();
-            summary = firstContent.length > 150
-              ? firstContent.substring(0, 147) + '...'
-              : firstContent;
+            if (synopsisResult.success && synopsisResult.response) {
+              const parsed = parseSynopsis(synopsisResult.response);
+              shortSummary = parsed.shortSummary;
+              fullSynopsis = parsed.fullSynopsis;
+            }
+          } catch (err) {
+            console.error('[BatchProcessor] Synopsis generation failed:', err);
+            // Fall back to default summary
           }
         } else if (!result.success) {
-          summary = `Task ${i + 1} of ${totalTasks} failed`;
+          shortSummary = `Task ${i + 1} of ${totalTasks} failed`;
+          fullSynopsis = shortSummary;
         }
 
+        // Add history entry with both short summary (for list/toast) and full synopsis (for details)
         onAddHistoryEntry({
           type: 'AUTO',
           timestamp: Date.now(),
-          summary,
-          fullResponse: fullResponse || undefined,
+          summary: shortSummary,           // Short 1-2 sentence for list view and toast
+          fullResponse: fullSynopsis,      // Complete synopsis for detail view
           claudeSessionId: result.claudeSessionId,
           projectPath: session.cwd,
           sessionId: sessionId, // Associate with this Maestro session for isolation
           success: result.success,
-          // Capture usage stats and context at time of task completion
-          contextUsage: currentSession?.contextUsage,
-          usageStats: currentSession?.usageStats ? {
-            inputTokens: currentSession.usageStats.inputTokens,
-            outputTokens: currentSession.usageStats.outputTokens,
-            cacheReadInputTokens: currentSession.usageStats.cacheReadInputTokens,
-            cacheCreationInputTokens: currentSession.usageStats.cacheCreationInputTokens,
-            totalCostUsd: currentSession.usageStats.totalCostUsd,
-            contextWindow: currentSession.usageStats.contextWindow,
-          } : undefined,
+          // Use per-task usage stats returned from spawnAgentForSession
+          usageStats: result.usageStats,
           elapsedTimeMs
         });
 

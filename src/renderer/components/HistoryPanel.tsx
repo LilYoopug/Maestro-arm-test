@@ -1,7 +1,20 @@
 import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef, useMemo } from 'react';
-import { Bot, User, ExternalLink, Check, X } from 'lucide-react';
+import { Bot, User, ExternalLink, Check, X, Clock } from 'lucide-react';
 import type { Session, Theme, HistoryEntry, HistoryEntryType } from '../types';
 import { HistoryDetailModal } from './HistoryDetailModal';
+
+// Format elapsed time in human-readable format
+const formatElapsedTime = (ms: number): string => {
+  if (ms < 1000) return `${ms}ms`;
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  if (minutes < 60) return `${minutes}m ${remainingSeconds}s`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return `${hours}h ${remainingMinutes}m`;
+};
 
 // 24-hour activity bar graph component with sliding time window
 interface ActivityGraphProps {
@@ -668,6 +681,34 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
                 >
                   {entry.summary || 'No summary available'}
                 </p>
+
+                {/* Footer Row - Time and Cost */}
+                {(entry.elapsedTimeMs !== undefined || (entry.usageStats && entry.usageStats.totalCostUsd > 0)) && (
+                  <div className="flex items-center gap-3 mt-2 pt-2 border-t" style={{ borderColor: theme.colors.border }}>
+                    {/* Elapsed Time */}
+                    {entry.elapsedTimeMs !== undefined && (
+                      <div className="flex items-center gap-1">
+                        <Clock className="w-3 h-3" style={{ color: theme.colors.textDim }} />
+                        <span className="text-[10px] font-mono" style={{ color: theme.colors.textDim }}>
+                          {formatElapsedTime(entry.elapsedTimeMs)}
+                        </span>
+                      </div>
+                    )}
+                    {/* Cost */}
+                    {entry.usageStats && entry.usageStats.totalCostUsd > 0 && (
+                      <span
+                        className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full"
+                        style={{
+                          backgroundColor: theme.colors.success + '15',
+                          color: theme.colors.success,
+                          border: `1px solid ${theme.colors.success}30`
+                        }}
+                      >
+                        ${entry.usageStats.totalCostUsd.toFixed(2)}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
