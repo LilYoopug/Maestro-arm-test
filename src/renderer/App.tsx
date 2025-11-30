@@ -2473,12 +2473,58 @@ export default function MaestroConsole() {
       }
 
       // Sidebar navigation with arrow keys (works when sidebar has focus)
-      if (activeFocus === 'sidebar' && (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === ' ')) {
+      if (activeFocus === 'sidebar' && (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === ' ')) {
         e.preventDefault();
         if (sortedSessions.length === 0) return;
 
         // Get the currently selected session
         const currentSession = sortedSessions[selectedSidebarIndex];
+
+        // ArrowLeft: Collapse the current group or bookmarks section
+        if (e.key === 'ArrowLeft' && currentSession) {
+          // Check if session is bookmarked and bookmarks section is expanded
+          if (currentSession.bookmarked && !bookmarksCollapsed) {
+            // Collapse bookmarks section
+            setBookmarksCollapsed(true);
+            return;
+          }
+
+          // Check if session is in a group
+          if (currentSession.groupId) {
+            const currentGroup = groups.find(g => g.id === currentSession.groupId);
+            if (currentGroup && !currentGroup.collapsed) {
+              // Collapse the group
+              setGroups(prev => prev.map(g =>
+                g.id === currentGroup.id ? { ...g, collapsed: true } : g
+              ));
+              return;
+            }
+          }
+          return;
+        }
+
+        // ArrowRight: Expand the current group or bookmarks section (if collapsed)
+        if (e.key === 'ArrowRight' && currentSession) {
+          // Check if session is bookmarked and bookmarks section is collapsed
+          if (currentSession.bookmarked && bookmarksCollapsed) {
+            // Expand bookmarks section
+            setBookmarksCollapsed(false);
+            return;
+          }
+
+          // Check if session is in a collapsed group
+          if (currentSession.groupId) {
+            const currentGroup = groups.find(g => g.id === currentSession.groupId);
+            if (currentGroup && currentGroup.collapsed) {
+              // Expand the group
+              setGroups(prev => prev.map(g =>
+                g.id === currentGroup.id ? { ...g, collapsed: false } : g
+              ));
+              return;
+            }
+          }
+          return;
+        }
 
         // Space: Close the current group and jump to nearest visible session
         if (e.key === ' ' && currentSession?.groupId) {
