@@ -733,9 +733,12 @@ export default function MaestroConsole() {
             };
           } else {
             // Task complete - gather toast notification data
-            // Use tab's logs if available (new tab system), fallback to session-level aiLogs (legacy)
-            const activeTab = getActiveTab(currentSession);
-            const logs = activeTab?.logs || currentSession.aiLogs;
+            // Use the SPECIFIC tab that just completed (from tabIdFromSession), NOT the active tab
+            // This is critical for parallel tab execution where multiple tabs complete independently
+            const completedTab = tabIdFromSession
+              ? currentSession.aiTabs?.find(tab => tab.id === tabIdFromSession)
+              : getActiveTab(currentSession);
+            const logs = completedTab?.logs || currentSession.aiLogs;
             const lastUserLog = logs.filter(log => log.source === 'user').pop();
             const lastAiLog = logs.filter(log => log.source === 'stdout' || log.source === 'ai').pop();
             const duration = currentSession.thinkingStartTime ? Date.now() - currentSession.thinkingStartTime : 0;
@@ -771,10 +774,10 @@ export default function MaestroConsole() {
               summary = 'Completed successfully';
             }
 
-            // Get the active tab's claudeSessionId for traceability
-            const claudeSessionId = activeTab?.claudeSessionId || currentSession.claudeSessionId;
+            // Get the completed tab's claudeSessionId for traceability
+            const claudeSessionId = completedTab?.claudeSessionId || currentSession.claudeSessionId;
             // Get tab name: prefer tab's name, fallback to short UUID from claudeSessionId
-            const tabName = activeTab?.name || (claudeSessionId ? claudeSessionId.substring(0, 8).toUpperCase() : undefined);
+            const tabName = completedTab?.name || (claudeSessionId ? claudeSessionId.substring(0, 8).toUpperCase() : undefined);
 
             toastData = {
               title,
@@ -956,16 +959,24 @@ export default function MaestroConsole() {
             totalCostUsd: toastData!.usageStats?.totalCostUsd,
           });
 
-          addToastRef.current({
-            type: 'success',
-            title: toastData!.title,
-            message: toastData!.summary,
-            group: toastData!.groupName,
-            project: toastData!.projectName,
-            taskDuration: toastData!.duration,
-            claudeSessionId: toastData!.claudeSessionId,
-            tabName: toastData!.tabName,
-          });
+          // Suppress toast if user is already viewing this tab (they'll see the response directly)
+          // Only show toasts for out-of-view completions (different session or different tab)
+          const currentActiveSession = sessionsRef.current.find(s => s.id === activeSessionIdRef.current);
+          const isViewingCompletedTab = currentActiveSession?.id === actualSessionId
+            && (!tabIdFromSession || currentActiveSession.activeTabId === tabIdFromSession);
+
+          if (!isViewingCompletedTab) {
+            addToastRef.current({
+              type: 'success',
+              title: toastData!.title,
+              message: toastData!.summary,
+              group: toastData!.groupName,
+              project: toastData!.projectName,
+              taskDuration: toastData!.duration,
+              claudeSessionId: toastData!.claudeSessionId,
+              tabName: toastData!.tabName,
+            });
+          }
         }, 0);
       }
 
@@ -1031,11 +1042,14 @@ export default function MaestroConsole() {
       if (aiTabMatch) {
         actualSessionId = aiTabMatch[1];
         tabId = aiTabMatch[2];
+        console.log('[onSessionId] Parsed tab format - actualSessionId:', actualSessionId, 'tabId:', tabId);
       } else if (sessionId.endsWith('-ai')) {
         // Legacy format without tab ID
         actualSessionId = sessionId.slice(0, -3);
+        console.log('[onSessionId] Parsed legacy format - actualSessionId:', actualSessionId);
       } else {
         actualSessionId = sessionId;
+        console.log('[onSessionId] No format match - using as-is:', actualSessionId);
       }
 
       // Store Claude session ID in session state and fetch commands if not already cached
@@ -1074,12 +1088,14 @@ export default function MaestroConsole() {
           if (tabId) {
             // New format: tab ID is encoded in session ID
             targetTab = s.aiTabs?.find(tab => tab.id === tabId);
+            console.log('[onSessionId] Looking for tab by ID:', tabId, 'found:', targetTab?.id, 'allTabIds:', s.aiTabs?.map(t => t.id));
           }
 
           // Fallback: find awaiting tab or active tab (for legacy format)
           if (!targetTab) {
             const awaitingTab = s.aiTabs?.find(tab => tab.awaitingSessionId && !tab.claudeSessionId);
             targetTab = awaitingTab || getActiveTab(s);
+            console.log('[onSessionId] Fallback - awaitingTab:', awaitingTab?.id, 'activeTab:', getActiveTab(s)?.id, 'targetTab:', targetTab?.id);
           }
 
           if (!targetTab) {
