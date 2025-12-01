@@ -1386,7 +1386,7 @@ export default function MaestroConsole() {
   // This allows web commands to go through the exact same code path as desktop commands
   useEffect(() => {
     console.log('[Remote] Setting up onRemoteCommand listener...');
-    const unsubscribeRemote = window.maestro.process.onRemoteCommand((sessionId: string, command: string) => {
+    const unsubscribeRemote = window.maestro.process.onRemoteCommand((sessionId: string, command: string, inputMode?: 'ai' | 'terminal') => {
       // Verify the session exists
       const targetSession = sessionsRef.current.find(s => s.id === sessionId);
 
@@ -1394,7 +1394,8 @@ export default function MaestroConsole() {
         maestroSessionId: sessionId,
         claudeSessionId: targetSession?.claudeSessionId || 'none',
         state: targetSession?.state || 'NOT_FOUND',
-        inputMode: targetSession?.inputMode || 'unknown',
+        sessionInputMode: targetSession?.inputMode || 'unknown',
+        webInputMode: inputMode || 'not provided',
         command: command.substring(0, 100)
       });
 
@@ -1409,15 +1410,25 @@ export default function MaestroConsole() {
         return;
       }
 
+      // If web provided an inputMode, sync the session state before executing
+      // This ensures the renderer uses the same mode the web intended
+      if (inputMode && targetSession.inputMode !== inputMode) {
+        console.log('[Remote] Syncing inputMode from web:', inputMode, '(was:', targetSession.inputMode, ')');
+        setSessions(prev => prev.map(s =>
+          s.id === sessionId ? { ...s, inputMode } : s
+        ));
+      }
+
       // Switch to the target session (for visual feedback)
       console.log('[Remote] Switching to target session...');
       setActiveSessionId(sessionId);
 
       // Dispatch event directly - handleRemoteCommand handles all the logic
       // Don't set inputValue - we don't want command text to appear in the input bar
+      // Pass the inputMode from web so handleRemoteCommand uses it
       console.log('[Remote] Dispatching maestro:remoteCommand event');
       window.dispatchEvent(new CustomEvent('maestro:remoteCommand', {
-        detail: { sessionId, command }
+        detail: { sessionId, command, inputMode }
       }));
     });
 
@@ -3516,11 +3527,31 @@ export default function MaestroConsole() {
             // Queue the command if AI is busy
             // For read-only mode tabs: only queue if THIS TAB is busy (allows parallel execution)
             // For write mode tabs: queue if ANY tab in session is busy (prevents conflicts)
+            // EXCEPTION: Write commands can bypass the queue and run in parallel if ALL busy tabs
+            // and ALL queued items are read-only
             const activeTab = getActiveTab(activeSession);
             const isReadOnlyMode = activeTab?.readOnlyMode === true;
+
+            // Check if write command can bypass queue (all running/queued items are read-only)
+            const canWriteBypassQueue = (): boolean => {
+              if (isReadOnlyMode) return false; // Only applies to write commands
+              if (activeSession.state !== 'busy') return false; // Nothing to bypass
+
+              // Check all busy tabs are in read-only mode
+              const busyTabs = activeSession.aiTabs.filter(tab => tab.state === 'busy');
+              const allBusyTabsReadOnly = busyTabs.every(tab => tab.readOnlyMode === true);
+              if (!allBusyTabsReadOnly) return false;
+
+              // Check all queued items are from read-only tabs
+              const allQueuedReadOnly = activeSession.executionQueue.every(item => item.readOnlyMode === true);
+              if (!allQueuedReadOnly) return false;
+
+              return true;
+            };
+
             const shouldQueue = isReadOnlyMode
               ? activeTab?.state === 'busy'
-              : activeSession.state === 'busy';
+              : activeSession.state === 'busy' && !canWriteBypassQueue();
 
             if (shouldQueue) {
               const queuedItem: QueuedItem = {
@@ -3530,7 +3561,8 @@ export default function MaestroConsole() {
                 type: 'command',
                 command: matchingCustomCommand.command,
                 commandDescription: matchingCustomCommand.description,
-                tabName: activeTab?.name || (activeTab?.claudeSessionId ? activeTab.claudeSessionId.split('-')[0].toUpperCase() : 'New')
+                tabName: activeTab?.name || (activeTab?.claudeSessionId ? activeTab.claudeSessionId.split('-')[0].toUpperCase() : 'New'),
+                readOnlyMode: isReadOnlyMode
               };
 
               setSessions(prev => prev.map(s => {
@@ -3675,16 +3707,36 @@ export default function MaestroConsole() {
     // Queue messages when AI is busy (only in AI mode)
     // For read-only mode tabs: only queue if THIS TAB is busy (allows parallel execution)
     // For write mode tabs: queue if ANY tab in session is busy (prevents conflicts)
+    // EXCEPTION: Write commands can bypass the queue and run in parallel if ALL busy tabs
+    // and ALL queued items are read-only
     if (currentMode === 'ai') {
       const activeTab = getActiveTab(activeSession);
       const isReadOnlyMode = activeTab?.readOnlyMode === true;
 
+      // Check if write command can bypass queue (all running/queued items are read-only)
+      const canWriteBypassQueue = (): boolean => {
+        if (isReadOnlyMode) return false; // Only applies to write commands
+        if (activeSession.state !== 'busy') return false; // Nothing to bypass
+
+        // Check all busy tabs are in read-only mode
+        const busyTabs = activeSession.aiTabs.filter(tab => tab.state === 'busy');
+        const allBusyTabsReadOnly = busyTabs.every(tab => tab.readOnlyMode === true);
+        if (!allBusyTabsReadOnly) return false;
+
+        // Check all queued items are from read-only tabs
+        const allQueuedReadOnly = activeSession.executionQueue.every(item => item.readOnlyMode === true);
+        if (!allQueuedReadOnly) return false;
+
+        return true;
+      };
+
       // Determine if we should queue this message
       // Read-only tabs can run in parallel - only queue if this specific tab is busy
       // Write mode tabs must wait for any busy tab to finish
+      // EXCEPTION: Write commands bypass queue when all running/queued items are read-only
       const shouldQueue = isReadOnlyMode
         ? activeTab?.state === 'busy'  // Read-only: only queue if THIS tab is busy
-        : activeSession.state === 'busy';  // Write mode: queue if session is busy
+        : activeSession.state === 'busy' && !canWriteBypassQueue();  // Write mode: queue unless all items are read-only
 
       if (shouldQueue) {
         const queuedItem: QueuedItem = {
@@ -3694,7 +3746,8 @@ export default function MaestroConsole() {
           type: 'message',
           text: inputValue,
           images: [...stagedImages],
-          tabName: activeTab?.name || (activeTab?.claudeSessionId ? activeTab.claudeSessionId.split('-')[0].toUpperCase() : 'New')
+          tabName: activeTab?.name || (activeTab?.claudeSessionId ? activeTab.claudeSessionId.split('-')[0].toUpperCase() : 'New'),
+          readOnlyMode: isReadOnlyMode
         };
 
         setSessions(prev => prev.map(s => {
@@ -4019,10 +4072,10 @@ export default function MaestroConsole() {
   // This event is triggered by the remote command handler with command data in detail
   useEffect(() => {
     const handleRemoteCommand = async (event: Event) => {
-      const customEvent = event as CustomEvent<{ sessionId: string; command: string }>;
-      const { sessionId, command } = customEvent.detail;
+      const customEvent = event as CustomEvent<{ sessionId: string; command: string; inputMode?: 'ai' | 'terminal' }>;
+      const { sessionId, command, inputMode: webInputMode } = customEvent.detail;
 
-      console.log('[Remote] Processing remote command via event:', { sessionId, command: command.substring(0, 50) });
+      console.log('[Remote] Processing remote command via event:', { sessionId, command: command.substring(0, 50), webInputMode });
 
       // Find the session directly from sessionsRef (not from React state which may be stale)
       const session = sessionsRef.current.find(s => s.id === sessionId);
@@ -4031,16 +4084,20 @@ export default function MaestroConsole() {
         return;
       }
 
+      // Use web's inputMode if provided, otherwise fall back to session state
+      const effectiveInputMode = webInputMode || session.inputMode;
+
       console.log('[Remote] Found session:', {
         id: session.id,
         claudeSessionId: session.claudeSessionId || 'none',
         state: session.state,
-        inputMode: session.inputMode,
+        sessionInputMode: session.inputMode,
+        effectiveInputMode,
         toolType: session.toolType
       });
 
       // Handle terminal mode commands
-      if (session.inputMode === 'terminal') {
+      if (effectiveInputMode === 'terminal') {
         console.log('[Remote] Terminal mode - using runCommand for clean output');
 
         // Add user message to shell logs and set state to busy
@@ -4110,7 +4167,8 @@ export default function MaestroConsole() {
         console.log('[Remote] Detected slash command:', commandText);
 
         // First, check for built-in slash commands (like /synopsis, /clear)
-        const isTerminalMode = session.inputMode === 'terminal';
+        // Use effectiveInputMode (from web) instead of session.inputMode
+        const isTerminalMode = effectiveInputMode === 'terminal';
         const matchingBuiltinCommand = slashCommands.find(cmd => {
           if (cmd.command !== commandText) return false;
           // Apply mode filtering
@@ -4123,11 +4181,12 @@ export default function MaestroConsole() {
           console.log('[Remote] Found matching built-in slash command:', matchingBuiltinCommand.command);
 
           // Execute the built-in command with full context (using refs for latest function versions)
+          // Use effectiveInputMode (from web) instead of session.inputMode
           matchingBuiltinCommand.execute({
             activeSessionId: sessionId,
             sessions: sessionsRef.current,
             setSessions,
-            currentMode: session.inputMode,
+            currentMode: effectiveInputMode,
             groups: groupsRef.current,
             setRightPanelOpen,
             setActiveRightTab,
@@ -4149,7 +4208,7 @@ export default function MaestroConsole() {
         const existingBuiltinCommand = slashCommands.find(cmd => cmd.command === commandText);
         if (existingBuiltinCommand) {
           const modeLabel = isTerminalMode ? 'AI' : 'terminal';
-          console.log('[Remote] Built-in command exists but not available in', session.inputMode, 'mode');
+          console.log('[Remote] Built-in command exists but not available in', effectiveInputMode, 'mode');
           addLogToActiveTab(sessionId, {
             source: 'system',
             text: `${commandText} is only available in ${modeLabel} mode.`

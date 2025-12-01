@@ -342,7 +342,7 @@ function createWebServer(): WebServer {
   // Set up callback for web server to execute commands through the desktop
   // This forwards AI commands to the renderer, ensuring single source of truth
   // The renderer handles all spawn logic, state management, and broadcasts
-  server.setExecuteCommandCallback(async (sessionId: string, command: string) => {
+  server.setExecuteCommandCallback(async (sessionId: string, command: string, inputMode?: 'ai' | 'terminal') => {
     if (!mainWindow) {
       logger.warn('mainWindow is null for executeCommand', 'WebServer');
       return false;
@@ -355,8 +355,9 @@ function createWebServer(): WebServer {
 
     // Forward to renderer - it will handle spawn, state, and everything else
     // This ensures web commands go through exact same code path as desktop commands
-    logger.info(`[Web → Renderer] Forwarding command | Maestro: ${sessionId} | Claude: ${claudeSessionId} | Command: ${command.substring(0, 100)}`, 'WebServer');
-    mainWindow.webContents.send('remote:executeCommand', sessionId, command);
+    // Pass inputMode so renderer uses the web's intended mode (avoids sync issues)
+    logger.info(`[Web → Renderer] Forwarding command | Maestro: ${sessionId} | Claude: ${claudeSessionId} | Mode: ${inputMode || 'auto'} | Command: ${command.substring(0, 100)}`, 'WebServer');
+    mainWindow.webContents.send('remote:executeCommand', sessionId, command, inputMode);
     return true;
   });
 

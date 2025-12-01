@@ -152,9 +152,11 @@ export type WriteToSessionCallback = (sessionId: string, data: string) => boolea
 // Callback type for executing a command through the desktop's existing logic
 // This forwards the command to the renderer which handles spawn, state, and broadcasts
 // Returns true if command was accepted (session not busy)
+// inputMode is optional - if provided, the renderer will use it instead of querying session state
 export type ExecuteCommandCallback = (
   sessionId: string,
-  command: string
+  command: string,
+  inputMode?: 'ai' | 'terminal'
 ) => Promise<boolean>;
 
 // Callback type for interrupting a session through the desktop's existing logic
@@ -1072,6 +1074,8 @@ export class WebServer {
         // Send a command to a session (AI or terminal)
         const sessionId = message.sessionId as string;
         const command = message.command as string;
+        // inputMode from web client - use this instead of server state to avoid sync issues
+        const clientInputMode = message.inputMode as 'ai' | 'terminal' | undefined;
 
         if (!sessionId || !command) {
           client.socket.send(JSON.stringify({
@@ -1105,7 +1109,9 @@ export class WebServer {
           return;
         }
 
-        const isAiMode = sessionDetail.inputMode === 'ai';
+        // Use client's inputMode if provided, otherwise fall back to server state
+        const effectiveMode = clientInputMode || sessionDetail.inputMode;
+        const isAiMode = effectiveMode === 'ai';
         const mode = isAiMode ? 'AI' : 'CLI';
         const claudeId = sessionDetail.claudeSessionId || 'none';
 
@@ -1114,8 +1120,9 @@ export class WebServer {
 
         // Route ALL commands through the renderer for consistent handling
         // The renderer handles both AI and terminal modes, updating UI and state
+        // Pass clientInputMode so renderer uses the web's intended mode
         if (this.executeCommandCallback) {
-          this.executeCommandCallback(sessionId, command)
+          this.executeCommandCallback(sessionId, command, clientInputMode)
             .then((success) => {
               client.socket.send(JSON.stringify({
                 type: 'command_result',

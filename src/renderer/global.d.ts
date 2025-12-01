@@ -77,7 +77,7 @@ interface MaestroAPI {
     onData: (callback: (sessionId: string, data: string) => void) => () => void;
     onExit: (callback: (sessionId: string, code: number) => void) => () => void;
     onSessionId: (callback: (sessionId: string, claudeSessionId: string) => void) => () => void;
-    onRemoteCommand: (callback: (sessionId: string, command: string) => void) => () => void;
+    onRemoteCommand: (callback: (sessionId: string, command: string, inputMode?: 'ai' | 'terminal') => void) => () => void;
     onRemoteSwitchMode: (callback: (sessionId: string, mode: 'ai' | 'terminal') => void) => () => void;
     onRemoteInterrupt: (callback: (sessionId: string) => void) => () => void;
     onRemoteSelectSession: (callback: (sessionId: string) => void) => () => void;

@@ -60,6 +60,8 @@ export interface QueuedItem {
   commandDescription?: string;       // Command description for display
   // Display metadata
   tabName?: string;                  // Tab name at time of queuing (for display)
+  // Read-only mode tracking (for parallel execution bypass)
+  readOnlyMode?: boolean;            // True if queued from a read-only tab
 }
 
 export interface WorkLogItem {

@@ -88,11 +88,12 @@ contextBridge.exposeInMainWorld('maestro', {
     },
     // Remote command execution from web interface
     // This allows web commands to go through the same code path as desktop commands
-    onRemoteCommand: (callback: (sessionId: string, command: string) => void) => {
+    // inputMode is optional - if provided, renderer should use it instead of session state
+    onRemoteCommand: (callback: (sessionId: string, command: string, inputMode?: 'ai' | 'terminal') => void) => {
       console.log('[Preload] Registering onRemoteCommand listener');
-      const handler = (_: any, sessionId: string, command: string) => {
-        console.log('[Preload] Received remote:executeCommand IPC:', { sessionId, command: command?.substring(0, 50) });
-        callback(sessionId, command);
+      const handler = (_: any, sessionId: string, command: string, inputMode?: 'ai' | 'terminal') => {
+        console.log('[Preload] Received remote:executeCommand IPC:', { sessionId, command: command?.substring(0, 50), inputMode });
+        callback(sessionId, command, inputMode);
       };
       ipcRenderer.on('remote:executeCommand', handler);
       return () => ipcRenderer.removeListener('remote:executeCommand', handler);
