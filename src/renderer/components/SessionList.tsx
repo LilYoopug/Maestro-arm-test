@@ -362,6 +362,30 @@ export function SessionList(props: SessionListProps) {
     }
   }, [isLiveMode, liveOverlayOpen, cloudflaredChecked]);
 
+  // Handle tunnel toggle (start/stop remote access)
+  const handleTunnelToggle = async () => {
+    if (tunnelStatus === 'connected') {
+      // Turn off tunnel
+      await window.maestro.tunnel.stop();
+      setTunnelStatus('off');
+      setTunnelUrl(null);
+      setTunnelError(null);
+    } else if (tunnelStatus === 'off') {
+      // Turn on tunnel
+      setTunnelStatus('starting');
+      setTunnelError(null);
+
+      const result = await window.maestro.tunnel.start();
+      if (result.success && result.url) {
+        setTunnelStatus('connected');
+        setTunnelUrl(result.url);
+      } else {
+        setTunnelStatus('error');
+        setTunnelError(result.error || 'Failed to start tunnel');
+      }
+    }
+  };
+
   // Toggle bookmark for a session
   const toggleBookmark = (sessionId: string) => {
     setSessions(prev => prev.map(s =>
