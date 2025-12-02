@@ -92,8 +92,6 @@ export default function MaestroConsole() {
     llmProvider, setLlmProvider,
     modelSlug, setModelSlug,
     apiKey, setApiKey,
-    tunnelProvider, setTunnelProvider,
-    tunnelApiKey, setTunnelApiKey,
     defaultAgent, setDefaultAgent,
     defaultShell, setDefaultShell,
     fontFamily, setFontFamily,
@@ -184,7 +182,7 @@ export default function MaestroConsole() {
   const [shortcutsSearchQuery, setShortcutsSearchQuery] = useState('');
   const [quickActionOpen, setQuickActionOpen] = useState(false);
   const [quickActionInitialMode, setQuickActionInitialMode] = useState<'main' | 'move-to-group'>('main');
-  const [settingsTab, setSettingsTab] = useState<'general' | 'shortcuts' | 'theme' | 'network'>('general');
+  const [settingsTab, setSettingsTab] = useState<'general' | 'shortcuts' | 'theme' | 'notifications' | 'aicommands'>('general');
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [lightboxImages, setLightboxImages] = useState<string[]>([]); // Context images for navigation
   const [aboutModalOpen, setAboutModalOpen] = useState(false);
@@ -6335,10 +6333,6 @@ export default function MaestroConsole() {
         setModelSlug={setModelSlug}
         apiKey={apiKey}
         setApiKey={setApiKey}
-        tunnelProvider={tunnelProvider}
-        setTunnelProvider={setTunnelProvider}
-        tunnelApiKey={tunnelApiKey}
-        setTunnelApiKey={setTunnelApiKey}
         shortcuts={shortcuts}
         setShortcuts={setShortcuts}
         defaultAgent={defaultAgent}

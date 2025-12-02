@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Key, Moon, Sun, Keyboard, Check, Terminal, Bell, Volume2, Square, Cpu, Clock, Settings, Palette, Globe, Sparkles } from 'lucide-react';
+import { X, Key, Moon, Sun, Keyboard, Check, Terminal, Bell, Volume2, Square, Cpu, Clock, Settings, Palette, Sparkles } from 'lucide-react';
 import type { AgentConfig, Theme, Shortcut, ShellInfo, CustomAICommand } from '../types';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
@@ -24,10 +24,6 @@ interface SettingsModalProps {
   setModelSlug: (slug: string) => void;
   apiKey: string;
   setApiKey: (key: string) => void;
-  tunnelProvider: string;
-  setTunnelProvider: (provider: string) => void;
-  tunnelApiKey: string;
-  setTunnelApiKey: (key: string) => void;
   shortcuts: Record<string, Shortcut>;
   setShortcuts: (shortcuts: Record<string, Shortcut>) => void;
   defaultAgent: string;
@@ -60,12 +56,12 @@ interface SettingsModalProps {
   setToastDuration: (value: number) => void;
   customAICommands: CustomAICommand[];
   setCustomAICommands: (commands: CustomAICommand[]) => void;
-  initialTab?: 'general' | 'llm' | 'shortcuts' | 'theme' | 'network' | 'notifications' | 'aicommands';
+  initialTab?: 'general' | 'llm' | 'shortcuts' | 'theme' | 'notifications' | 'aicommands';
 }
 
 export function SettingsModal(props: SettingsModalProps) {
   const { isOpen, onClose, theme, themes, initialTab } = props;
-  const [activeTab, setActiveTab] = useState<'general' | 'llm' | 'shortcuts' | 'theme' | 'network' | 'notifications' | 'aicommands'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'llm' | 'shortcuts' | 'theme' | 'notifications' | 'aicommands'>('general');
   const [systemFonts, setSystemFonts] = useState<string[]>([]);
   const [customFontInput, setCustomFontInput] = useState('');
   const [customFonts, setCustomFonts] = useState<string[]>([]);
@@ -153,9 +149,9 @@ export function SettingsModal(props: SettingsModalProps) {
     if (!isOpen) return;
 
     const handleTabNavigation = (e: KeyboardEvent) => {
-      const tabs: Array<'general' | 'llm' | 'shortcuts' | 'theme' | 'network' | 'notifications' | 'aicommands'> = FEATURE_FLAGS.LLM_SETTINGS
-        ? ['general', 'llm', 'shortcuts', 'theme', 'network', 'notifications', 'aicommands']
-        : ['general', 'shortcuts', 'theme', 'network', 'notifications', 'aicommands'];
+      const tabs: Array<'general' | 'llm' | 'shortcuts' | 'theme' | 'notifications' | 'aicommands'> = FEATURE_FLAGS.LLM_SETTINGS
+        ? ['general', 'llm', 'shortcuts', 'theme', 'notifications', 'aicommands']
+        : ['general', 'shortcuts', 'theme', 'notifications', 'aicommands'];
       const currentIndex = tabs.indexOf(activeTab);
 
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === '[') {
@@ -543,10 +539,6 @@ export function SettingsModal(props: SettingsModalProps) {
           <button onClick={() => setActiveTab('theme')} className={`px-4 py-4 text-sm font-bold border-b-2 ${activeTab === 'theme' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`} tabIndex={-1} title="Themes">
             <Palette className="w-4 h-4" />
             {activeTab === 'theme' && <span>Themes</span>}
-          </button>
-          <button onClick={() => setActiveTab('network')} className={`px-4 py-4 text-sm font-bold border-b-2 ${activeTab === 'network' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`} tabIndex={-1} title="Network">
-            <Globe className="w-4 h-4" />
-            {activeTab === 'network' && <span>Network</span>}
           </button>
           <button onClick={() => setActiveTab('notifications')} className={`px-4 py-4 text-sm font-bold border-b-2 ${activeTab === 'notifications' ? 'border-indigo-500' : 'border-transparent'} flex items-center gap-2`} tabIndex={-1} title="Notifications">
             <Bell className="w-4 h-4" />
@@ -1255,45 +1247,6 @@ export function SettingsModal(props: SettingsModalProps) {
                 <p className="text-[10px] mt-3 opacity-50 text-center">
                   Test sends a simple prompt to verify connectivity and configuration
                 </p>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'network' && (
-            <div className="space-y-6">
-              <div>
-                <label className="block text-xs font-bold opacity-70 uppercase mb-2">Tunnel Provider</label>
-                <div className="flex items-center gap-4">
-                  <button
-                    className={`flex-1 py-3 border rounded-lg flex items-center justify-center gap-2 ${props.tunnelProvider === 'ngrok' ? 'ring-2 ring-indigo-500 border-indigo-500' : 'opacity-50'}`}
-                    style={{ borderColor: theme.colors.border }}
-                    onClick={() => props.setTunnelProvider('ngrok')}
-                  >
-                    <div className="font-bold">ngrok</div>
-                  </button>
-                  <button
-                    className={`flex-1 py-3 border rounded-lg flex items-center justify-center gap-2 ${props.tunnelProvider === 'cloudflare' ? 'ring-2 ring-indigo-500 border-indigo-500' : 'opacity-50'}`}
-                    style={{ borderColor: theme.colors.border }}
-                    onClick={() => props.setTunnelProvider('cloudflare')}
-                  >
-                    <div className="font-bold">Cloudflare</div>
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold opacity-70 uppercase mb-2">Auth Token / API Key</label>
-                <div className="flex items-center border rounded px-3 py-2" style={{ backgroundColor: theme.colors.bgMain, borderColor: theme.colors.border }}>
-                  <Key className="w-4 h-4 mr-2 opacity-50" />
-                  <input
-                    type="password"
-                    value={props.tunnelApiKey}
-                    onChange={(e) => props.setTunnelApiKey(e.target.value)}
-                    className="bg-transparent flex-1 text-sm outline-none"
-                    placeholder={`Enter ${props.tunnelProvider} auth token...`}
-                  />
-                </div>
-                <p className="text-[10px] mt-2 opacity-50">Tokens are stored securely in your OS keychain. Tunnels will not start without a valid token.</p>
               </div>
             </div>
           )}
