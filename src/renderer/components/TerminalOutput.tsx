@@ -1478,6 +1478,22 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
     lastLogCountRef.current = currentCount;
   }, [filteredLogs.length, isAtBottom, activeTabId]);
 
+  // Auto-scroll to bottom in terminal mode when new output arrives
+  // Terminal mode should always auto-scroll since users expect to see command output immediately
+  useEffect(() => {
+    if (session.inputMode === 'terminal' && scrollContainerRef.current) {
+      // Use requestAnimationFrame to ensure DOM has updated with new content
+      requestAnimationFrame(() => {
+        if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollTo({
+            top: scrollContainerRef.current.scrollHeight,
+            behavior: 'smooth'
+          });
+        }
+      });
+    }
+  }, [session.inputMode, session.shellLogs.length]);
+
   // Restore scroll position when component mounts or initialScrollTop changes
   // Uses requestAnimationFrame to ensure DOM is ready
   useEffect(() => {
@@ -1887,8 +1903,8 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
         </div>
       )}
 
-      {/* New Message Indicator - floating arrow button */}
-      {hasNewMessages && !isAtBottom && (
+      {/* New Message Indicator - floating arrow button (AI mode only, terminal auto-scrolls) */}
+      {hasNewMessages && !isAtBottom && session.inputMode === 'ai' && (
         <button
           onClick={scrollToBottom}
           className="absolute bottom-4 right-6 flex items-center gap-2 px-3 py-2 rounded-full shadow-lg transition-all hover:scale-105 z-20"
