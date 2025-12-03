@@ -2430,20 +2430,21 @@ export default function MaestroConsole() {
         }
       }
 
-      // Create a new tab with the session data using the helper function
-      const { session: updatedSession } = createTab(activeSession, {
-        claudeSessionId,
-        logs: messages,
-        name,
-        starred: isStarred
-      });
-
       // Update the session and switch to AI mode
-      setSessions(prev => prev.map(s =>
-        s.id === activeSession.id
-          ? { ...updatedSession, inputMode: 'ai' }
-          : s
-      ));
+      // IMPORTANT: Use functional update to get fresh session state and avoid race conditions
+      setSessions(prev => prev.map(s => {
+        if (s.id !== activeSession.id) return s;
+
+        // Create tab from the CURRENT session state (not stale closure value)
+        const { session: updatedSession } = createTab(s, {
+          claudeSessionId,
+          logs: messages,
+          name,
+          starred: isStarred
+        });
+
+        return { ...updatedSession, inputMode: 'ai' };
+      }));
       setActiveClaudeSessionId(claudeSessionId);
     } catch (error) {
       console.error('Failed to resume session:', error);
@@ -3158,9 +3159,9 @@ export default function MaestroConsole() {
             ));
           }
         }
-        // Cmd+1 through Cmd+8: Jump to specific tab by index (disabled in unread-only mode)
+        // Cmd+1 through Cmd+9: Jump to specific tab by index (disabled in unread-only mode)
         if (!ctx.showUnreadOnly) {
-          for (let i = 1; i <= 8; i++) {
+          for (let i = 1; i <= 9; i++) {
             if (ctx.isTabShortcut(e, `goToTab${i}`)) {
               e.preventDefault();
               const result = ctx.navigateToTabByIndex(ctx.activeSession, i - 1);
@@ -3172,7 +3173,7 @@ export default function MaestroConsole() {
               break;
             }
           }
-          // Cmd+9: Jump to last tab
+          // Cmd+0: Jump to last tab
           if (ctx.isTabShortcut(e, 'goToLastTab')) {
             e.preventDefault();
             const result = ctx.navigateToLastTab(ctx.activeSession);
@@ -3741,7 +3742,16 @@ export default function MaestroConsole() {
 
   const processInput = async (overrideInputValue?: string) => {
     const effectiveInputValue = overrideInputValue ?? inputValue;
+    console.log('[processInput] Called with:', {
+      overrideInputValue,
+      inputValue,
+      effectiveInputValue,
+      activeSessionId: activeSession?.id,
+      inputMode: activeSession?.inputMode,
+      stagedImagesCount: stagedImages.length
+    });
     if (!activeSession || (!effectiveInputValue.trim() && stagedImages.length === 0)) {
+      console.log('[processInput] Early return - no session or empty input');
       return;
     }
 

@@ -3215,7 +3215,6 @@ function setupIpcHandlers() {
 function setupProcessListeners() {
   if (processManager) {
     processManager.on('data', (sessionId: string, data: string) => {
-      console.log('[IPC] Forwarding process:data to renderer:', { sessionId, dataLength: data.length, hasMainWindow: !!mainWindow });
       mainWindow?.webContents.send('process:data', sessionId, data);
 
       // Broadcast to web clients - extract base session ID (remove -ai or -terminal suffix)
@@ -3283,7 +3282,6 @@ function setupProcessListeners() {
       totalCostUsd: number;
       contextWindow: number;
     }) => {
-      console.log('[IPC] Forwarding process:usage to renderer:', { sessionId, usageStats });
       mainWindow?.webContents.send('process:usage', sessionId, usageStats);
     });
   }

@@ -1048,6 +1048,7 @@ function ScratchpadInner({
       onKeyDown={(e) => {
         if ((e.metaKey || e.ctrlKey) && e.key === 'e') {
           e.preventDefault();
+          e.stopPropagation();
           toggleMode();
         }
         // CMD+F to open search (works in both modes from container)

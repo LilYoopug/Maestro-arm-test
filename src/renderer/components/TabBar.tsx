@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Plus, Star, Copy, Edit2, Mail } from 'lucide-react';
+import { X, Plus, Star, Copy, Edit2, Mail, Pencil } from 'lucide-react';
 import type { AITab, Theme } from '../types';
 
 interface TabBarProps {
@@ -38,6 +38,7 @@ interface TabProps {
   onStar?: (starred: boolean) => void;
   shortcutHint?: number | null;
   registerRef?: (el: HTMLDivElement | null) => void;
+  hasDraft?: boolean;
 }
 
 /**
@@ -78,7 +79,8 @@ function Tab({
   onRename,
   onStar,
   shortcutHint,
-  registerRef
+  registerRef,
+  hasDraft
 }: TabProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [overlayOpen, setOverlayOpen] = useState(false);
@@ -230,6 +232,15 @@ function Tab({
         <Star
           className="w-3 h-3 fill-current shrink-0"
           style={{ color: theme.colors.warning }}
+        />
+      )}
+
+      {/* Draft indicator - pencil icon for tabs with unsent input or staged images */}
+      {hasDraft && (
+        <Pencil
+          className="w-3 h-3 shrink-0"
+          style={{ color: theme.colors.textDim }}
+          title="Has draft message"
         />
       )}
 
@@ -500,12 +511,12 @@ export function TabBar({
   const [isOverflowing, setIsOverflowing] = useState(false);
 
   // Scroll active tab into view when it changes or when tabs are added/removed
-  // Use a small delay to ensure the DOM element is rendered and ref is registered
+  // Use 'center' to ensure the tab isn't hidden under sticky elements (unread filter, new tab button)
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       const activeTabElement = tabRefs.current.get(activeTabId);
       if (activeTabElement) {
-        activeTabElement.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+        activeTabElement.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
       }
     }, 0);
     return () => clearTimeout(timeoutId);
@@ -689,6 +700,7 @@ export function TabBar({
               onRename={() => handleRenameRequest(tab.id)}
               onStar={onTabStar ? (starred) => onTabStar(tab.id, starred) : undefined}
               shortcutHint={!showUnreadOnly && originalIndex < 9 ? originalIndex + 1 : null}
+              hasDraft={hasDraft(tab)}
               registerRef={(el) => {
                 if (el) {
                   tabRefs.current.set(tab.id, el);

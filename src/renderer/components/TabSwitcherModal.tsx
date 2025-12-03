@@ -157,6 +157,12 @@ export function TabSwitcherModal({
   const selectedItemRef = useRef<HTMLButtonElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const layerIdRef = useRef<string>();
+  const onCloseRef = useRef(onClose);
+
+  // Keep onClose ref up to date
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
 
@@ -169,7 +175,7 @@ export function TabSwitcherModal({
       capturesFocus: true,
       focusTrap: 'strict',
       ariaLabel: 'Tab Switcher',
-      onEscape: () => onClose()
+      onEscape: () => onCloseRef.current()
     });
 
     return () => {
@@ -177,16 +183,16 @@ export function TabSwitcherModal({
         unregisterLayer(layerIdRef.current);
       }
     };
-  }, [registerLayer, unregisterLayer, onClose]);
+  }, [registerLayer, unregisterLayer]);
 
   // Update handler when onClose changes
   useEffect(() => {
     if (layerIdRef.current) {
       updateLayerHandler(layerIdRef.current, () => {
-        onClose();
+        onCloseRef.current();
       });
     }
-  }, [onClose, updateLayerHandler]);
+  }, [updateLayerHandler]);
 
   // Focus input on mount
   useEffect(() => {

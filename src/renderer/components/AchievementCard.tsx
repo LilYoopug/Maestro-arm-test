@@ -518,7 +518,7 @@ export function AchievementCard({ theme, autoRunStats, onEscapeWithBadgeOpen }: 
 
           {shareMenuOpen && (
             <div
-              className="absolute right-0 top-full mt-1 p-1.5 rounded-lg shadow-xl z-50 min-w-[160px]"
+              className="absolute right-0 top-full mt-1 p-1.5 rounded-lg shadow-xl z-50"
               style={{
                 backgroundColor: theme.colors.bgSidebar,
                 border: `1px solid ${theme.colors.border}`,
@@ -529,12 +529,12 @@ export function AchievementCard({ theme, autoRunStats, onEscapeWithBadgeOpen }: 
                   copyToClipboard();
                   setShareMenuOpen(false);
                 }}
-                className="w-full flex items-center gap-2 px-3 py-2 rounded text-sm hover:bg-white/10 transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-2 rounded text-sm whitespace-nowrap hover:bg-white/10 transition-colors"
               >
                 {copySuccess ? (
-                  <Check className="w-4 h-4" style={{ color: theme.colors.success }} />
+                  <Check className="w-4 h-4 shrink-0" style={{ color: theme.colors.success }} />
                 ) : (
-                  <Copy className="w-4 h-4" style={{ color: theme.colors.textDim }} />
+                  <Copy className="w-4 h-4 shrink-0" style={{ color: theme.colors.textDim }} />
                 )}
                 <span style={{ color: theme.colors.textMain }}>
                   {copySuccess ? 'Copied!' : 'Copy to Clipboard'}
@@ -545,9 +545,9 @@ export function AchievementCard({ theme, autoRunStats, onEscapeWithBadgeOpen }: 
                   downloadImage();
                   setShareMenuOpen(false);
                 }}
-                className="w-full flex items-center gap-2 px-3 py-2 rounded text-sm hover:bg-white/10 transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-2 rounded text-sm whitespace-nowrap hover:bg-white/10 transition-colors"
               >
-                <Download className="w-4 h-4" style={{ color: theme.colors.textDim }} />
+                <Download className="w-4 h-4 shrink-0" style={{ color: theme.colors.textDim }} />
                 <span style={{ color: theme.colors.textMain }}>Save as Image</span>
               </button>
             </div>

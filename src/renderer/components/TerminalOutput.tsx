@@ -579,7 +579,7 @@ const LogItemComponent = memo(({
                 // Collapsed markdown preview with rendered markdown
                 <div className="prose prose-sm max-w-none" style={{ color: theme.colors.textMain, lineHeight: 1.5 }}>
                   <style>{`
-                    .prose { line-height: 1.4; }
+                    .prose { line-height: 1.4; overflow: visible; }
                     .prose > *:first-child { margin-top: 0; }
                     .prose > *:last-child { margin-bottom: 0; }
                     .prose h1 { color: ${theme.colors.accent}; font-size: 2em; font-weight: bold; margin: 0; line-height: 1.4; }
@@ -590,8 +590,8 @@ const LogItemComponent = memo(({
                     .prose h6 { color: ${theme.colors.textDim}; font-size: 1.1em; font-weight: bold; margin: 0; line-height: 1.4; }
                     .prose p { color: ${theme.colors.textMain}; margin: 0; line-height: 1.4; }
                     .prose p:empty { display: none; }
-                    .prose > ul, .prose > ol { color: ${theme.colors.textMain}; margin: 0.5em 0; padding-left: 2em; }
-                    .prose li ul, .prose li ol { margin: 0 !important; padding-left: 1.5em; }
+                    .prose > ul, .prose > ol { color: ${theme.colors.textMain}; margin: 0.5em 0; padding-left: 0.5em; list-style-position: inside; }
+                    .prose li ul, .prose li ol { margin: 0 !important; padding-left: 1em; list-style-position: inside; }
                     .prose li { margin: 0 !important; padding: 0; line-height: 1.4; display: list-item; }
                     .prose li > p:first-child { margin: 0 !important; display: contents !important; }
                     .prose li > p:first-child + ul, .prose li > p:first-child + ol { display: block; margin-top: 0 !important; }
@@ -734,7 +734,7 @@ const LogItemComponent = memo(({
                 // Expanded markdown rendering
                 <div className="prose prose-sm max-w-none text-sm" style={{ color: theme.colors.textMain, lineHeight: 1.5 }}>
                   <style>{`
-                    .prose { line-height: 1.4; }
+                    .prose { line-height: 1.4; overflow: visible; }
                     .prose > *:first-child { margin-top: 0; }
                     .prose > *:last-child { margin-bottom: 0; }
                     .prose h1 { color: ${theme.colors.accent}; font-size: 2em; font-weight: bold; margin: 0; line-height: 1.4; }
@@ -745,8 +745,8 @@ const LogItemComponent = memo(({
                     .prose h6 { color: ${theme.colors.textDim}; font-size: 1.1em; font-weight: bold; margin: 0; line-height: 1.4; }
                     .prose p { color: ${theme.colors.textMain}; margin: 0; line-height: 1.4; }
                     .prose p:empty { display: none; }
-                    .prose > ul, .prose > ol { color: ${theme.colors.textMain}; margin: 0.5em 0; padding-left: 2em; }
-                    .prose li ul, .prose li ol { margin: 0 !important; padding-left: 1.5em; }
+                    .prose > ul, .prose > ol { color: ${theme.colors.textMain}; margin: 0.5em 0; padding-left: 0.5em; list-style-position: inside; }
+                    .prose li ul, .prose li ol { margin: 0 !important; padding-left: 1em; list-style-position: inside; }
                     .prose li { margin: 0 !important; padding: 0; line-height: 1.4; display: list-item; }
                     .prose li > p:first-child { margin: 0 !important; display: contents !important; }
                     .prose li > p:first-child + ul, .prose li > p:first-child + ol { display: block; margin-top: 0 !important; }
@@ -871,7 +871,7 @@ const LogItemComponent = memo(({
               // Rendered markdown for AI responses
               <div className="prose prose-sm max-w-none text-sm" style={{ color: theme.colors.textMain, lineHeight: 1.4 }}>
                 <style>{`
-                  .prose { line-height: 1.4; }
+                  .prose { line-height: 1.4; overflow: visible; }
                   .prose > *:first-child { margin-top: 0; }
                   .prose > *:last-child { margin-bottom: 0; }
                   .prose h1 { color: ${theme.colors.accent}; font-size: 2em; font-weight: bold; margin: 0; line-height: 1.4; }
@@ -882,8 +882,8 @@ const LogItemComponent = memo(({
                   .prose h6 { color: ${theme.colors.textDim}; font-size: 1.1em; font-weight: bold; margin: 0; line-height: 1.4; }
                   .prose p { color: ${theme.colors.textMain}; margin: 0; line-height: 1.4; }
                   .prose p:empty { display: none; }
-                  .prose > ul, .prose > ol { color: ${theme.colors.textMain}; margin: 0.5em 0; padding-left: 2em; }
-                  .prose li ul, .prose li ol { margin: 0 !important; padding-left: 1.5em; }
+                  .prose > ul, .prose > ol { color: ${theme.colors.textMain}; margin: 0.5em 0; padding-left: 0.5em; list-style-position: inside; }
+                  .prose li ul, .prose li ol { margin: 0 !important; padding-left: 1em; list-style-position: inside; }
                   .prose li { margin: 0 !important; padding: 0; line-height: 1.4; display: list-item; }
                   .prose li > p:first-child { margin: 0 !important; display: contents !important; }
                   .prose li > p:first-child + ul, .prose li > p:first-child + ol { display: block; margin-top: 0 !important; }

@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useMemo } from 'react';
-import { Terminal, Cpu, Keyboard, ImageIcon, X, ArrowUp, StopCircle, Eye, History, File, Folder, GitBranch, Tag, PenLine } from 'lucide-react';
+import { Terminal, Cpu, Keyboard, ImageIcon, X, ArrowUp, Eye, History, File, Folder, GitBranch, Tag, PenLine } from 'lucide-react';
 import type { Session, Theme, BatchRunState } from '../types';
 import type { TabCompletionSuggestion, TabCompletionFilter } from '../hooks/useTabCompletion';
 import { ThinkingStatusPill } from './ThinkingStatusPill';
@@ -223,6 +223,7 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
           autoRunState={autoRunState}
           activeSessionId={session.id}
           onStopAutoRun={onStopAutoRun}
+          onInterrupt={handleInterrupt}
         />
       )}
 
@@ -707,6 +708,7 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
         {/* Mode Toggle & Send/Interrupt Button - Right Side */}
         <div className="flex flex-col gap-2">
           <button
+            type="button"
             onClick={toggleInputMode}
             className="p-2 rounded border transition-all"
             style={{
@@ -718,30 +720,19 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
           >
             {session.inputMode === 'terminal' ? <Terminal className="w-4 h-4" /> : <Cpu className="w-4 h-4" />}
           </button>
-          {/* Show interrupt button only in AI mode when busy. Terminal mode always shows send button
-              because terminal doesn't block - you can send commands while others are running */}
-          {session.state === 'busy' && session.inputMode === 'ai' ? (
-            <button
-              onClick={handleInterrupt}
-              className="p-2 rounded-md text-white hover:opacity-90 shadow-sm transition-all animate-pulse"
-              style={{ backgroundColor: theme.colors.error }}
-              title="Interrupt Claude (Ctrl+C)"
-            >
-              <StopCircle className="w-4 h-4" />
-            </button>
-          ) : (
-            <button
-              onClick={processInput}
-              className="p-2 rounded-md shadow-sm transition-all hover:opacity-90 cursor-pointer"
-              style={{
-                backgroundColor: theme.colors.accent,
-                color: theme.colors.accentForeground
-              }}
-              title={session.inputMode === 'terminal' ? 'Run command (Enter)' : 'Send message'}
-            >
-              <ArrowUp className="w-4 h-4" />
-            </button>
-          )}
+          {/* Send button - always visible. Stop button is now in ThinkingStatusPill */}
+          <button
+            type="button"
+            onClick={() => processInput()}
+            className="p-2 rounded-md shadow-sm transition-all hover:opacity-90 cursor-pointer"
+            style={{
+              backgroundColor: theme.colors.accent,
+              color: theme.colors.accentForeground
+            }}
+            title={session.inputMode === 'terminal' ? 'Run command (Enter)' : 'Send message'}
+          >
+            <ArrowUp className="w-4 h-4" />
+          </button>
         </div>
       </div>
     </div>

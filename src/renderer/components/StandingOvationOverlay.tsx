@@ -52,15 +52,15 @@ export function StandingOvationOverlay({
   const goldColor = '#FFD700';
   const purpleAccent = theme.colors.accent;
 
-  // Confetti colors - celebratory mix
-  const confettiColors = [
+  // Confetti colors - celebratory mix (memoized to prevent re-renders)
+  const confettiColors = React.useMemo(() => [
     goldColor, purpleAccent,
     '#FF6B6B', '#FF8E53', '#FFA726', // Warm colors
     '#4ECDC4', '#45B7D1', '#64B5F6', // Cool colors
     '#FFEAA7', '#FFD54F', // Yellows
     '#DDA0DD', '#BA68C8', // Purples
     '#F48FB1', // Pink
-  ];
+  ], [purpleAccent]);
 
   // Z-index layering: backdrop (99997) < confetti (99998) < modal (99999)
   const CONFETTI_Z_INDEX = 99998;
@@ -152,10 +152,11 @@ export function StandingOvationOverlay({
     }, 500);
   }, [confettiColors]);
 
-  // Fire confetti on mount - immediately!
+  // Fire confetti on mount only - empty deps to run once
   useEffect(() => {
     fireConfetti();
-  }, [fireConfetti]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Handle graceful close with confetti
   const handleTakeABow = useCallback(() => {

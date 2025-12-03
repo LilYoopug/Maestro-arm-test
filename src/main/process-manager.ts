@@ -297,17 +297,7 @@ export class ProcessManager extends EventEmitter {
             console.error('[ProcessManager] stdout error:', err);
           });
           childProcess.stdout.on('data', (data: Buffer | string) => {
-            console.log('[ProcessManager] >>> STDOUT EVENT FIRED <<<');
-            console.log('[ProcessManager] stdout event fired for session:', sessionId);
           const output = data.toString();
-
-          console.log('[ProcessManager] stdout data received:', {
-            sessionId,
-            isBatchMode,
-            isStreamJsonMode,
-            dataLength: output.length,
-            dataPreview: output.substring(0, 200)
-          });
 
           if (isStreamJsonMode) {
             // In stream-json mode, each line is a JSONL message
@@ -379,12 +369,10 @@ export class ProcessManager extends EventEmitter {
                     contextWindow
                   };
 
-                  console.log('[ProcessManager] Emitting usage stats from stream-json:', usageStats);
                   this.emit('usage', sessionId, usageStats);
                 }
               } catch (e) {
                 // If it's not valid JSON, emit as raw text
-                console.log('[ProcessManager] Non-JSON line in stream-json mode:', line.substring(0, 100));
                 this.emit('data', sessionId, line);
               }
             }
@@ -487,18 +475,8 @@ export class ProcessManager extends EventEmitter {
                   contextWindow
                 };
 
-                console.log('[ProcessManager] Emitting usage stats:', usageStats);
                 this.emit('usage', sessionId, usageStats);
               }
-
-              // Emit full response for debugging
-              console.log('[ProcessManager] Batch mode JSON response:', {
-                sessionId,
-                hasResult: !!jsonResponse.result,
-                hasSessionId: !!jsonResponse.session_id,
-                sessionIdValue: jsonResponse.session_id,
-                hasCost: jsonResponse.total_cost_usd !== undefined
-              });
             } catch (error) {
               console.error('[ProcessManager] Failed to parse JSON response:', error);
               // Emit raw buffer as fallback
