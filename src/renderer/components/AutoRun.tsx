@@ -70,17 +70,17 @@ interface UndoState {
 // Maximum undo history entries per document
 const MAX_UNDO_HISTORY = 50;
 
-// Custom image component that loads attachments from the session storage
+// Custom image component that loads images from the Auto Run folder or external URLs
 function AttachmentImage({
   src,
   alt,
-  sessionId,
+  folderPath,
   theme,
   onImageClick
 }: {
   src?: string;
   alt?: string;
-  sessionId: string;
+  folderPath: string | null;
   theme: any;
   onImageClick?: (filename: string) => void;
 }) {
@@ -95,11 +95,11 @@ function AttachmentImage({
       return;
     }
 
-    // Check if this is an attachment reference (maestro-attachment://filename)
-    if (src.startsWith('maestro-attachment://')) {
-      const fname = src.replace('maestro-attachment://', '');
+    // Check if this is a relative path (e.g., images/{docName}-{timestamp}.{ext})
+    if (src.startsWith('images/') && folderPath) {
+      const fname = src.split('/').pop() || src;
       setFilename(fname);
-      const cacheKey = `${sessionId}:${fname}`;
+      const cacheKey = `${folderPath}:${src}`;
 
       // Check cache first
       if (imageCache.has(cacheKey)) {
@@ -108,16 +108,22 @@ function AttachmentImage({
         return;
       }
 
-      // Load from attachment storage
-      window.maestro.attachments.load(sessionId, fname).then(result => {
-        if (result.success && result.dataUrl) {
-          imageCache.set(cacheKey, result.dataUrl);
-          setDataUrl(result.dataUrl);
-        } else {
-          setError(result.error || 'Failed to load image');
-        }
-        setLoading(false);
-      });
+      // Load from folder using absolute path
+      const absolutePath = `${folderPath}/${src}`;
+      window.maestro.fs.readFile(absolutePath)
+        .then((result) => {
+          if (result.startsWith('data:')) {
+            imageCache.set(cacheKey, result);
+            setDataUrl(result);
+          } else {
+            setError('Invalid image data');
+          }
+          setLoading(false);
+        })
+        .catch((err) => {
+          setError(`Failed to load image: ${err.message || 'Unknown error'}`);
+          setLoading(false);
+        });
     } else if (src.startsWith('data:')) {
       // Already a data URL
       setDataUrl(src);
@@ -145,9 +151,10 @@ function AttachmentImage({
           setLoading(false);
         });
     } else {
-      // Relative path or other - try to load as file (may fail if not an absolute path)
+      // Other relative path - try to load as file from folderPath if available
       setFilename(src.split('/').pop() || null);
-      window.maestro.fs.readFile(src)
+      const pathToLoad = folderPath ? `${folderPath}/${src}` : src;
+      window.maestro.fs.readFile(pathToLoad)
         .then((result) => {
           if (result.startsWith('data:')) {
             setDataUrl(result);
@@ -161,7 +168,7 @@ function AttachmentImage({
           setLoading(false);
         });
     }
-  }, [src, sessionId]);
+  }, [src, folderPath]);
 
   if (loading) {
     return (
@@ -615,24 +622,33 @@ function AutoRunInner({
   const previewScrollPosRef = useRef(initialPreviewScrollPos);
   const editScrollPosRef = useRef(initialEditScrollPos);
 
-  // Load existing attachments for this session
+  // Load existing images for the current document from the Auto Run folder
   useEffect(() => {
-    if (sessionId) {
-      window.maestro.attachments.list(sessionId).then(result => {
-        if (result.success) {
-          setAttachmentsList(result.files);
-          // Load previews for existing attachments
-          result.files.forEach(filename => {
-            window.maestro.attachments.load(sessionId, filename).then(loadResult => {
-              if (loadResult.success && loadResult.dataUrl) {
-                setAttachmentPreviews(prev => new Map(prev).set(filename, loadResult.dataUrl!));
+    if (folderPath && selectedFile) {
+      window.maestro.autorun.listImages(folderPath, selectedFile).then((result: { success: boolean; images?: { filename: string; relativePath: string }[]; error?: string }) => {
+        if (result.success && result.images) {
+          // Store relative paths (e.g., "images/{docName}-{timestamp}.{ext}")
+          const relativePaths = result.images.map((img: { filename: string; relativePath: string }) => img.relativePath);
+          setAttachmentsList(relativePaths);
+          // Load previews for existing images
+          result.images.forEach((img: { filename: string; relativePath: string }) => {
+            const absolutePath = `${folderPath}/${img.relativePath}`;
+            window.maestro.fs.readFile(absolutePath).then(dataUrl => {
+              if (dataUrl.startsWith('data:')) {
+                setAttachmentPreviews(prev => new Map(prev).set(img.relativePath, dataUrl));
               }
+            }).catch(() => {
+              // Image file might be missing, ignore
             });
           });
         }
       });
+    } else {
+      // Clear attachments when no document is selected
+      setAttachmentsList([]);
+      setAttachmentPreviews(new Map());
     }
-  }, [sessionId]);
+  }, [folderPath, selectedFile]);
 
   // Auto-switch to preview mode when auto-run starts, restore when it ends
   useEffect(() => {
@@ -837,7 +853,7 @@ function AutoRunInner({
 
   // Handle image paste
   const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
-    if (isLocked || !sessionId) return;
+    if (isLocked || !folderPath || !selectedFile) return;
 
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -856,25 +872,25 @@ function AutoRunInner({
           const base64Data = event.target?.result as string;
           if (!base64Data) return;
 
-          // Generate unique filename
-          const timestamp = Date.now();
+          // Extract the base64 content without the data URL prefix
+          const base64Content = base64Data.replace(/^data:image\/\w+;base64,/, '');
           const extension = item.type.split('/')[1] || 'png';
-          const filename = `image_${timestamp}.${extension}`;
 
-          // Save to attachments
-          const result = await window.maestro.attachments.save(sessionId, base64Data, filename);
-          if (result.success && result.filename) {
-            // Update attachments list
-            setAttachmentsList(prev => [...prev, result.filename!]);
-            setAttachmentPreviews(prev => new Map(prev).set(result.filename!, base64Data));
+          // Save to Auto Run folder using the new API
+          const result = await window.maestro.autorun.saveImage(folderPath, selectedFile, base64Content, extension);
+          if (result.success && result.relativePath) {
+            // Update attachments list with the relative path
+            const filename = result.relativePath.split('/').pop() || result.relativePath;
+            setAttachmentsList(prev => [...prev, result.relativePath!]);
+            setAttachmentPreviews(prev => new Map(prev).set(result.relativePath!, base64Data));
 
-            // Insert markdown reference at cursor position
+            // Insert markdown reference at cursor position using relative path
             const textarea = textareaRef.current;
             if (textarea) {
               const cursorPos = textarea.selectionStart;
               const textBefore = localContent.substring(0, cursorPos);
               const textAfter = localContent.substring(cursorPos);
-              const imageMarkdown = `![${result.filename}](maestro-attachment://${result.filename})`;
+              const imageMarkdown = `![${filename}](${result.relativePath})`;
 
               // Push undo state before modifying content
               pushUndoState();
@@ -908,32 +924,34 @@ function AutoRunInner({
         break; // Only handle first image
       }
     }
-  }, [localContent, isLocked, handleContentChange, sessionId, pushUndoState]);
+  }, [localContent, isLocked, handleContentChange, folderPath, selectedFile, pushUndoState]);
 
   // Handle file input for manual image upload
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !sessionId) return;
+    if (!file || !folderPath || !selectedFile) return;
 
     const reader = new FileReader();
     reader.onload = async (event) => {
       const base64Data = event.target?.result as string;
       if (!base64Data) return;
 
-      const timestamp = Date.now();
+      // Extract the base64 content without the data URL prefix
+      const base64Content = base64Data.replace(/^data:image\/\w+;base64,/, '');
       const extension = file.name.split('.').pop() || 'png';
-      const filename = `image_${timestamp}.${extension}`;
 
-      const result = await window.maestro.attachments.save(sessionId, base64Data, filename);
-      if (result.success && result.filename) {
-        setAttachmentsList(prev => [...prev, result.filename!]);
-        setAttachmentPreviews(prev => new Map(prev).set(result.filename!, base64Data));
+      // Save to Auto Run folder using the new API
+      const result = await window.maestro.autorun.saveImage(folderPath, selectedFile, base64Content, extension);
+      if (result.success && result.relativePath) {
+        const filename = result.relativePath.split('/').pop() || result.relativePath;
+        setAttachmentsList(prev => [...prev, result.relativePath!]);
+        setAttachmentPreviews(prev => new Map(prev).set(result.relativePath!, base64Data));
 
         // Push undo state before modifying content
         pushUndoState();
 
         // Insert at end of content - update local and sync to parent immediately
-        const imageMarkdown = `\n![${result.filename}](maestro-attachment://${result.filename})\n`;
+        const imageMarkdown = `\n![${filename}](${result.relativePath})\n`;
         const newContent = localContent + imageMarkdown;
         setLocalContent(newContent);
         handleContentChange(newContent);
@@ -944,33 +962,39 @@ function AutoRunInner({
 
     // Reset input so same file can be selected again
     e.target.value = '';
-  }, [localContent, handleContentChange, sessionId, pushUndoState]);
+  }, [localContent, handleContentChange, folderPath, selectedFile, pushUndoState]);
 
-  // Handle removing an attachment
-  const handleRemoveAttachment = useCallback(async (filename: string) => {
-    if (!sessionId) return;
+  // Handle removing an attachment (relativePath is like "images/{docName}-{timestamp}.{ext}")
+  const handleRemoveAttachment = useCallback(async (relativePath: string) => {
+    if (!folderPath) return;
 
-    await window.maestro.attachments.delete(sessionId, filename);
-    setAttachmentsList(prev => prev.filter(f => f !== filename));
+    // Delete the image file
+    await window.maestro.autorun.deleteImage(folderPath, relativePath);
+    setAttachmentsList(prev => prev.filter(f => f !== relativePath));
     setAttachmentPreviews(prev => {
       const newMap = new Map(prev);
-      newMap.delete(filename);
+      newMap.delete(relativePath);
       return newMap;
     });
 
     // Push undo state before modifying content
     pushUndoState();
 
+    // Extract just the filename for the alt text pattern
+    const filename = relativePath.split('/').pop() || relativePath;
     // Remove the markdown reference from content - update local and sync to parent immediately
-    const regex = new RegExp(`!\\[${filename}\\]\\(maestro-attachment://${filename}\\)\\n?`, 'g');
+    // Match both the full relative path and just filename in the alt text
+    const escapedPath = relativePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escapedFilename = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`!\\[${escapedFilename}\\]\\(${escapedPath}\\)\\n?`, 'g');
     const newContent = localContent.replace(regex, '');
     setLocalContent(newContent);
     handleContentChange(newContent);
     lastUndoSnapshotRef.current = newContent;
 
     // Clear from cache
-    imageCache.delete(`${sessionId}:${filename}`);
-  }, [localContent, handleContentChange, sessionId, pushUndoState]);
+    imageCache.delete(`${folderPath}:${relativePath}`);
+  }, [localContent, handleContentChange, folderPath, pushUndoState]);
 
   // Lightbox helpers - handles both attachment filenames and external URLs
   const openLightboxByFilename = useCallback((filenameOrUrl: string) => {
@@ -1030,14 +1054,14 @@ function AutoRunInner({
   }, [lightboxFilename, lightboxExternalUrl, attachmentPreviews]);
 
   const deleteLightboxImage = useCallback(async () => {
-    if (!lightboxFilename || !sessionId) return;
+    if (!lightboxFilename || !folderPath) return;
 
     // Store the current index before deletion
     const currentIndex = lightboxCurrentIndex;
     const totalImages = attachmentsList.length;
 
-    // Delete the attachment
-    await window.maestro.attachments.delete(sessionId, lightboxFilename);
+    // Delete the image file using autorun API
+    await window.maestro.autorun.deleteImage(folderPath, lightboxFilename);
     setAttachmentsList(prev => prev.filter(f => f !== lightboxFilename));
     setAttachmentPreviews(prev => {
       const newMap = new Map(prev);
@@ -1048,15 +1072,19 @@ function AutoRunInner({
     // Push undo state before modifying content
     pushUndoState();
 
+    // Extract just the filename for the alt text pattern
+    const filename = lightboxFilename.split('/').pop() || lightboxFilename;
     // Remove the markdown reference from content - update local and sync to parent immediately
-    const regex = new RegExp(`!\\[${lightboxFilename}\\]\\(maestro-attachment://${lightboxFilename}\\)\\n?`, 'g');
+    const escapedPath = lightboxFilename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escapedFilename = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`!\\[${escapedFilename}\\]\\(${escapedPath}\\)\\n?`, 'g');
     const newContent = localContent.replace(regex, '');
     setLocalContent(newContent);
     handleContentChange(newContent);
     lastUndoSnapshotRef.current = newContent;
 
     // Clear from cache
-    imageCache.delete(`${sessionId}:${lightboxFilename}`);
+    imageCache.delete(`${folderPath}:${lightboxFilename}`);
 
     // Navigate to next/prev image or close lightbox
     if (totalImages <= 1) {
@@ -1071,7 +1099,7 @@ function AutoRunInner({
       const newList = attachmentsList.filter(f => f !== lightboxFilename);
       setLightboxFilename(newList[currentIndex] || null);
     }
-  }, [lightboxFilename, lightboxCurrentIndex, attachmentsList, sessionId, localContent, handleContentChange, closeLightbox, pushUndoState]);
+  }, [lightboxFilename, lightboxCurrentIndex, attachmentsList, folderPath, localContent, handleContentChange, closeLightbox, pushUndoState]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Cmd+Z to undo, Cmd+Shift+Z to redo
@@ -1309,13 +1337,13 @@ function AutoRunInner({
       <AttachmentImage
         src={src}
         alt={alt}
-        sessionId={sessionId}
+        folderPath={folderPath}
         theme={theme}
         onImageClick={openLightboxByFilename}
         {...props}
       />
     )
-  }), [theme, sessionId, openLightboxByFilename]);
+  }), [theme, folderPath, openLightboxByFilename]);
 
   return (
     <div
