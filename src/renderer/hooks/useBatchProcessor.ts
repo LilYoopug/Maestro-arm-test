@@ -44,6 +44,14 @@ interface BatchCompleteInfo {
   elapsedTimeMs: number;
 }
 
+interface PRResultInfo {
+  sessionId: string;
+  sessionName: string;
+  success: boolean;
+  prUrl?: string;
+  error?: string;
+}
+
 interface UseBatchProcessorProps {
   sessions: Session[];
   onUpdateSession: (sessionId: string, updates: Partial<Session>) => void;
@@ -51,6 +59,8 @@ interface UseBatchProcessorProps {
   onSpawnSynopsis: (sessionId: string, cwd: string, claudeSessionId: string, prompt: string) => Promise<{ success: boolean; response?: string }>;
   onAddHistoryEntry: (entry: Omit<HistoryEntry, 'id'>) => void;
   onComplete?: (info: BatchCompleteInfo) => void;
+  // Callback for PR creation results (success or failure)
+  onPRResult?: (info: PRResultInfo) => void;
   // TTS settings for speaking synopsis after each task
   audioFeedbackEnabled?: boolean;
   audioFeedbackCommand?: string;
@@ -140,6 +150,7 @@ export function useBatchProcessor({
   onSpawnSynopsis,
   onAddHistoryEntry,
   onComplete,
+  onPRResult,
   audioFeedbackEnabled,
   audioFeedbackCommand
 }: UseBatchProcessorProps): UseBatchProcessorReturn {
@@ -585,6 +596,7 @@ ${docList}
 
     // Create PR if worktree was used, PR creation is enabled, and not stopped
     const wasStopped = stopRequestedRefs.current[sessionId] || false;
+    const sessionName = session.name || session.cwd.split('/').pop() || 'Unknown';
     if (worktreeActive && worktree?.createPROnCompletion && !wasStopped && totalCompletedTasks > 0) {
       console.log('[BatchProcessor] Creating PR from worktree branch', worktreeBranch);
 
@@ -609,11 +621,38 @@ ${docList}
 
         if (prResult.success) {
           console.log('[BatchProcessor] PR created successfully:', prResult.prUrl);
+          // Notify caller of successful PR creation
+          if (onPRResult) {
+            onPRResult({
+              sessionId,
+              sessionName,
+              success: true,
+              prUrl: prResult.prUrl
+            });
+          }
         } else {
           console.warn('[BatchProcessor] PR creation failed:', prResult.error);
+          // Notify caller of PR creation failure (doesn't fail the run)
+          if (onPRResult) {
+            onPRResult({
+              sessionId,
+              sessionName,
+              success: false,
+              error: prResult.error
+            });
+          }
         }
       } catch (error) {
         console.error('[BatchProcessor] Error creating PR:', error);
+        // Notify caller of PR creation error (doesn't fail the run)
+        if (onPRResult) {
+          onPRResult({
+            sessionId,
+            sessionName,
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+        }
       }
     }
 
@@ -655,7 +694,7 @@ ${docList}
         elapsedTimeMs: Date.now() - batchStartTime
       });
     }
-  }, [sessions, onUpdateSession, onSpawnAgent, onSpawnSynopsis, onAddHistoryEntry, onComplete, audioFeedbackEnabled, audioFeedbackCommand]);
+  }, [sessions, onUpdateSession, onSpawnAgent, onSpawnSynopsis, onAddHistoryEntry, onComplete, onPRResult, audioFeedbackEnabled, audioFeedbackCommand]);
 
   /**
    * Request to stop the batch run for a specific session after current task completes

@@ -2346,6 +2346,34 @@ export default function MaestroConsole() {
           }
         }
       }
+    },
+    onPRResult: (info) => {
+      // Find group name for the session
+      const session = sessions.find(s => s.id === info.sessionId);
+      const sessionGroup = session?.groupId ? groups.find(g => g.id === session.groupId) : null;
+      const groupName = sessionGroup?.name || 'Ungrouped';
+
+      if (info.success) {
+        // PR created successfully - show success toast with PR URL
+        addToast({
+          type: 'success',
+          title: 'PR Created',
+          message: info.prUrl || 'Pull request created successfully',
+          group: groupName,
+          project: info.sessionName,
+          sessionId: info.sessionId,
+        });
+      } else {
+        // PR creation failed - show warning (not error, since the auto-run itself succeeded)
+        addToast({
+          type: 'warning',
+          title: 'PR Creation Failed',
+          message: info.error || 'Failed to create pull request',
+          group: groupName,
+          project: info.sessionName,
+          sessionId: info.sessionId,
+        });
+      }
     }
   });
 
