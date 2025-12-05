@@ -69,31 +69,31 @@ export interface TemplateContext {
   documentPath?: string;
 }
 
-// List of all available template variables for documentation
+// List of all available template variables for documentation (alphabetically sorted)
 export const TEMPLATE_VARIABLES = [
-  { variable: '{{SESSION_ID}}', description: 'Maestro session ID' },
-  { variable: '{{SESSION_NAME}}', description: 'Session name' },
-  { variable: '{{AGENT_SESSION_ID}}', description: 'Agent session ID' },
-  { variable: '{{TOOL_TYPE}}', description: 'Agent type' },
-  { variable: '{{AGENT_NAME}}', description: 'Agent name' },
   { variable: '{{AGENT_GROUP}}', description: 'Agent group name' },
-  { variable: '{{PROJECT_PATH}}', description: 'Project directory path' },
-  { variable: '{{PROJECT_NAME}}', description: 'Project folder name' },
-  { variable: '{{CWD}}', description: 'Working directory' },
+  { variable: '{{AGENT_NAME}}', description: 'Agent name' },
+  { variable: '{{AGENT_SESSION_ID}}', description: 'Agent session ID' },
   { variable: '{{AUTORUN_FOLDER}}', description: 'Auto Run folder path' },
+  { variable: '{{CONTEXT_USAGE}}', description: 'Context usage %' },
+  { variable: '{{CWD}}', description: 'Working directory' },
+  { variable: '{{DATE}}', description: 'Date (YYYY-MM-DD)' },
+  { variable: '{{DATETIME}}', description: 'Full datetime' },
+  { variable: '{{DATE_SHORT}}', description: 'Date (MM/DD/YY)' },
   { variable: '{{DOCUMENT_NAME}}', description: 'Current document name' },
   { variable: '{{DOCUMENT_PATH}}', description: 'Current document path' },
-  { variable: '{{LOOP_NUMBER}}', description: 'Current loop iteration (1+)' },
-  { variable: '{{DATE}}', description: 'Date (YYYY-MM-DD)' },
-  { variable: '{{TIME}}', description: 'Time (HH:MM:SS)' },
-  { variable: '{{DATETIME}}', description: 'Full datetime' },
-  { variable: '{{TIMESTAMP}}', description: 'Unix timestamp (ms)' },
-  { variable: '{{DATE_SHORT}}', description: 'Date (MM/DD/YY)' },
-  { variable: '{{TIME_SHORT}}', description: 'Time (HH:MM)' },
-  { variable: '{{YEAR}}', description: 'Current year' },
   { variable: '{{GIT_BRANCH}}', description: 'Git branch name' },
   { variable: '{{IS_GIT_REPO}}', description: 'Is git repo (true/false)' },
-  { variable: '{{CONTEXT_USAGE}}', description: 'Context usage %' },
+  { variable: '{{LOOP_NUMBER}}', description: 'Current loop iteration (1+)' },
+  { variable: '{{PROJECT_NAME}}', description: 'Project folder name' },
+  { variable: '{{PROJECT_PATH}}', description: 'Project directory path' },
+  { variable: '{{SESSION_ID}}', description: 'Maestro session ID' },
+  { variable: '{{SESSION_NAME}}', description: 'Session name' },
+  { variable: '{{TIME}}', description: 'Time (HH:MM:SS)' },
+  { variable: '{{TIMESTAMP}}', description: 'Unix timestamp (ms)' },
+  { variable: '{{TIME_SHORT}}', description: 'Time (HH:MM)' },
+  { variable: '{{TOOL_TYPE}}', description: 'Agent type' },
+  { variable: '{{YEAR}}', description: 'Current year' },
 ];
 
 /**

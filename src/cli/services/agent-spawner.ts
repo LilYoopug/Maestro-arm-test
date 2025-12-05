@@ -5,10 +5,14 @@ import { spawn, SpawnOptions } from 'child_process';
 import * as os from 'os';
 import * as fs from 'fs';
 import type { UsageStats } from '../../shared/types';
+import { getAgentCustomPath } from './storage';
 
-// Claude Code command and arguments (same as Electron app)
-const CLAUDE_COMMAND = 'claude';
+// Claude Code default command and arguments (same as Electron app)
+const CLAUDE_DEFAULT_COMMAND = 'claude';
 const CLAUDE_ARGS = ['--print', '--verbose', '--output-format', 'stream-json', '--dangerously-skip-permissions'];
+
+// Cached Claude path (resolved once at startup)
+let cachedClaudePath: string | null = null;
 
 // Result from spawning an agent
 export interface AgentResult {
@@ -52,31 +56,93 @@ function getExpandedPath(): string {
 }
 
 /**
- * Check if Claude Code is available
+ * Check if a file exists and is executable
  */
-export async function detectClaude(): Promise<{ available: boolean; path?: string }> {
+async function isExecutable(filePath: string): Promise<boolean> {
+  try {
+    const stats = await fs.promises.stat(filePath);
+    if (!stats.isFile()) return false;
+
+    // On Unix, check executable permission
+    if (process.platform !== 'win32') {
+      try {
+        await fs.promises.access(filePath, fs.constants.X_OK);
+      } catch {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Find Claude in PATH using 'which' command
+ */
+async function findClaudeInPath(): Promise<string | undefined> {
   return new Promise((resolve) => {
     const env = { ...process.env, PATH: getExpandedPath() };
+    const command = process.platform === 'win32' ? 'where' : 'which';
 
-    const which = spawn('which', [CLAUDE_COMMAND], { env });
+    const proc = spawn(command, [CLAUDE_DEFAULT_COMMAND], { env });
     let stdout = '';
 
-    which.stdout?.on('data', (data) => {
+    proc.stdout?.on('data', (data) => {
       stdout += data.toString();
     });
 
-    which.on('close', (code) => {
+    proc.on('close', (code) => {
       if (code === 0 && stdout.trim()) {
-        resolve({ available: true, path: stdout.trim() });
+        resolve(stdout.trim().split('\n')[0]); // First match
       } else {
-        resolve({ available: false });
+        resolve(undefined);
       }
     });
 
-    which.on('error', () => {
-      resolve({ available: false });
+    proc.on('error', () => {
+      resolve(undefined);
     });
   });
+}
+
+/**
+ * Check if Claude Code is available
+ * First checks for a custom path in settings, then falls back to PATH detection
+ */
+export async function detectClaude(): Promise<{ available: boolean; path?: string; source?: 'settings' | 'path' }> {
+  // Return cached result if available
+  if (cachedClaudePath) {
+    return { available: true, path: cachedClaudePath, source: 'settings' };
+  }
+
+  // 1. Check for custom path in settings (same settings as desktop app)
+  const customPath = getAgentCustomPath('claude-code');
+  if (customPath) {
+    if (await isExecutable(customPath)) {
+      cachedClaudePath = customPath;
+      return { available: true, path: customPath, source: 'settings' };
+    }
+    // Custom path is set but invalid - warn but continue to PATH detection
+    console.error(`Warning: Custom Claude path "${customPath}" is not executable, falling back to PATH detection`);
+  }
+
+  // 2. Fall back to PATH detection
+  const pathResult = await findClaudeInPath();
+  if (pathResult) {
+    cachedClaudePath = pathResult;
+    return { available: true, path: pathResult, source: 'path' };
+  }
+
+  return { available: false };
+}
+
+/**
+ * Get the resolved Claude command/path for spawning
+ * Uses cached path from detectClaude() or falls back to default command
+ */
+export function getClaudeCommand(): string {
+  return cachedClaudePath || CLAUDE_DEFAULT_COMMAND;
 }
 
 /**
@@ -109,7 +175,9 @@ export async function spawnAgent(
       stdio: ['pipe', 'pipe', 'pipe'],
     };
 
-    const child = spawn(CLAUDE_COMMAND, args, options);
+    // Use the resolved Claude path (from settings or PATH detection)
+    const claudeCommand = getClaudeCommand();
+    const child = spawn(claudeCommand, args, options);
 
     let jsonBuffer = '';
     let result: string | undefined;

@@ -1717,7 +1717,7 @@ function AutoRunInner({
       )}
 
       {/* Content Area */}
-      <div className="flex-1 min-h-0 overflow-hidden">
+      <div className="flex-1 min-h-0 overflow-y-auto">
         {/* Empty folder state - show when folder is configured but has no documents */}
         {folderPath && documentList.length === 0 && !isLoadingDocuments ? (
           <div
@@ -1808,7 +1808,7 @@ function AutoRunInner({
         ) : (
           <div
             ref={previewRef}
-            className="h-full border rounded p-4 overflow-y-auto prose prose-sm max-w-none outline-none scrollbar-thin"
+            className="border rounded p-4 prose prose-sm max-w-none outline-none"
             tabIndex={0}
             onKeyDown={(e) => {
               if ((e.metaKey || e.ctrlKey) && e.key === 'e') {

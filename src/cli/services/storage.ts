@@ -57,6 +57,10 @@ interface SettingsStore {
   [key: string]: unknown;
 }
 
+interface AgentConfigsStore {
+  configs: Record<string, Record<string, unknown>>;
+}
+
 /**
  * Read all sessions from storage
  */
@@ -98,6 +102,28 @@ export function readHistory(projectPath?: string, sessionId?: string): HistoryEn
 export function readSettings(): SettingsStore {
   const data = readStoreFile<SettingsStore>('maestro-settings.json');
   return data || {};
+}
+
+/**
+ * Read agent configurations from storage
+ * This includes custom paths set by the user in the desktop app
+ */
+export function readAgentConfigs(): Record<string, Record<string, unknown>> {
+  const data = readStoreFile<AgentConfigsStore>('maestro-agent-configs.json');
+  return data?.configs || {};
+}
+
+/**
+ * Get the custom path for a specific agent (e.g., 'claude-code')
+ * Returns undefined if no custom path is configured
+ */
+export function getAgentCustomPath(agentId: string): string | undefined {
+  const configs = readAgentConfigs();
+  const agentConfig = configs[agentId];
+  if (agentConfig && typeof agentConfig.customPath === 'string' && agentConfig.customPath) {
+    return agentConfig.customPath;
+  }
+  return undefined;
 }
 
 /**
