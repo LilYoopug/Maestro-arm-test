@@ -54,6 +54,18 @@ vi.mock('../../../shared/cli-activity', () => ({
   unregisterCliActivity: vi.fn(),
 }));
 
+// Mock logger
+vi.mock('../../../main/utils/logger', () => ({
+  logger: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    toast: vi.fn(),
+    autorun: vi.fn(),
+  },
+}));
+
 // Import after mocks
 import { runPlaybook } from '../../../cli/services/batch-processor';
 import {

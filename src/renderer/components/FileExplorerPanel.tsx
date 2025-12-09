@@ -198,7 +198,7 @@ export function FileExplorerPanel(props: FileExplorerPanelProps) {
     return nodes.map((node, idx) => {
       const fullPath = currentPath ? `${currentPath}/${node.name}` : node.name;
       const absolutePath = `${session.fullPath}/${fullPath}`;
-      const change = session.changedFiles.find(f => f.path.includes(node.name));
+      const change = session.changedFiles?.find(f => f.path.includes(node.name));
       const isFolder = node.type === 'folder';
       const isExpanded = expandedSet.has(fullPath);
       const isSelected = previewFile?.path === absolutePath;

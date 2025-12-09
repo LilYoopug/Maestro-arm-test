@@ -7,7 +7,7 @@ import { ConfirmModal } from './ConfirmModal';
 
 interface SystemLogEntry {
   timestamp: number;
-  level: 'debug' | 'info' | 'warn' | 'error' | 'toast';
+  level: 'debug' | 'info' | 'warn' | 'error' | 'toast' | 'autorun';
   message: string;
   context?: string;
   data?: unknown;
@@ -37,24 +37,26 @@ export function LogViewer({ theme, onClose, logLevel = 'info', savedSelectedLeve
 
   // Determine which log levels are enabled based on current log level setting
   // Levels with priority >= current level are enabled
-  const enabledLevels = new Set<'debug' | 'info' | 'warn' | 'error' | 'toast'>(
+  const enabledLevels = new Set<'debug' | 'info' | 'warn' | 'error' | 'toast' | 'autorun'>(
     (['debug', 'info', 'warn', 'error'] as const).filter(
       level => LOG_LEVEL_PRIORITY[level] >= LOG_LEVEL_PRIORITY[logLevel]
     )
   );
   // Toast is always enabled (it's a special notification level)
   enabledLevels.add('toast');
+  // Auto Run is always enabled (workflow tracking cannot be turned off)
+  enabledLevels.add('autorun');
 
   // Initialize selectedLevels from saved settings if available
-  const [selectedLevels, setSelectedLevelsState] = useState<Set<'debug' | 'info' | 'warn' | 'error' | 'toast'>>(() => {
+  const [selectedLevels, setSelectedLevelsState] = useState<Set<'debug' | 'info' | 'warn' | 'error' | 'toast' | 'autorun'>>(() => {
     if (savedSelectedLevels && savedSelectedLevels.length > 0) {
-      return new Set(savedSelectedLevels as ('debug' | 'info' | 'warn' | 'error' | 'toast')[]);
+      return new Set(savedSelectedLevels as ('debug' | 'info' | 'warn' | 'error' | 'toast' | 'autorun')[]);
     }
-    return new Set(['debug', 'info', 'warn', 'error', 'toast']);
+    return new Set(['debug', 'info', 'warn', 'error', 'toast', 'autorun']);
   });
 
   // Wrapper to persist changes when selectedLevels changes
-  const setSelectedLevels = useCallback((updater: Set<'debug' | 'info' | 'warn' | 'error' | 'toast'> | ((prev: Set<'debug' | 'info' | 'warn' | 'error' | 'toast'>) => Set<'debug' | 'info' | 'warn' | 'error' | 'toast'>)) => {
+  const setSelectedLevels = useCallback((updater: Set<'debug' | 'info' | 'warn' | 'error' | 'toast' | 'autorun'> | ((prev: Set<'debug' | 'info' | 'warn' | 'error' | 'toast' | 'autorun'>) => Set<'debug' | 'info' | 'warn' | 'error' | 'toast' | 'autorun'>)) => {
     setSelectedLevelsState(prev => {
       const newSet = typeof updater === 'function' ? updater(prev) : updater;
       // Persist to settings
@@ -289,6 +291,8 @@ export function LogViewer({ theme, onClose, logLevel = 'info', savedSelectedLeve
         return '#ef4444'; // Red
       case 'toast':
         return '#a855f7'; // Purple
+      case 'autorun':
+        return '#f97316'; // Orange
       default:
         return theme.colors.textDim;
     }
@@ -306,6 +310,8 @@ export function LogViewer({ theme, onClose, logLevel = 'info', savedSelectedLeve
         return 'rgba(239, 68, 68, 0.15)';
       case 'toast':
         return 'rgba(168, 85, 247, 0.15)';
+      case 'autorun':
+        return 'rgba(249, 115, 22, 0.15)';
       default:
         return 'transparent';
     }
@@ -427,15 +433,17 @@ export function LogViewer({ theme, onClose, logLevel = 'info', savedSelectedLeve
           ALL
         </button>
         {/* Individual level toggle buttons */}
-        {(['debug', 'info', 'warn', 'error', 'toast'] as const).map(level => {
+        {(['debug', 'info', 'warn', 'error', 'toast', 'autorun'] as const).map(level => {
           const isSelected = selectedLevels.has(level);
           const isEnabled = enabledLevels.has(level);
+          // Auto Run cannot be turned off - it's always enabled and selected
+          const isAlwaysOn = level === 'autorun';
           return (
             <button
               key={level}
-              disabled={!isEnabled}
+              disabled={!isEnabled || isAlwaysOn}
               onClick={() => {
-                if (!isEnabled) return; // Safety check
+                if (!isEnabled || isAlwaysOn) return; // Safety check
                 setSelectedLevels(prev => {
                   const newSet = new Set(prev);
                   if (newSet.has(level)) {
@@ -454,9 +462,9 @@ export function LogViewer({ theme, onClose, logLevel = 'info', savedSelectedLeve
                   : theme.colors.textDim,
                 border: `1px solid ${isEnabled && isSelected ? getLevelColor(level) : theme.colors.border}`,
                 opacity: isEnabled ? 1 : 0.3,
-                cursor: isEnabled ? 'pointer' : 'not-allowed',
+                cursor: isEnabled && !isAlwaysOn ? 'pointer' : 'not-allowed',
               }}
-              title={isEnabled ? undefined : `${level} level is disabled (current log level: ${logLevel})`}
+              title={isAlwaysOn ? 'Auto Run logs cannot be turned off' : (isEnabled ? undefined : `${level} level is disabled (current log level: ${logLevel})`)}
             >
               {level.toUpperCase()}
             </button>

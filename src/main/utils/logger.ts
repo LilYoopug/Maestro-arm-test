@@ -3,7 +3,7 @@
  * Logs are stored in memory and can be retrieved via IPC
  */
 
-export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'toast';
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'toast' | 'autorun';
 
 export interface LogEntry {
   timestamp: number;
@@ -24,6 +24,7 @@ class Logger {
     warn: 2,
     error: 3,
     toast: 1, // Toast notifications always logged at info priority (always visible)
+    autorun: 1, // Auto Run logs always logged at info priority (always visible)
   };
 
   setLogLevel(level: LogLevel): void {
@@ -80,6 +81,10 @@ class Logger {
         // Toast notifications logged with info styling (purple in LogViewer)
         console.info(message, entry.data || '');
         break;
+      case 'autorun':
+        // Auto Run logs for workflow tracking (orange in LogViewer)
+        console.info(message, entry.data || '');
+        break;
     }
   }
 
@@ -132,6 +137,17 @@ class Logger {
     this.addLog({
       timestamp: Date.now(),
       level: 'toast',
+      message,
+      context,
+      data,
+    });
+  }
+
+  autorun(message: string, context?: string, data?: unknown): void {
+    // Auto Run logs are always logged (workflow tracking cannot be turned off)
+    this.addLog({
+      timestamp: Date.now(),
+      level: 'autorun',
       message,
       context,
       data,

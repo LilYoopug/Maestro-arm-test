@@ -14,6 +14,7 @@ import {
 import { addHistoryEntry, readGroups } from './storage';
 import { substituteTemplateVariables, TemplateContext } from '../../shared/templateVariables';
 import { registerCliActivity, updateCliActivity, unregisterCliActivity } from '../../shared/cli-activity';
+import { logger } from '../../main/utils/logger';
 
 // Synopsis prompt for batch tasks
 const BATCH_SYNOPSIS_PROMPT = `Provide a brief synopsis of what you just accomplished in this task using this exact format:
@@ -147,6 +148,18 @@ export async function* runPlaybook(
     session: { id: session.id, name: session.name, cwd: session.cwd },
   };
 
+  // AUTORUN LOG: Start
+  logger.autorun(
+    `Auto Run started`,
+    session.name,
+    {
+      playbook: playbook.name,
+      documents: playbook.documents.map(d => d.filename),
+      loopEnabled: playbook.loopEnabled,
+      maxLoops: playbook.maxLoops ?? 'unlimited'
+    }
+  );
+
   // Emit debug info about playbook configuration
   if (debug) {
     yield {
@@ -275,6 +288,17 @@ export async function* runPlaybook(
 
   // Helper to create final loop entry with exit reason
   const createFinalLoopEntry = (exitReason: string): void => {
+    // AUTORUN LOG: Exit
+    logger.autorun(
+      `Auto Run exiting: ${exitReason}`,
+      session.name,
+      {
+        reason: exitReason,
+        totalTasksCompleted: totalCompletedTasks,
+        loopsCompleted: loopIteration + 1
+      }
+    );
+
     if (!writeHistory) return;
     // Only write if looping was enabled and we did some work
     if (!playbook.loopEnabled && loopIteration === 0) return;
@@ -396,6 +420,17 @@ export async function* runPlaybook(
         index: docIndex,
         taskCount: remainingTasks,
       };
+
+      // AUTORUN LOG: Document processing
+      logger.autorun(
+        `Processing document: ${docEntry.filename}`,
+        session.name,
+        {
+          document: docEntry.filename,
+          tasksRemaining: remainingTasks,
+          loopNumber: loopIteration + 1
+        }
+      );
 
       let docTasksCompleted = 0;
       let taskIndex = 0;
@@ -550,6 +585,17 @@ export async function* runPlaybook(
 
       // Document complete - handle reset-on-completion
       if (docEntry.resetOnCompletion && docTasksCompleted > 0) {
+        // AUTORUN LOG: Document reset
+        logger.autorun(
+          `Resetting document: ${docEntry.filename}`,
+          session.name,
+          {
+            document: docEntry.filename,
+            tasksCompleted: docTasksCompleted,
+            loopNumber: loopIteration + 1
+          }
+        );
+
         const { content: currentContent } = readDocAndCountTasks(folderPath, docEntry.filename);
         const resetContent = uncheckAllTasks(currentContent);
         writeDoc(folderPath, docEntry.filename + '.md', resetContent);
@@ -703,6 +749,16 @@ export async function* runPlaybook(
       elapsedMs: loopElapsedMs,
       usageStats: loopUsageStats,
     };
+
+    // AUTORUN LOG: Loop completion
+    logger.autorun(
+      `Loop ${loopIteration + 1} completed`,
+      session.name,
+      {
+        loopNumber: loopIteration + 1,
+        tasksCompleted: loopTasksCompleted
+      }
+    );
 
     // Add loop summary history entry
     if (writeHistory) {

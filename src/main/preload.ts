@@ -389,6 +389,9 @@ contextBridge.exposeInMainWorld('maestro', {
     // Convenience method for logging toast notifications
     toast: (title: string, data?: unknown) =>
       ipcRenderer.invoke('logger:log', 'toast', title, 'Toast', data),
+    // Convenience method for Auto Run workflow logging (cannot be turned off)
+    autorun: (message: string, context?: string, data?: unknown) =>
+      ipcRenderer.invoke('logger:log', 'autorun', message, context || 'AutoRun', data),
   },
 
   // Claude Code sessions API

@@ -434,7 +434,7 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
   const [displayCount, setDisplayCount] = useState(INITIAL_DISPLAY_COUNT);
   const [graphReferenceTime, setGraphReferenceTime] = useState<number | undefined>(undefined);
   const [helpModalOpen, setHelpModalOpen] = useState(false);
-  const [graphLookbackHours, setGraphLookbackHours] = useState<number | null>(24); // default 24 hours
+  const [graphLookbackHours, setGraphLookbackHours] = useState<number | null>(null); // default to "All time"
 
   const listRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Record<number, HTMLDivElement | null>>({});
@@ -501,6 +501,26 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
   useEffect(() => {
     loadHistory();
   }, [loadHistory]);
+
+  // Load persisted graph lookback preference for this session
+  useEffect(() => {
+    const loadLookbackPreference = async () => {
+      const settingsKey = `historyGraphLookback:${session.id}`;
+      const saved = await window.maestro.settings.get(settingsKey);
+      if (saved !== undefined) {
+        // saved could be null (all time) or a number
+        setGraphLookbackHours(saved as number | null);
+      }
+    };
+    loadLookbackPreference();
+  }, [session.id]);
+
+  // Handler to update lookback hours and persist the preference
+  const handleLookbackChange = useCallback((hours: number | null) => {
+    setGraphLookbackHours(hours);
+    const settingsKey = `historyGraphLookback:${session.id}`;
+    window.maestro.settings.set(settingsKey, hours);
+  }, [session.id]);
 
   // Toggle a filter
   const toggleFilter = (type: HistoryEntryType) => {
@@ -822,7 +842,7 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
           referenceTime={graphReferenceTime}
           onBarClick={handleGraphBarClick}
           lookbackHours={graphLookbackHours}
-          onLookbackChange={setGraphLookbackHours}
+          onLookbackChange={handleLookbackChange}
         />
 
         {/* Help button */}

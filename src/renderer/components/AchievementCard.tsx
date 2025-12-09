@@ -836,7 +836,7 @@ export function AchievementCard({ theme, autoRunStats, globalStats, onEscapeWith
               style={{ backgroundColor: theme.colors.bgMain }}
             >
               {[...autoRunStats.badgeHistory]
-                .sort((a, b) => b.unlockedAt - a.unlockedAt)
+                .sort((a, b) => a.unlockedAt - b.unlockedAt)
                 .map((record) => {
                   const badge = CONDUCTOR_BADGES.find((b) => b.level === record.level);
                   if (!badge) return null;

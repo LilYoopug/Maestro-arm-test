@@ -1140,13 +1140,11 @@ describe('FileExplorerPanel', () => {
       expect(screen.getByText('src')).toBeInTheDocument();
     });
 
-    // TODO: PENDING - NEEDS FIX - Source code at line 201 doesn't handle undefined changedFiles
-    // The code does: session.changedFiles.find(...) without null check
-    it.skip('handles undefined changedFiles', () => {
+    it('handles undefined changedFiles', () => {
       const session = createMockSession({ changedFiles: undefined as any });
       const { container } = render(<FileExplorerPanel {...defaultProps} session={session} />);
 
-      // Should render without crashing
+      // Should render without crashing (fixed with optional chaining at line 201)
       expect(container).toBeTruthy();
     });
 

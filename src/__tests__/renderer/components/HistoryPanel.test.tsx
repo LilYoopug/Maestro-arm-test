@@ -1329,7 +1329,7 @@ describe('HistoryPanel', () => {
       });
     });
 
-    it('should show hour labels (24h, 16h, 8h, 0h)', async () => {
+    it('should show "Now" label for all-time view (default)', async () => {
       mockHistoryGetAll.mockResolvedValue([]);
 
       render(
@@ -1339,11 +1339,9 @@ describe('HistoryPanel', () => {
         />
       );
 
+      // Default is now "All time" which shows start date and "Now" labels
       await waitFor(() => {
-        expect(screen.getByText('24h')).toBeInTheDocument();
-        expect(screen.getByText('16h')).toBeInTheDocument();
-        expect(screen.getByText('8h')).toBeInTheDocument();
-        expect(screen.getByText('0h')).toBeInTheDocument();
+        expect(screen.getByText('Now')).toBeInTheDocument();
       });
     });
 

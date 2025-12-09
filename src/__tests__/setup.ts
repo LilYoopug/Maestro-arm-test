@@ -55,7 +55,9 @@ const mockMaestro = {
   },
   groups: {
     get: vi.fn().mockResolvedValue([]),
+    getAll: vi.fn().mockResolvedValue([]),
     save: vi.fn().mockResolvedValue(undefined),
+    setAll: vi.fn().mockResolvedValue(undefined),
   },
   process: {
     spawn: vi.fn().mockResolvedValue({ pid: 12345 }),
@@ -159,6 +161,7 @@ const mockMaestro = {
     log: vi.fn(),
     error: vi.fn(),
     toast: vi.fn(),
+    autorun: vi.fn(),
     getLogLevel: vi.fn().mockResolvedValue('info'),
     setLogLevel: vi.fn().mockResolvedValue(undefined),
     getMaxLogBuffer: vi.fn().mockResolvedValue(5000),

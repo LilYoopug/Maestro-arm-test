@@ -467,6 +467,18 @@ ${docList}
       }
     }));
 
+    // AUTORUN LOG: Start
+    window.maestro.logger.autorun(
+      `Auto Run started`,
+      session.name,
+      {
+        documents: documents.map(d => d.filename),
+        totalTasks: initialTotalTasks,
+        loopEnabled,
+        maxLoops: maxLoops ?? 'unlimited'
+      }
+    );
+
     // Store custom prompt for persistence
     setCustomPrompts(prev => ({ ...prev, [sessionId]: prompt }));
 
@@ -485,6 +497,17 @@ ${docList}
 
     // Helper to add final loop summary (defined here so it has access to tracking vars)
     const addFinalLoopSummary = (exitReason: string) => {
+      // AUTORUN LOG: Exit
+      window.maestro.logger.autorun(
+        `Auto Run exiting: ${exitReason}`,
+        session.name,
+        {
+          reason: exitReason,
+          totalTasksCompleted: totalCompletedTasks,
+          loopsCompleted: loopIteration + 1
+        }
+      );
+
       if (loopEnabled && (loopTasksCompleted > 0 || loopIteration > 0)) {
         onAddHistoryEntry(createLoopSummaryEntry({
           loopIteration,
@@ -556,6 +579,17 @@ ${docList}
         }
 
         console.log(`[BatchProcessor] Processing document ${docEntry.filename} with ${remainingTasks} tasks`);
+
+        // AUTORUN LOG: Document processing
+        window.maestro.logger.autorun(
+          `Processing document: ${docEntry.filename}`,
+          session.name,
+          {
+            document: docEntry.filename,
+            tasksRemaining: remainingTasks,
+            loopNumber: loopIteration + 1
+          }
+        );
 
         // Update state to show current document
         setBatchRunStates(prev => ({
@@ -726,6 +760,17 @@ ${docList}
         if (docEntry.resetOnCompletion && docTasksCompleted > 0) {
           console.log(`[BatchProcessor] Resetting document ${docEntry.filename} (reset-on-completion enabled)`);
 
+          // AUTORUN LOG: Document reset
+          window.maestro.logger.autorun(
+            `Resetting document: ${docEntry.filename}`,
+            session.name,
+            {
+              document: docEntry.filename,
+              tasksCompleted: docTasksCompleted,
+              loopNumber: loopIteration + 1
+            }
+          );
+
           // Read the current content and uncheck all tasks
           const { content: currentContent } = await readDocAndCountTasks(folderPath, docEntry.filename);
 
@@ -767,6 +812,16 @@ ${docList}
       // Check if we should continue looping
       if (!loopEnabled) {
         // No loop mode - we're done after one pass
+        // AUTORUN LOG: Exit (non-loop mode)
+        window.maestro.logger.autorun(
+          `Auto Run completed (single pass)`,
+          session.name,
+          {
+            reason: 'Single pass completed',
+            totalTasksCompleted: totalCompletedTasks,
+            loopsCompleted: 1
+          }
+        );
         break;
       }
 
@@ -865,6 +920,17 @@ ${docList}
       loopTotalInputTokens = 0;
       loopTotalOutputTokens = 0;
       loopTotalCost = 0;
+
+      // AUTORUN LOG: Loop completion
+      window.maestro.logger.autorun(
+        `Loop ${loopIteration + 1} completed`,
+        session.name,
+        {
+          loopNumber: loopIteration + 1,
+          tasksCompleted: loopTasksCompleted,
+          tasksForNextLoop: newTotalTasks
+        }
+      );
 
       // Continue looping
       loopIteration++;
