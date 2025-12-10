@@ -188,7 +188,7 @@ describe('fileExplorer utils', () => {
       expect(result[2]).toEqual({ name: 'README.md', type: 'file' });
     });
 
-    it('skips hidden files (starting with .)', async () => {
+    it('includes hidden files and directories (starting with .)', async () => {
       vi.mocked(window.maestro.fs.readDir)
         .mockResolvedValueOnce([
           { name: '.git', isFile: false, isDirectory: true },
@@ -197,12 +197,16 @@ describe('fileExplorer utils', () => {
           { name: 'src', isFile: false, isDirectory: true },
           { name: 'README.md', isFile: true, isDirectory: false },
         ])
-        .mockResolvedValue([]); // Empty for src folder recursion
+        .mockResolvedValue([]); // Empty for recursive folder calls
 
       const result = await loadFileTree('/project');
 
-      expect(result).toHaveLength(2);
-      expect(result.find((n) => n.name.startsWith('.'))).toBeUndefined();
+      expect(result).toHaveLength(5);
+      expect(result.find((n) => n.name === '.git')).toBeDefined();
+      expect(result.find((n) => n.name === '.gitignore')).toBeDefined();
+      expect(result.find((n) => n.name === '.env')).toBeDefined();
+      expect(result.find((n) => n.name === 'src')).toBeDefined();
+      expect(result.find((n) => n.name === 'README.md')).toBeDefined();
     });
 
     it('skips node_modules directory', async () => {

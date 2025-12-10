@@ -34,8 +34,8 @@ export async function loadFileTree(
     const tree: FileTreeNode[] = [];
 
     for (const entry of entries) {
-      // Skip hidden files and common ignore patterns
-      if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === '__pycache__') {
+      // Skip common ignore patterns (but allow hidden files/directories starting with .)
+      if (entry.name === 'node_modules' || entry.name === '__pycache__') {
         continue;
       }
 
