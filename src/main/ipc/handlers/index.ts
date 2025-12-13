@@ -10,10 +10,12 @@
 import { BrowserWindow, App } from 'electron';
 import { registerGitHandlers } from './git';
 import { registerAutorunHandlers } from './autorun';
+import { registerPlaybooksHandlers } from './playbooks';
 
 // Re-export individual handlers for selective registration
 export { registerGitHandlers };
 export { registerAutorunHandlers };
+export { registerPlaybooksHandlers };
 
 /**
  * Dependencies required for handler registration
@@ -31,8 +33,8 @@ export interface HandlerDependencies {
 export function registerAllHandlers(deps: HandlerDependencies): void {
   registerGitHandlers();
   registerAutorunHandlers(deps);
+  registerPlaybooksHandlers(deps);
   // Future handlers will be registered here:
-  // registerPlaybooksHandlers();
   // registerHistoryHandlers();
   // registerAgentsHandlers();
   // registerProcessHandlers();
