@@ -131,3 +131,98 @@ export type {
   ColorSchemePreference,
   UseDeviceColorSchemeReturn,
 } from './useDeviceColorScheme';
+
+export {
+  useVoiceInput,
+  default as useVoiceInputDefault,
+  isSpeechRecognitionSupported,
+  getSpeechRecognition,
+} from './useVoiceInput';
+
+export type {
+  SpeechRecognitionEvent,
+  SpeechRecognitionResultList,
+  SpeechRecognitionResult,
+  SpeechRecognitionAlternative,
+  SpeechRecognitionErrorEvent,
+  SpeechRecognition,
+  SpeechRecognitionConstructor,
+  UseVoiceInputOptions,
+  UseVoiceInputReturn,
+} from './useVoiceInput';
+
+export {
+  useKeyboardVisibility,
+  default as useKeyboardVisibilityDefault,
+} from './useKeyboardVisibility';
+
+export type {
+  UseKeyboardVisibilityReturn,
+} from './useKeyboardVisibility';
+
+export {
+  useSlashCommandAutocomplete,
+  default as useSlashCommandAutocompleteDefault,
+} from './useSlashCommandAutocomplete';
+
+export type {
+  UseSlashCommandAutocompleteOptions,
+  UseSlashCommandAutocompleteReturn,
+} from './useSlashCommandAutocomplete';
+
+export {
+  useLongPressMenu,
+  default as useLongPressMenuDefault,
+} from './useLongPressMenu';
+
+export type {
+  UseLongPressMenuOptions,
+  UseLongPressMenuReturn,
+} from './useLongPressMenu';
+
+export {
+  useMobileKeyboardHandler,
+  default as useMobileKeyboardHandlerDefault,
+} from './useMobileKeyboardHandler';
+
+export type {
+  MobileKeyboardSession,
+  MobileInputMode,
+  UseMobileKeyboardHandlerDeps,
+} from './useMobileKeyboardHandler';
+
+export {
+  useMobileSessionManagement,
+  default as useMobileSessionManagementDefault,
+} from './useMobileSessionManagement';
+
+export type {
+  LogEntry,
+  SessionLogsState,
+  UseMobileSessionManagementDeps,
+  MobileSessionHandlers,
+  UseMobileSessionManagementReturn,
+} from './useMobileSessionManagement';
+
+export {
+  useMobileViewState,
+  default as useMobileViewStateDefault,
+} from './useMobileViewState';
+
+export type {
+  ViewOverlayState,
+  HistoryPanelState,
+  SessionSelectionState,
+  UseMobileViewStateReturn,
+} from './useMobileViewState';
+
+export {
+  useMobileAutoReconnect,
+  default as useMobileAutoReconnectDefault,
+} from './useMobileAutoReconnect';
+
+export type {
+  ConnectionState,
+  UseMobileAutoReconnectDeps,
+  UseMobileAutoReconnectReturn,
+} from './useMobileAutoReconnect';

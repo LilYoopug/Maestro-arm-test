@@ -515,6 +515,12 @@ ${docList}
     let totalOutputTokens = 0;
     let totalCost = 0;
 
+    // Track consecutive runs where document content didn't change to detect stalling
+    // If the document hash is identical before/after a run (and no tasks checked), the LLM is stuck
+    let consecutiveNoChangeCount = 0;
+    const MAX_CONSECUTIVE_NO_CHANGES = 2; // Exit after 2 consecutive runs with no document changes
+    let stalledDueToNoProgress = false;
+
     // Helper to add final loop summary (defined here so it has access to tracking vars)
     const addFinalLoopSummary = (exitReason: string) => {
       // AUTORUN LOG: Exit
@@ -648,6 +654,8 @@ ${docList}
 
           // Read document content and expand template variables in it
           const docReadResult = await window.maestro.autorun.readDoc(folderPath, docEntry.filename + '.md');
+          // Capture content before task run for stall detection
+          const contentBeforeTask = docReadResult.content || '';
           if (docReadResult.success && docReadResult.content) {
             const expandedDocContent = substituteTemplateVariables(docReadResult.content, templateContext);
             // Write the expanded content back to the document temporarily
@@ -676,10 +684,20 @@ ${docList}
 
             anyTasksProcessedThisIteration = true;
 
-            // Re-read document to get updated task count
-            const { taskCount: newRemainingTasks } = await readDocAndCountTasks(folderPath, docEntry.filename);
+            // Re-read document to get updated task count and content
+            const { taskCount: newRemainingTasks, content: contentAfterTask } = await readDocAndCountTasks(folderPath, docEntry.filename);
             // Calculate tasks completed - ensure it's never negative (Claude may have added tasks)
             const tasksCompletedThisRun = Math.max(0, remainingTasks - newRemainingTasks);
+
+            // Detect stalling: if document content is unchanged and no tasks were checked off
+            const documentUnchanged = contentBeforeTask === contentAfterTask;
+            if (documentUnchanged && tasksCompletedThisRun === 0) {
+              consecutiveNoChangeCount++;
+              console.log(`[BatchProcessor] Document unchanged, no tasks completed (${consecutiveNoChangeCount}/${MAX_CONSECUTIVE_NO_CHANGES} consecutive)`);
+            } else {
+              // Reset counter on any document change or task completion
+              consecutiveNoChangeCount = 0;
+            }
 
             // Update counters
             docTasksCompleted += tasksCompletedThisRun;
@@ -764,6 +782,14 @@ ${docList}
               });
             }
 
+            // Check if we've hit the stalling threshold
+            if (consecutiveNoChangeCount >= MAX_CONSECUTIVE_NO_CHANGES) {
+              console.warn(`[BatchProcessor] Detected stalling: ${consecutiveNoChangeCount} consecutive runs with no document changes`);
+              stalledDueToNoProgress = true;
+              addFinalLoopSummary(`Document has unchecked tasks but appears complete (${consecutiveNoChangeCount} consecutive runs with no changes)`);
+              break;
+            }
+
             remainingTasks = newRemainingTasks;
             console.log(`[BatchProcessor] Document ${docEntry.filename}: ${remainingTasks} tasks remaining`);
 
@@ -774,8 +800,8 @@ ${docList}
           }
         }
 
-        // Check for stop before doing reset
-        if (stopRequestedRefs.current[sessionId]) {
+        // Check for stop or stalling before doing reset
+        if (stopRequestedRefs.current[sessionId] || stalledDueToNoProgress) {
           break;
         }
 
@@ -831,6 +857,11 @@ ${docList}
             }));
           }
         }
+      }
+
+      // Check if we stalled due to no progress
+      if (stalledDueToNoProgress) {
+        break;
       }
 
       // Check if we should continue looping
@@ -1040,7 +1071,7 @@ ${docList}
     // Add final Auto Run summary entry (no sessionId - this is a standalone synopsis)
     const totalElapsedMs = Date.now() - batchStartTime;
     const loopsCompleted = loopEnabled ? loopIteration + 1 : 1;
-    const statusText = wasStopped ? 'stopped' : 'completed';
+    const statusText = stalledDueToNoProgress ? 'stalled' : wasStopped ? 'stopped' : 'completed';
 
     // Calculate achievement progress for the summary
     // Note: We use the stats BEFORE this run is recorded (the parent will call recordAutoRunComplete after)
@@ -1059,7 +1090,7 @@ ${docList}
     const finalDetails = [
       `**Auto Run Summary**`,
       '',
-      `- **Status:** ${wasStopped ? 'Stopped by user' : 'Completed'}`,
+      `- **Status:** ${stalledDueToNoProgress ? 'Stalled (no progress detected)' : wasStopped ? 'Stopped by user' : 'Completed'}`,
       `- **Tasks Completed:** ${totalCompletedTasks}`,
       `- **Total Duration:** ${formatLoopDuration(totalElapsedMs)}`,
       loopEnabled ? `- **Loops Completed:** ${loopsCompleted}` : '',

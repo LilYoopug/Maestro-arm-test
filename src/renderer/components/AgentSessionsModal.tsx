@@ -3,6 +3,7 @@ import { Search, Clock, MessageSquare, HardDrive, Play, ChevronLeft, Loader2, St
 import type { Theme, Session } from '../types';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
+import { formatSize, formatRelativeTime } from '../utils/formatters';
 
 interface ClaudeSession {
   sessionId: string;
@@ -125,12 +126,15 @@ export function AgentSessionsModal({
 
       console.log('AgentSessionsModal: Loading sessions for cwd:', activeSession.cwd);
       try {
-        // Load starred sessions for this project
-        const starredKey = `starredClaudeSessions:${activeSession.cwd}`;
-        const savedStarred = await window.maestro.settings.get(starredKey);
-        if (savedStarred && Array.isArray(savedStarred)) {
-          setStarredSessions(new Set(savedStarred));
+        // Load starred sessions from Claude session origins (shared with AgentSessionsBrowser)
+        const origins = await window.maestro.claude.getSessionOrigins(activeSession.cwd);
+        const starredFromOrigins = new Set<string>();
+        for (const [sessionId, originData] of Object.entries(origins)) {
+          if (typeof originData === 'object' && originData?.starred) {
+            starredFromOrigins.add(sessionId);
+          }
         }
+        setStarredSessions(starredFromOrigins);
 
         // Use paginated API for better performance with many sessions
         const result = await window.maestro.claude.listSessionsPaginated(activeSession.cwd, { limit: 100 });
@@ -194,17 +198,21 @@ export function AgentSessionsModal({
     e.stopPropagation(); // Don't trigger session view
 
     const newStarred = new Set(starredSessions);
-    if (newStarred.has(sessionId)) {
-      newStarred.delete(sessionId);
-    } else {
+    const isNowStarred = !newStarred.has(sessionId);
+    if (isNowStarred) {
       newStarred.add(sessionId);
+    } else {
+      newStarred.delete(sessionId);
     }
     setStarredSessions(newStarred);
 
-    // Persist to settings
+    // Persist to Claude session origins (shared with AgentSessionsBrowser)
     if (activeSession?.cwd) {
-      const starredKey = `starredClaudeSessions:${activeSession.cwd}`;
-      await window.maestro.settings.set(starredKey, Array.from(newStarred));
+      await window.maestro.claude.updateSessionStarred(
+        activeSession.cwd,
+        sessionId,
+        isNowStarred
+      );
     }
   }, [starredSessions, activeSession?.cwd]);
 
@@ -332,28 +340,7 @@ export function AgentSessionsModal({
     }
   }, [viewingSession, onResumeSession, onClose]);
 
-  // Format file size
-  const formatSize = (bytes: number) => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
-
-  // Format relative time
-  const formatRelativeTime = (dateStr: string) => {
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHours / 24);
-
-    if (diffMins < 1) return 'just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-    return date.toLocaleDateString();
-  };
+  // formatSize and formatRelativeTime imported from ../utils/formatters
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-start justify-center pt-24 z-[9999] animate-in fade-in duration-100">

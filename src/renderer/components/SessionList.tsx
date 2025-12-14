@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Wand2, Plus, Settings, ChevronRight, ChevronDown, Activity, X, Keyboard,
-  Radio, Copy, ExternalLink, PanelLeftClose, PanelLeftOpen, Folder, Info, FileText, GitBranch, Bot, Clock,
+  Wand2, Plus, Settings, ChevronRight, ChevronDown, X, Keyboard,
+  Radio, Copy, ExternalLink, PanelLeftClose, PanelLeftOpen, Folder, Info, GitBranch, Bot, Clock,
   ScrollText, Cpu, Menu, Bookmark, Trophy, Trash2, Edit3, FolderInput, Download, Compass, Globe
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import type { Session, Group, Theme, Shortcut, AutoRunStats } from '../types';
 import { CONDUCTOR_BADGES, getBadgeForTime } from '../constants/conductorBadges';
 import { getStatusColor, getContextColor, formatActiveTime } from '../utils/theme';
-import { gitService } from '../services/git';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
+import { SessionItem } from './SessionItem';
+import { useGitStatusPolling, useLiveOverlay } from '../hooks';
 
 // ============================================================================
 // SessionContextMenu - Right-click context menu for session items
@@ -295,6 +296,9 @@ interface SessionListProps {
 
   // Tour props
   startTour?: () => void;
+
+  // Ref for the sidebar container (for focus management)
+  sidebarContainerRef?: React.RefObject<HTMLDivElement>;
 }
 
 export function SessionList(props: SessionListProps) {
@@ -316,7 +320,8 @@ export function SessionList(props: SessionListProps) {
     visibleSessions = [],
     autoRunStats,
     openWizard,
-    startTour
+    startTour,
+    sidebarContainerRef
   } = props;
 
   const [sessionFilter, setSessionFilter] = useState('');
@@ -328,96 +333,29 @@ export function SessionList(props: SessionListProps) {
   const [filterModeBookmarksCollapsed, setFilterModeBookmarksCollapsed] = useState<boolean | null>(null);
   const [filterModeInitialized, setFilterModeInitialized] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [liveOverlayOpen, setLiveOverlayOpen] = useState(false);
 
-  // Cloudflared installation status (cached after first check)
-  const [cloudflaredInstalled, setCloudflaredInstalled] = useState<boolean | null>(null);
-  const [cloudflaredChecked, setCloudflaredChecked] = useState(false);
-
-  // Tunnel state
-  const [tunnelStatus, setTunnelStatus] = useState<'off' | 'starting' | 'connected' | 'error'>('off');
-  const [tunnelUrl, setTunnelUrl] = useState<string | null>(null);
-  const [tunnelError, setTunnelError] = useState<string | null>(null);
-  const [activeUrlTab, setActiveUrlTab] = useState<'local' | 'remote'>('local');
-  const [copyFlash, setCopyFlash] = useState<string | null>(null);
+  // Live overlay state (extracted hook)
+  const {
+    liveOverlayOpen,
+    setLiveOverlayOpen,
+    liveOverlayRef,
+    cloudflaredInstalled,
+    cloudflaredChecked,
+    tunnelStatus,
+    tunnelUrl,
+    tunnelError,
+    activeUrlTab,
+    setActiveUrlTab,
+    copyFlash,
+    setCopyFlash,
+    handleTunnelToggle,
+  } = useLiveOverlay(isLiveMode);
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; sessionId: string } | null>(null);
   const contextMenuSession = contextMenu ? sessions.find(s => s.id === contextMenu.sessionId) : null;
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const liveOverlayRef = useRef<HTMLDivElement>(null);
-
-
-  // Close live overlay when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (liveOverlayRef.current && !liveOverlayRef.current.contains(e.target as Node)) {
-        setLiveOverlayOpen(false);
-      }
-    };
-    if (liveOverlayOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [liveOverlayOpen]);
-
-  // Check for cloudflared installation when Live overlay opens
-  useEffect(() => {
-    if (isLiveMode && liveOverlayOpen && !cloudflaredChecked) {
-      window.maestro.tunnel.isCloudflaredInstalled().then((installed: boolean) => {
-        setCloudflaredInstalled(installed);
-        setCloudflaredChecked(true);
-      });
-    }
-  }, [isLiveMode, liveOverlayOpen, cloudflaredChecked]);
-
-  // Reset tunnel state when live mode is disabled
-  useEffect(() => {
-    if (!isLiveMode) {
-      setTunnelStatus('off');
-      setTunnelUrl(null);
-      setTunnelError(null);
-      setActiveUrlTab('local');
-    }
-  }, [isLiveMode]);
-
-  // Handle tunnel toggle (start/stop remote access)
-  const handleTunnelToggle = async () => {
-    if (tunnelStatus === 'connected') {
-      // Turn off tunnel
-      try {
-        await window.maestro.tunnel.stop();
-      } catch (error) {
-        console.error('[handleTunnelToggle] Failed to stop tunnel:', error);
-        // Continue anyway - we still want to update UI state
-      }
-      setTunnelStatus('off');
-      setTunnelUrl(null);
-      setTunnelError(null);
-      setActiveUrlTab('local'); // Switch back to local tab
-    } else if (tunnelStatus === 'off') {
-      // Turn on tunnel
-      setTunnelStatus('starting');
-      setTunnelError(null);
-
-      try {
-        const result = await window.maestro.tunnel.start();
-        if (result.success && result.url) {
-          setTunnelStatus('connected');
-          setTunnelUrl(result.url);
-          setActiveUrlTab('remote'); // Auto-switch to remote tab
-        } else {
-          setTunnelStatus('error');
-          setTunnelError(result.error || 'Failed to start tunnel');
-        }
-      } catch (error) {
-        console.error('[handleTunnelToggle] Failed to start tunnel:', error);
-        setTunnelStatus('error');
-        setTunnelError(error instanceof Error ? error.message : 'Failed to start tunnel');
-      }
-    }
-  };
 
   // Toggle bookmark for a session
   const toggleBookmark = (sessionId: string) => {
@@ -509,81 +447,8 @@ export function SessionList(props: SessionListProps) {
     return () => window.removeEventListener('tour:action', handleTourAction);
   }, []);
 
-  // Track git file change counts per session
-  const [gitFileCounts, setGitFileCounts] = useState<Map<string, number>>(new Map());
-
-  // Poll git status for all Git sessions - optimized to reduce CPU usage
-  // - Only polls when app is visible (pauses when in background)
-  // - Uses 30-second interval instead of 10 seconds
-  // - Only polls sessions that are git repos
-  useEffect(() => {
-    let intervalId: NodeJS.Timeout | null = null;
-
-    const pollGitStatus = async () => {
-      // Skip polling if document is hidden (app in background)
-      if (document.hidden) return;
-
-      const gitSessions = sessions.filter(s => s.isGitRepo);
-      if (gitSessions.length === 0) return;
-
-      // Parallelize git status calls for better performance
-      // Sequential calls with 10 sessions = 1-2s, parallel = 200-300ms
-      const results = await Promise.all(
-        gitSessions.map(async (session) => {
-          try {
-            const cwd = session.inputMode === 'terminal' ? (session.shellCwd || session.cwd) : session.cwd;
-            const status = await gitService.getStatus(cwd);
-            return [session.id, status.files.length] as const;
-          } catch {
-            return null;
-          }
-        })
-      );
-
-      const newCounts = new Map<string, number>();
-      for (const result of results) {
-        if (result) {
-          newCounts.set(result[0], result[1]);
-        }
-      }
-
-      setGitFileCounts(newCounts);
-    };
-
-    const startPolling = () => {
-      pollGitStatus();
-      intervalId = setInterval(pollGitStatus, 30000); // Poll every 30 seconds (was 10)
-    };
-
-    const stopPolling = () => {
-      if (intervalId) {
-        clearInterval(intervalId);
-        intervalId = null;
-      }
-    };
-
-    // Handle visibility changes - pause polling when app is in background
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        stopPolling();
-      } else {
-        // Resume polling and immediately refresh when becoming visible
-        startPolling();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    // Start polling if document is visible
-    if (!document.hidden) {
-      startPolling();
-    }
-
-    return () => {
-      stopPolling();
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [sessions]);
+  // Track git file change counts per session using extracted hook
+  const { gitFileCounts } = useGitStatusPolling(sessions);
 
   // Filter sessions based on search query (searches session name AND AI tab names)
   const filteredSessions = sessionFilter
@@ -699,6 +564,7 @@ export function SessionList(props: SessionListProps) {
 
   return (
     <div
+      ref={sidebarContainerRef}
       tabIndex={0}
       className={`border-r flex flex-col shrink-0 transition-all duration-300 outline-none relative z-20 ${activeFocus === 'sidebar' ? 'ring-1 ring-inset' : ''}`}
       style={{
@@ -912,7 +778,6 @@ export function SessionList(props: SessionListProps) {
                               if (url) {
                                 navigator.clipboard.writeText(url);
                                 setCopyFlash(activeUrlTab === 'local' ? 'Local URL copied!' : 'Remote URL copied!');
-                                setTimeout(() => setCopyFlash(null), 2000);
                               }
                             }}
                             className="p-1.5 rounded hover:bg-white/10 transition-colors shrink-0"
@@ -1376,127 +1241,27 @@ export function SessionList(props: SessionListProps) {
                     const isKeyboardSelected = activeFocus === 'sidebar' && globalIdx === selectedSidebarIndex;
                     const group = groups.find(g => g.id === session.groupId);
                     return (
-                      <div
+                      <SessionItem
                         key={`bookmark-${session.id}`}
-                        draggable
+                        session={session}
+                        variant="bookmark"
+                        theme={theme}
+                        isActive={activeSessionId === session.id}
+                        isKeyboardSelected={isKeyboardSelected}
+                        isDragging={draggingSessionId === session.id}
+                        isEditing={editingSessionId === `bookmark-${session.id}`}
+                        leftSidebarOpen={leftSidebarOpen}
+                        group={group}
+                        gitFileCount={gitFileCounts.get(session.id)}
+                        isInBatch={activeBatchSessionIds.includes(session.id)}
+                        jumpNumber={getSessionJumpNumber(session.id)}
+                        onSelect={() => setActiveSessionId(session.id)}
                         onDragStart={() => handleDragStart(session.id)}
-                        onClick={() => setActiveSessionId(session.id)}
                         onContextMenu={(e) => handleContextMenu(e, session.id)}
-                        className={`px-4 py-2 cursor-move flex items-center justify-between group border-l-2 transition-all hover:bg-opacity-50 ${draggingSessionId === session.id ? 'opacity-50' : ''}`}
-                        style={{
-                          borderColor: (activeSessionId === session.id || isKeyboardSelected) ? theme.colors.accent : 'transparent',
-                          backgroundColor: activeSessionId === session.id ? theme.colors.bgActivity : (isKeyboardSelected ? theme.colors.bgActivity + '40' : 'transparent')
-                        }}
-                      >
-                        <div className="min-w-0 flex-1">
-                          {editingSessionId === `bookmark-${session.id}` ? (
-                            <input
-                              autoFocus
-                              className="bg-transparent text-sm font-medium outline-none w-full border-b border-indigo-500"
-                              defaultValue={session.name}
-                              onClick={e => e.stopPropagation()}
-                              onBlur={e => finishRenamingSession(session.id, e.target.value)}
-                              onKeyDown={e => {
-                                e.stopPropagation();
-                                if (e.key === 'Enter') finishRenamingSession(session.id, e.currentTarget.value);
-                              }}
-                            />
-                          ) : (
-                            <div
-                              className="flex items-center gap-1.5"
-                              onDoubleClick={() => startRenamingSession(`bookmark-${session.id}`)}
-                            >
-                              {session.bookmarked && (
-                                <Bookmark className="w-3 h-3 shrink-0" style={{ color: theme.colors.accent }} fill={theme.colors.accent} />
-                              )}
-                              <span
-                                className="text-sm font-medium truncate"
-                                style={{ color: activeSessionId === session.id ? theme.colors.textMain : theme.colors.textDim }}
-                              >
-                                {session.name}
-                              </span>
-                            </div>
-                          )}
-                          <div className="flex items-center gap-2 text-[10px] mt-0.5 opacity-70">
-                            {/* Session Jump Number Badge (Opt+Cmd+NUMBER) */}
-                            {getSessionJumpNumber(session.id) && (
-                              <div
-                                className="w-4 h-4 rounded flex items-center justify-center text-[10px] font-bold shrink-0"
-                                style={{
-                                  backgroundColor: theme.colors.accent,
-                                  color: theme.colors.bgMain
-                                }}
-                              >
-                                {getSessionJumpNumber(session.id)}
-                              </div>
-                            )}
-                            <Activity className="w-3 h-3" /> {session.toolType}
-                            {group && (
-                              <span className="text-[9px] px-1 py-0.5 rounded" style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textDim }}>
-                                {group.name}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 ml-2">
-                          {/* Bookmark toggle */}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleBookmark(session.id);
-                            }}
-                            className="p-0.5 rounded hover:bg-white/10 transition-colors"
-                            title="Remove bookmark"
-                          >
-                            <Bookmark className="w-3 h-3" style={{ color: theme.colors.accent }} fill={theme.colors.accent} />
-                          </button>
-                          {/* Git Dirty Indicator */}
-                          {leftSidebarOpen && session.isGitRepo && gitFileCounts.has(session.id) && gitFileCounts.get(session.id)! > 0 && (
-                            <div className="flex items-center gap-0.5 text-[10px]" style={{ color: theme.colors.warning }}>
-                              <GitBranch className="w-2.5 h-2.5" />
-                              <span>{gitFileCounts.get(session.id)}</span>
-                            </div>
-                          )}
-                          {/* AUTO Mode Indicator */}
-                          {activeBatchSessionIds.includes(session.id) && (
-                            <div
-                              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase animate-pulse"
-                              style={{ backgroundColor: theme.colors.warning + '30', color: theme.colors.warning }}
-                              title="Auto Run active"
-                            >
-                              <Bot className="w-2.5 h-2.5" />
-                              AUTO
-                            </div>
-                          )}
-                          {/* AI Status Indicator with Unread Badge */}
-                          <div className="relative">
-                            <div
-                              className={`w-2 h-2 rounded-full ${session.state === 'connecting' ? 'animate-pulse' : ''}`}
-                              style={
-                                session.toolType === 'claude' && !session.claudeSessionId
-                                  ? { border: `1.5px solid ${theme.colors.textDim}`, backgroundColor: 'transparent' }
-                                  : { backgroundColor: getStatusColor(session.state, theme) }
-                              }
-                              title={
-                                session.toolType === 'claude' && !session.claudeSessionId ? 'No active Claude session' :
-                                session.state === 'idle' ? 'Ready and waiting' :
-                                session.state === 'busy' ? (session.cliActivity ? `CLI: Running playbook "${session.cliActivity.playbookName}"` : 'Agent is thinking') :
-                                session.state === 'connecting' ? 'Attempting to establish connection' :
-                                session.state === 'error' ? 'No connection with agent' :
-                                'Waiting for input'
-                              }
-                            />
-                            {/* Unread Notification Badge */}
-                            {activeSessionId !== session.id && session.aiTabs?.some(tab => tab.hasUnread) && (
-                              <div
-                                className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full"
-                                style={{ backgroundColor: theme.colors.error }}
-                                title="Unread messages"
-                              />
-                            )}
-                          </div>
-                        </div>
-                      </div>
+                        onFinishRename={(newName) => finishRenamingSession(session.id, newName)}
+                        onStartRename={() => startRenamingSession(`bookmark-${session.id}`)}
+                        onToggleBookmark={() => toggleBookmark(session.id)}
+                      />
                     );
                   })}
                 </div>
@@ -1667,134 +1432,29 @@ export function SessionList(props: SessionListProps) {
                       const globalIdx = sortedSessions.findIndex(s => s.id === session.id);
                       const isKeyboardSelected = activeFocus === 'sidebar' && globalIdx === selectedSidebarIndex;
                       return (
-                        <div
+                        <SessionItem
                           key={`group-${group.id}-${session.id}`}
-                          draggable
+                          session={session}
+                          variant="group"
+                          theme={theme}
+                          isActive={activeSessionId === session.id}
+                          isKeyboardSelected={isKeyboardSelected}
+                          isDragging={draggingSessionId === session.id}
+                          isEditing={editingSessionId === `group-${group.id}-${session.id}`}
+                          leftSidebarOpen={leftSidebarOpen}
+                          groupId={group.id}
+                          gitFileCount={gitFileCounts.get(session.id)}
+                          isInBatch={activeBatchSessionIds.includes(session.id)}
+                          jumpNumber={getSessionJumpNumber(session.id)}
+                          onSelect={() => setActiveSessionId(session.id)}
                           onDragStart={() => handleDragStart(session.id)}
                           onDragOver={handleDragOver}
                           onDrop={() => handleDropOnGroup(group.id)}
-                          onClick={() => setActiveSessionId(session.id)}
                           onContextMenu={(e) => handleContextMenu(e, session.id)}
-                          className={`px-4 py-2 cursor-move flex items-center justify-between group border-l-2 transition-all hover:bg-opacity-50 ${draggingSessionId === session.id ? 'opacity-50' : ''}`}
-                          style={{
-                            borderColor: (activeSessionId === session.id || isKeyboardSelected) ? theme.colors.accent : 'transparent',
-                            backgroundColor: activeSessionId === session.id ? theme.colors.bgActivity : (isKeyboardSelected ? theme.colors.bgActivity + '40' : 'transparent')
-                          }}
-                        >
-                          <div className="min-w-0 flex-1">
-                            {editingSessionId === `group-${group.id}-${session.id}` ? (
-                              <input
-                                autoFocus
-                                className="bg-transparent text-sm font-medium outline-none w-full border-b border-indigo-500"
-                                defaultValue={session.name}
-                                onClick={e => e.stopPropagation()}
-                                onBlur={e => finishRenamingSession(session.id, e.target.value)}
-                                onKeyDown={e => {
-                                  e.stopPropagation();
-                                  if (e.key === 'Enter') finishRenamingSession(session.id, e.currentTarget.value);
-                                }}
-                              />
-                            ) : (
-                              <span
-                                className="text-sm font-medium truncate"
-                                style={{ color: activeSessionId === session.id ? theme.colors.textMain : theme.colors.textDim }}
-                                onDoubleClick={() => startRenamingSession(`group-${group.id}-${session.id}`)}
-                              >
-                                {session.name}
-                              </span>
-                            )}
-                            <div className="flex items-center gap-2 text-[10px] mt-0.5 opacity-70">
-                              {/* Session Jump Number Badge (Opt+Cmd+NUMBER) */}
-                              {getSessionJumpNumber(session.id) && (
-                                <div
-                                  className="w-4 h-4 rounded flex items-center justify-center text-[10px] font-bold shrink-0"
-                                  style={{
-                                    backgroundColor: theme.colors.accent,
-                                    color: theme.colors.bgMain
-                                  }}
-                                >
-                                  {getSessionJumpNumber(session.id)}
-                                </div>
-                              )}
-                              <Activity className="w-3 h-3" /> {session.toolType}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2 ml-2">
-                            {/* Bookmark toggle - show outline on hover for non-bookmarked */}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleBookmark(session.id);
-                              }}
-                              className={`p-0.5 rounded hover:bg-white/10 transition-all ${session.bookmarked ? '' : 'opacity-0 group-hover:opacity-100'}`}
-                              title={session.bookmarked ? "Remove bookmark" : "Add bookmark"}
-                            >
-                              <Bookmark
-                                className="w-3 h-3"
-                                style={{ color: theme.colors.accent }}
-                                fill={session.bookmarked ? theme.colors.accent : 'none'}
-                              />
-                            </button>
-                            {/* Git Dirty Indicator (only in wide mode) */}
-                            {leftSidebarOpen && session.isGitRepo && gitFileCounts.has(session.id) && gitFileCounts.get(session.id)! > 0 && (
-                              <div className="flex items-center gap-0.5 text-[10px]" style={{ color: theme.colors.warning }}>
-                                <GitBranch className="w-2.5 h-2.5" />
-                                <span>{gitFileCounts.get(session.id)}</span>
-                              </div>
-                            )}
-                            {/* Git vs Local Indicator */}
-                            {session.toolType !== 'terminal' && (
-                              <div
-                                className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
-                                style={{
-                                  backgroundColor: session.isGitRepo ? theme.colors.accent + '30' : theme.colors.textDim + '20',
-                                  color: session.isGitRepo ? theme.colors.accent : theme.colors.textDim
-                                }}
-                                title={session.isGitRepo ? 'Git repository' : 'Local directory (not a git repo)'}
-                              >
-                                {session.isGitRepo ? 'GIT' : 'LOCAL'}
-                              </div>
-                            )}
-                            {/* AUTO Mode Indicator */}
-                            {activeBatchSessionIds.includes(session.id) && (
-                              <div
-                                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase animate-pulse"
-                                style={{ backgroundColor: theme.colors.warning + '30', color: theme.colors.warning }}
-                                title="Auto Run active"
-                              >
-                                <Bot className="w-2.5 h-2.5" />
-                                AUTO
-                              </div>
-                            )}
-                            {/* AI Status Indicator with Unread Badge */}
-                            <div className="relative">
-                              <div
-                                className={`w-2 h-2 rounded-full ${session.state === 'connecting' ? 'animate-pulse' : ''}`}
-                                style={
-                                  session.toolType === 'claude' && !session.claudeSessionId
-                                    ? { border: `1.5px solid ${theme.colors.textDim}`, backgroundColor: 'transparent' }
-                                    : { backgroundColor: getStatusColor(session.state, theme) }
-                                }
-                                title={
-                                  session.toolType === 'claude' && !session.claudeSessionId ? 'No active Claude session' :
-                                  session.state === 'idle' ? 'Ready and waiting' :
-                                  session.state === 'busy' ? (session.cliActivity ? `CLI: Running playbook "${session.cliActivity.playbookName}"` : 'Agent is thinking') :
-                                  session.state === 'connecting' ? 'Attempting to establish connection' :
-                                  session.state === 'error' ? 'No connection with agent' :
-                                  'Waiting for input'
-                                }
-                              />
-                              {/* Unread Notification Badge */}
-                              {activeSessionId !== session.id && session.aiTabs?.some(tab => tab.hasUnread) && (
-                                <div
-                                  className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full"
-                                  style={{ backgroundColor: theme.colors.error }}
-                                  title="Unread messages"
-                                />
-                              )}
-                            </div>
-                          </div>
-                        </div>
+                          onFinishRename={(newName) => finishRenamingSession(session.id, newName)}
+                          onStartRename={() => startRenamingSession(`group-${group.id}-${session.id}`)}
+                          onToggleBookmark={() => toggleBookmark(session.id)}
+                        />
                       );
                     })}
                   </div>
@@ -1918,128 +1578,28 @@ export function SessionList(props: SessionListProps) {
                 const globalIdx = sortedSessions.findIndex(s => s.id === session.id);
                 const isKeyboardSelected = activeFocus === 'sidebar' && globalIdx === selectedSidebarIndex;
                 return (
-                  <div
+                  <SessionItem
                     key={`flat-${session.id}`}
-                    draggable
+                    session={session}
+                    variant="flat"
+                    theme={theme}
+                    isActive={activeSessionId === session.id}
+                    isKeyboardSelected={isKeyboardSelected}
+                    isDragging={draggingSessionId === session.id}
+                    isEditing={editingSessionId === `flat-${session.id}`}
+                    leftSidebarOpen={leftSidebarOpen}
+                    gitFileCount={gitFileCounts.get(session.id)}
+                    isInBatch={activeBatchSessionIds.includes(session.id)}
+                    jumpNumber={getSessionJumpNumber(session.id)}
+                    onSelect={() => setActiveSessionId(session.id)}
                     onDragStart={() => handleDragStart(session.id)}
                     onDragOver={handleDragOver}
                     onDrop={handleDropOnUngrouped}
-                    onClick={() => setActiveSessionId(session.id)}
                     onContextMenu={(e) => handleContextMenu(e, session.id)}
-                    className={`mx-3 px-3 py-2 rounded cursor-move flex items-center justify-between mb-1 hover:bg-opacity-50 border-l-2 transition-all group ${draggingSessionId === session.id ? 'opacity-50' : ''}`}
-                    style={{
-                      borderColor: (activeSessionId === session.id || isKeyboardSelected) ? theme.colors.accent : 'transparent',
-                      backgroundColor: activeSessionId === session.id ? theme.colors.bgActivity : (isKeyboardSelected ? theme.colors.bgActivity + '40' : 'transparent')
-                    }}
-                  >
-                    <div className="min-w-0 flex-1">
-                      {editingSessionId === `flat-${session.id}` ? (
-                        <input
-                          autoFocus
-                          className="bg-transparent text-sm font-medium outline-none w-full border-b"
-                          style={{ borderColor: theme.colors.accent }}
-                          defaultValue={session.name}
-                          onClick={e => e.stopPropagation()}
-                          onBlur={e => finishRenamingSession(session.id, e.target.value)}
-                          onKeyDown={e => {
-                            e.stopPropagation();
-                            if (e.key === 'Enter') finishRenamingSession(session.id, e.currentTarget.value);
-                          }}
-                        />
-                      ) : (
-                        <span
-                          className="text-sm font-medium truncate"
-                          style={{ color: activeSessionId === session.id ? theme.colors.textMain : theme.colors.textDim }}
-                          onDoubleClick={() => startRenamingSession(`flat-${session.id}`)}
-                        >
-                          {session.name}
-                        </span>
-                      )}
-                      <div className="flex items-center gap-2 text-[10px] mt-0.5 opacity-70">
-                        {/* Session Jump Number Badge (Opt+Cmd+NUMBER) */}
-                        {getSessionJumpNumber(session.id) && (
-                          <div
-                            className="w-4 h-4 rounded flex items-center justify-center text-[10px] font-bold shrink-0"
-                            style={{
-                              backgroundColor: theme.colors.accent,
-                              color: theme.colors.bgMain
-                            }}
-                          >
-                            {getSessionJumpNumber(session.id)}
-                          </div>
-                        )}
-                        <Activity className="w-3 h-3" /> {session.toolType}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 ml-2">
-                      {/* Bookmark toggle - show outline on hover for non-bookmarked */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleBookmark(session.id);
-                        }}
-                        className={`p-0.5 rounded hover:bg-white/10 transition-all ${session.bookmarked ? '' : 'opacity-0 group-hover:opacity-100'}`}
-                        title={session.bookmarked ? "Remove bookmark" : "Add bookmark"}
-                      >
-                        <Bookmark
-                          className="w-3 h-3"
-                          style={{ color: theme.colors.accent }}
-                          fill={session.bookmarked ? theme.colors.accent : 'none'}
-                        />
-                      </button>
-                      {/* Git Dirty Indicator (only in wide mode) */}
-                      {leftSidebarOpen && session.isGitRepo && gitFileCounts.has(session.id) && gitFileCounts.get(session.id)! > 0 && (
-                        <div className="flex items-center gap-0.5 text-[10px]" style={{ color: theme.colors.warning }}>
-                          <GitBranch className="w-2.5 h-2.5" />
-                          <span>{gitFileCounts.get(session.id)}</span>
-                        </div>
-                      )}
-                      {/* Git vs Local Indicator */}
-                      {session.toolType !== 'terminal' && (
-                        <div
-                          className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
-                          style={{
-                            backgroundColor: session.isGitRepo ? theme.colors.accent + '30' : theme.colors.textDim + '20',
-                            color: session.isGitRepo ? theme.colors.accent : theme.colors.textDim
-                          }}
-                          title={session.isGitRepo ? 'Git repository' : 'Local directory (not a git repo)'}
-                        >
-                          {session.isGitRepo ? 'GIT' : 'LOCAL'}
-                        </div>
-                      )}
-                      {/* AUTO Mode Indicator */}
-                      {activeBatchSessionIds.includes(session.id) && (
-                        <div
-                          className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase animate-pulse"
-                          style={{ backgroundColor: theme.colors.warning + '30', color: theme.colors.warning }}
-                          title="Auto Run active"
-                        >
-                          <Bot className="w-2.5 h-2.5" />
-                          AUTO
-                        </div>
-                      )}
-                      {/* AI Status Indicator with Unread Badge */}
-                      <div className="relative">
-                        <div
-                          className={`w-2 h-2 rounded-full ${session.state === 'busy' ? 'animate-pulse' : ''}`}
-                          style={
-                            session.toolType === 'claude' && !session.claudeSessionId
-                              ? { border: `1.5px solid ${theme.colors.textDim}`, backgroundColor: 'transparent' }
-                              : { backgroundColor: getStatusColor(session.state, theme) }
-                          }
-                          title={session.toolType === 'claude' && !session.claudeSessionId ? 'No active Claude session' : undefined}
-                        />
-                        {/* Unread Notification Badge */}
-                        {activeSessionId !== session.id && session.aiTabs?.some(tab => tab.hasUnread) && (
-                          <div
-                            className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full"
-                            style={{ backgroundColor: theme.colors.error }}
-                            title="Unread messages"
-                          />
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                    onFinishRename={(newName) => finishRenamingSession(session.id, newName)}
+                    onStartRename={() => startRenamingSession(`flat-${session.id}`)}
+                    onToggleBookmark={() => toggleBookmark(session.id)}
+                  />
                 );
               })}
             </div>
@@ -2081,128 +1641,28 @@ export function SessionList(props: SessionListProps) {
                   const globalIdx = sortedSessions.findIndex(s => s.id === session.id);
                   const isKeyboardSelected = activeFocus === 'sidebar' && globalIdx === selectedSidebarIndex;
                   return (
-                <div
-                  key={`ungrouped-${session.id}`}
-                  draggable
-                  onDragStart={() => handleDragStart(session.id)}
-                  onDragOver={handleDragOver}
-                  onDrop={handleDropOnUngrouped}
-                  onClick={() => setActiveSessionId(session.id)}
-                  onContextMenu={(e) => handleContextMenu(e, session.id)}
-                  className={`px-4 py-2 rounded cursor-move flex items-center justify-between mb-1 hover:bg-opacity-50 border-l-2 transition-all group ${draggingSessionId === session.id ? 'opacity-50' : ''}`}
-                  style={{
-                    borderColor: (activeSessionId === session.id || isKeyboardSelected) ? theme.colors.accent : 'transparent',
-                    backgroundColor: activeSessionId === session.id ? theme.colors.bgActivity : (isKeyboardSelected ? theme.colors.bgActivity + '40' : 'transparent')
-                  }}
-                >
-                  <div className="min-w-0 flex-1">
-                    {editingSessionId === `ungrouped-${session.id}` ? (
-                      <input
-                        autoFocus
-                        className="bg-transparent text-sm font-medium outline-none w-full border-b"
-                        style={{ borderColor: theme.colors.accent }}
-                        defaultValue={session.name}
-                        onClick={e => e.stopPropagation()}
-                        onBlur={e => finishRenamingSession(session.id, e.target.value)}
-                        onKeyDown={e => {
-                          e.stopPropagation();
-                          if (e.key === 'Enter') finishRenamingSession(session.id, e.currentTarget.value);
-                        }}
-                      />
-                    ) : (
-                      <span
-                        className="text-sm font-medium truncate"
-                        style={{ color: activeSessionId === session.id ? theme.colors.textMain : theme.colors.textDim }}
-                        onDoubleClick={() => startRenamingSession(`ungrouped-${session.id}`)}
-                      >
-                        {session.name}
-                      </span>
-                    )}
-                    <div className="flex items-center gap-2 text-[10px] mt-0.5 opacity-70">
-                      {/* Session Jump Number Badge (Opt+Cmd+NUMBER) */}
-                      {getSessionJumpNumber(session.id) && (
-                        <div
-                          className="w-4 h-4 rounded flex items-center justify-center text-[10px] font-bold shrink-0"
-                          style={{
-                            backgroundColor: theme.colors.accent,
-                            color: theme.colors.bgMain
-                          }}
-                        >
-                          {getSessionJumpNumber(session.id)}
-                        </div>
-                      )}
-                      <Activity className="w-3 h-3" /> {session.toolType}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 ml-2">
-                    {/* Bookmark toggle - show outline on hover for non-bookmarked */}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleBookmark(session.id);
-                      }}
-                      className={`p-0.5 rounded hover:bg-white/10 transition-all ${session.bookmarked ? '' : 'opacity-0 group-hover:opacity-100'}`}
-                      title={session.bookmarked ? "Remove bookmark" : "Add bookmark"}
-                    >
-                      <Bookmark
-                        className="w-3 h-3"
-                        style={{ color: theme.colors.accent }}
-                        fill={session.bookmarked ? theme.colors.accent : 'none'}
-                      />
-                    </button>
-                    {/* Git Dirty Indicator (only in wide mode) */}
-                    {leftSidebarOpen && session.isGitRepo && gitFileCounts.has(session.id) && gitFileCounts.get(session.id)! > 0 && (
-                      <div className="flex items-center gap-0.5 text-[10px]" style={{ color: theme.colors.warning }}>
-                        <GitBranch className="w-2.5 h-2.5" />
-                        <span>{gitFileCounts.get(session.id)}</span>
-                      </div>
-                    )}
-                    {/* Git vs Local Indicator */}
-                    {session.toolType !== 'terminal' && (
-                      <div
-                        className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
-                        style={{
-                          backgroundColor: session.isGitRepo ? theme.colors.accent + '30' : theme.colors.textDim + '20',
-                          color: session.isGitRepo ? theme.colors.accent : theme.colors.textDim
-                        }}
-                        title={session.isGitRepo ? 'Git repository' : 'Local directory (not a git repo)'}
-                      >
-                        {session.isGitRepo ? 'GIT' : 'LOCAL'}
-                      </div>
-                    )}
-                    {/* AUTO Mode Indicator */}
-                    {activeBatchSessionIds.includes(session.id) && (
-                      <div
-                        className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase animate-pulse"
-                        style={{ backgroundColor: theme.colors.warning + '30', color: theme.colors.warning }}
-                        title="Auto Run active"
-                      >
-                        <Bot className="w-2.5 h-2.5" />
-                        AUTO
-                      </div>
-                    )}
-                    {/* AI Status Indicator with Unread Badge */}
-                    <div className="relative">
-                      <div
-                        className={`w-2 h-2 rounded-full ${session.state === 'busy' ? 'animate-pulse' : ''}`}
-                        style={
-                          session.toolType === 'claude' && !session.claudeSessionId
-                            ? { border: `1.5px solid ${theme.colors.textDim}`, backgroundColor: 'transparent' }
-                            : { backgroundColor: getStatusColor(session.state, theme) }
-                        }
-                        title={session.toolType === 'claude' && !session.claudeSessionId ? 'No active Claude session' : undefined}
-                      />
-                      {/* Unread Notification Badge */}
-                      {activeSessionId !== session.id && session.aiTabs?.some(tab => tab.hasUnread) && (
-                        <div
-                          className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full"
-                          style={{ backgroundColor: theme.colors.error }}
-                          title="Unread messages"
-                        />
-                      )}
-                    </div>
-                  </div>
-                </div>
+                    <SessionItem
+                      key={`ungrouped-${session.id}`}
+                      session={session}
+                      variant="ungrouped"
+                      theme={theme}
+                      isActive={activeSessionId === session.id}
+                      isKeyboardSelected={isKeyboardSelected}
+                      isDragging={draggingSessionId === session.id}
+                      isEditing={editingSessionId === `ungrouped-${session.id}`}
+                      leftSidebarOpen={leftSidebarOpen}
+                      gitFileCount={gitFileCounts.get(session.id)}
+                      isInBatch={activeBatchSessionIds.includes(session.id)}
+                      jumpNumber={getSessionJumpNumber(session.id)}
+                      onSelect={() => setActiveSessionId(session.id)}
+                      onDragStart={() => handleDragStart(session.id)}
+                      onDragOver={handleDragOver}
+                      onDrop={handleDropOnUngrouped}
+                      onContextMenu={(e) => handleContextMenu(e, session.id)}
+                      onFinishRename={(newName) => finishRenamingSession(session.id, newName)}
+                      onStartRename={() => startRenamingSession(`ungrouped-${session.id}`)}
+                      onToggleBookmark={() => toggleBookmark(session.id)}
+                    />
                   );
                 })}
               </div>

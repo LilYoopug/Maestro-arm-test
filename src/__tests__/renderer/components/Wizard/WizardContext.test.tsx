@@ -449,11 +449,12 @@ describe('WizardContext', () => {
         expect(result.current.canProceedToNext()).toBe(false);
       });
 
-      it('returns true when agent is selected', () => {
+      it('returns true when agent is selected and name is provided', () => {
         const { result } = renderHook(() => useWizard(), { wrapper });
 
         act(() => {
           result.current.setSelectedAgent('claude-code');
+          result.current.setAgentName('My Agent');
         });
 
         expect(result.current.canProceedToNext()).toBe(true);

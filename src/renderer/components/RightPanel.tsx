@@ -5,12 +5,14 @@ import type { FileTreeChanges } from '../utils/fileExplorer';
 import { FileExplorerPanel } from './FileExplorerPanel';
 import { HistoryPanel, HistoryPanelHandle } from './HistoryPanel';
 import { AutoRun, AutoRunHandle } from './AutoRun';
+import type { DocumentTaskCount } from './AutoRunDocumentSelector';
 import { AutoRunExpandedModal } from './AutoRunExpandedModal';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
 
 export interface RightPanelHandle {
   refreshHistoryPanel: () => void;
   focusAutoRun: () => void;
+  toggleAutoRunExpanded: () => void;
 }
 
 interface RightPanelProps {
@@ -55,6 +57,8 @@ interface RightPanelProps {
   setSessions: React.Dispatch<React.SetStateAction<Session[]>>;
   onAutoRefreshChange?: (interval: number) => void;
   onShowFlash?: (message: string) => void;
+  showHiddenFiles: boolean;
+  setShowHiddenFiles: (value: boolean) => void;
 
   // Auto Run handlers
   autoRunDocumentList: string[];        // List of document filenames (without .md)
@@ -62,6 +66,7 @@ interface RightPanelProps {
   autoRunContent: string;               // Content of currently selected document
   autoRunContentVersion?: number;       // Version counter for external file changes (forces sync)
   autoRunIsLoadingDocuments: boolean;   // Loading state
+  autoRunDocumentTaskCounts?: Map<string, DocumentTaskCount>;  // Task counts per document
   onAutoRunContentChange: (content: string) => void;
   onAutoRunModeChange: (mode: 'edit' | 'preview') => void;
   onAutoRunStateChange: (state: {
@@ -94,7 +99,9 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
     filteredFileTree, selectedFileIndex, setSelectedFileIndex, previewFile, fileTreeContainerRef,
     fileTreeFilterInputRef, toggleFolder, handleFileClick, expandAllFolders, collapseAllFolders,
     updateSessionWorkingDirectory, refreshFileTree, setSessions, onAutoRefreshChange, onShowFlash,
+    showHiddenFiles, setShowHiddenFiles,
     autoRunDocumentList, autoRunDocumentTree, autoRunContent, autoRunContentVersion, autoRunIsLoadingDocuments,
+    autoRunDocumentTaskCounts,
     onAutoRunContentChange, onAutoRunModeChange, onAutoRunStateChange,
     onAutoRunSelectDocument, onAutoRunCreateDocument, onAutoRunRefresh, onAutoRunOpenSetup,
     batchRunState, currentSessionBatchState, onOpenBatchRunner, onStopBatchRun, onJumpToClaudeSession, onResumeSession,
@@ -110,7 +117,25 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
   // Expanded modal state for Auto Run
   const [autoRunExpanded, setAutoRunExpanded] = useState(false);
   const handleExpandAutoRun = useCallback(() => setAutoRunExpanded(true), []);
-  const handleCollapseAutoRun = useCallback(() => setAutoRunExpanded(false), []);
+  const handleCollapseAutoRun = useCallback(() => {
+    setAutoRunExpanded(false);
+    // Refocus the AutoRun panel after modal closes
+    requestAnimationFrame(() => {
+      autoRunRef.current?.focus();
+    });
+  }, []);
+  const toggleAutoRunExpanded = useCallback(() => {
+    setAutoRunExpanded(prev => {
+      const newValue = !prev;
+      // If collapsing, refocus the AutoRun panel
+      if (!newValue) {
+        requestAnimationFrame(() => {
+          autoRunRef.current?.focus();
+        });
+      }
+      return newValue;
+    });
+  }, []);
 
   useEffect(() => {
     if (!currentSessionBatchState?.isRunning || !currentSessionBatchState?.startTime) {
@@ -145,8 +170,9 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
     },
     focusAutoRun: () => {
       autoRunRef.current?.focus();
-    }
-  }), []);
+    },
+    toggleAutoRunExpanded
+  }), [toggleAutoRunExpanded]);
 
   // Focus the history panel when switching to history tab
   useEffect(() => {
@@ -286,6 +312,8 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
               setSessions={setSessions}
               onAutoRefreshChange={onAutoRefreshChange}
               onShowFlash={onShowFlash}
+              showHiddenFiles={showHiddenFiles}
+              setShowHiddenFiles={setShowHiddenFiles}
             />
           </div>
         )}
@@ -328,11 +356,13 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
             onSelectDocument={onAutoRunSelectDocument}
             onCreateDocument={onAutoRunCreateDocument}
             isLoadingDocuments={autoRunIsLoadingDocuments}
+            documentTaskCounts={autoRunDocumentTaskCounts}
             batchRunState={currentSessionBatchState || undefined}
             onOpenBatchRunner={onOpenBatchRunner}
             onStopBatchRun={onStopBatchRun}
             sessionState={session.state}
             onExpand={handleExpandAutoRun}
+            shortcuts={shortcuts}
           />
           </div>
         )}
@@ -362,10 +392,12 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
           onSelectDocument={onAutoRunSelectDocument}
           onCreateDocument={onAutoRunCreateDocument}
           isLoadingDocuments={autoRunIsLoadingDocuments}
+          documentTaskCounts={autoRunDocumentTaskCounts}
           batchRunState={currentSessionBatchState || undefined}
           onOpenBatchRunner={onOpenBatchRunner}
           onStopBatchRun={onStopBatchRun}
           sessionState={session.state}
+          shortcuts={shortcuts}
         />
       )}
 
@@ -455,13 +487,13 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
           </div>
 
           {/* Overall completed count with loop info */}
-          <div className="mt-2 flex items-center justify-between">
+          <div className="mt-2 flex items-center justify-center gap-2">
             <span className="text-[10px]" style={{ color: theme.colors.textDim }}>
               {currentSessionBatchState.isStopping
                 ? 'Waiting for current task to complete before stopping...'
                 : currentSessionBatchState.totalTasksAcrossAllDocs > 0
-                  ? `${currentSessionBatchState.completedTasksAcrossAllDocs} / ${currentSessionBatchState.totalTasksAcrossAllDocs} total tasks completed`
-                  : `${currentSessionBatchState.completedTasks} / ${currentSessionBatchState.totalTasks} tasks completed`
+                  ? `${currentSessionBatchState.completedTasksAcrossAllDocs} of ${currentSessionBatchState.totalTasksAcrossAllDocs} tasks completed`
+                  : `${currentSessionBatchState.completedTasks} of ${currentSessionBatchState.totalTasks} tasks completed`
               }
             </span>
             {/* Loop iteration indicator */}

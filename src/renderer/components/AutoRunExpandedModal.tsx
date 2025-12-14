@@ -1,10 +1,12 @@
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Minimize2, Eye, Edit, Play, Square, Loader2, Image } from 'lucide-react';
-import type { Theme, BatchRunState, SessionState } from '../types';
+import { X, Minimize2, Eye, Edit, Play, Square, Loader2, Image, Save, RotateCcw } from 'lucide-react';
+import type { Theme, BatchRunState, SessionState, Shortcut } from '../types';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { AutoRun, AutoRunHandle } from './AutoRun';
+import type { DocumentTaskCount } from './AutoRunDocumentSelector';
+import { formatShortcutKeys } from '../utils/shortcutFormatter';
 
 interface AutoRunExpandedModalProps {
   theme: Theme;
@@ -34,10 +36,12 @@ interface AutoRunExpandedModalProps {
   onSelectDocument: (filename: string) => void;
   onCreateDocument: (filename: string) => Promise<boolean>;
   isLoadingDocuments?: boolean;
+  documentTaskCounts?: Map<string, DocumentTaskCount>;  // Task counts per document
   batchRunState?: BatchRunState;
   onOpenBatchRunner?: () => void;
   onStopBatchRun?: () => void;
   sessionState?: SessionState;
+  shortcuts?: Record<string, Shortcut>;
 }
 
 export function AutoRunExpandedModal({
@@ -49,6 +53,7 @@ export function AutoRunExpandedModal({
   onOpenBatchRunner,
   onStopBatchRun,
   sessionState,
+  shortcuts,
   ...autoRunProps
 }: AutoRunExpandedModalProps) {
   const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
@@ -61,6 +66,35 @@ export function AutoRunExpandedModal({
   const isLocked = batchRunState?.isRunning || false;
   const isAgentBusy = sessionState === 'busy' || sessionState === 'connecting';
   const isStopping = batchRunState?.isStopping || false;
+
+  // Track dirty state from AutoRun component
+  const [isDirty, setIsDirty] = useState(false);
+
+  // Poll dirty state from AutoRun ref
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (autoRunRef.current) {
+        setIsDirty(autoRunRef.current.isDirty());
+      }
+    }, 100);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Save handler
+  const handleSave = useCallback(async () => {
+    if (autoRunRef.current) {
+      await autoRunRef.current.save();
+      setIsDirty(false);
+    }
+  }, []);
+
+  // Revert handler
+  const handleRevert = useCallback(() => {
+    if (autoRunRef.current) {
+      autoRunRef.current.revert();
+      setIsDirty(false);
+    }
+  }, []);
 
   // Register layer on mount
   useEffect(() => {
@@ -97,8 +131,13 @@ export function AutoRunExpandedModal({
     return () => clearTimeout(timer);
   }, []);
 
+  // Use the AutoRun's switchMode for scroll sync, falling back to direct mode change
   const setMode = useCallback((newMode: 'edit' | 'preview') => {
-    onModeChange(newMode);
+    if (autoRunRef.current?.switchMode) {
+      autoRunRef.current.switchMode(newMode);
+    } else {
+      onModeChange(newMode);
+    }
   }, [onModeChange]);
 
   return createPortal(
@@ -162,27 +201,71 @@ export function AutoRunExpandedModal({
               <Eye className="w-3.5 h-3.5" />
               Preview
             </button>
-            {/* Image upload button (edit mode only) */}
-            {mode === 'edit' && !isLocked && (
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="flex items-center gap-2 px-3 py-1.5 rounded text-xs transition-colors hover:opacity-80"
-                style={{
-                  backgroundColor: 'transparent',
-                  color: theme.colors.textDim,
-                  border: `1px solid ${theme.colors.border}`
-                }}
-                title="Add image (or paste from clipboard)"
-              >
-                <Image className="w-3.5 h-3.5" />
-              </button>
-            )}
+            {/* Image upload button - always visible, ghosted in preview mode */}
+            <button
+              onClick={() => mode === 'edit' && !isLocked && fileInputRef.current?.click()}
+              disabled={mode !== 'edit' || isLocked}
+              className={`flex items-center justify-center w-8 h-8 rounded text-xs transition-colors ${
+                mode === 'edit' && !isLocked ? 'hover:opacity-80' : 'opacity-30 cursor-not-allowed'
+              }`}
+              style={{
+                backgroundColor: 'transparent',
+                color: theme.colors.textDim,
+                border: `1px solid ${theme.colors.border}`
+              }}
+              title={mode === 'edit' && !isLocked ? 'Add image (or paste from clipboard)' : 'Switch to Edit mode to add images'}
+            >
+              <Image className="w-3.5 h-3.5" />
+            </button>
             <input
               ref={fileInputRef}
               type="file"
               accept="image/*"
               className="hidden"
             />
+            {/* Save/Revert buttons - shown when dirty */}
+            {isDirty && mode === 'edit' && !isLocked && (
+              <>
+                <div className="w-px h-4 mx-1" style={{ backgroundColor: theme.colors.border }} />
+                <button
+                  onClick={handleRevert}
+                  className="flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors hover:opacity-80"
+                  style={{
+                    backgroundColor: 'transparent',
+                    color: theme.colors.textDim,
+                    border: `1px solid ${theme.colors.border}`
+                  }}
+                  title="Discard changes"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  Revert
+                </button>
+                <button
+                  onClick={handleSave}
+                  className="group relative flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors hover:opacity-80"
+                  style={{
+                    backgroundColor: theme.colors.accent,
+                    color: theme.colors.accentForeground,
+                    border: `1px solid ${theme.colors.accent}`
+                  }}
+                  title="Save changes"
+                >
+                  <Save className="w-3 h-3" />
+                  Save
+                  {/* Keyboard shortcut overlay on hover */}
+                  <span
+                    className="absolute -bottom-6 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded text-[10px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+                    style={{
+                      backgroundColor: theme.colors.bgMain,
+                      color: theme.colors.textDim,
+                      border: `1px solid ${theme.colors.border}`,
+                    }}
+                  >
+                    ⌘S
+                  </span>
+                </button>
+              </>
+            )}
             {/* Run / Stop button */}
             {isLocked ? (
               <button
@@ -205,7 +288,13 @@ export function AutoRunExpandedModal({
               </button>
             ) : (
               <button
-                onClick={onOpenBatchRunner}
+                onClick={() => {
+                  // Save before opening batch runner if dirty
+                  if (isDirty) {
+                    handleSave();
+                  }
+                  onOpenBatchRunner?.();
+                }}
                 disabled={isAgentBusy}
                 className={`flex items-center gap-2 px-3 py-1.5 rounded text-xs transition-colors ${isAgentBusy ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-90'}`}
                 style={{
@@ -227,7 +316,7 @@ export function AutoRunExpandedModal({
               onClick={onClose}
               className="flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors hover:bg-white/10"
               style={{ color: theme.colors.textDim }}
-              title="Collapse (Esc)"
+              title={`Collapse${shortcuts?.toggleAutoRunExpanded ? ` (${formatShortcutKeys(shortcuts.toggleAutoRunExpanded.keys)})` : ' (Esc)'}`}
             >
               <Minimize2 className="w-4 h-4" />
               Collapse

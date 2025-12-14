@@ -1196,14 +1196,15 @@ describe('Wizard Integration Tests', () => {
 
     it('should allow advancing when step requirements are met', async () => {
       function TestWrapper() {
-        const { openWizard, state, setSelectedAgent, canProceedToNext } = useWizard();
+        const { openWizard, state, setSelectedAgent, setAgentName, canProceedToNext } = useWizard();
 
         React.useEffect(() => {
           if (!state.isOpen) {
             setSelectedAgent('claude-code');
+            setAgentName('My Agent');
             openWizard();
           }
-        }, [openWizard, state.isOpen, setSelectedAgent]);
+        }, [openWizard, state.isOpen, setSelectedAgent, setAgentName]);
 
         const canProceed = canProceedToNext();
 

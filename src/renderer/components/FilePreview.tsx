@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { FileCode, X, Copy, FileText, Eye, ChevronUp, ChevronDown, Clipboard, Loader2, Image, Globe, Save, Edit, FolderOpen } from 'lucide-react';
@@ -320,7 +321,6 @@ export function FilePreview({ file, onClose, theme, markdownEditMode, setMarkdow
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [showCopyNotification, setShowCopyNotification] = useState(false);
-  const [hoveredLink, setHoveredLink] = useState<{ url: string; x: number; y: number } | null>(null);
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
   const [totalMatches, setTotalMatches] = useState(0);
   const [fileStats, setFileStats] = useState<FileStats | null>(null);
@@ -402,10 +402,48 @@ export function FilePreview({ file, onClose, theme, markdownEditMode, setMarkdow
     }
   }, [file?.content, file?.path]);
 
-  // Focus textarea when entering edit mode
+  // Focus appropriate element and sync scroll position when mode changes
+  const prevMarkdownEditModeRef = useRef(markdownEditMode);
   useEffect(() => {
+    const wasEditMode = prevMarkdownEditModeRef.current;
+    prevMarkdownEditModeRef.current = markdownEditMode;
+
     if (markdownEditMode && textareaRef.current) {
+      // Entering edit mode - focus textarea and sync scroll from preview
+      if (!wasEditMode && contentRef.current) {
+        // Calculate scroll percentage from preview mode
+        const { scrollTop, scrollHeight, clientHeight } = contentRef.current;
+        const maxScroll = scrollHeight - clientHeight;
+        const scrollPercent = maxScroll > 0 ? scrollTop / maxScroll : 0;
+
+        // Apply scroll percentage to textarea after it renders
+        requestAnimationFrame(() => {
+          if (textareaRef.current) {
+            const { scrollHeight: textareaScrollHeight, clientHeight: textareaClientHeight } = textareaRef.current;
+            const textareaMaxScroll = textareaScrollHeight - textareaClientHeight;
+            textareaRef.current.scrollTop = Math.round(scrollPercent * textareaMaxScroll);
+          }
+        });
+      }
       textareaRef.current.focus();
+    } else if (!markdownEditMode && wasEditMode && containerRef.current) {
+      // Exiting edit mode - focus container and sync scroll from textarea
+      if (textareaRef.current && contentRef.current) {
+        // Calculate scroll percentage from edit mode
+        const { scrollTop, scrollHeight, clientHeight } = textareaRef.current;
+        const maxScroll = scrollHeight - clientHeight;
+        const scrollPercent = maxScroll > 0 ? scrollTop / maxScroll : 0;
+
+        // Apply scroll percentage to preview after it renders
+        requestAnimationFrame(() => {
+          if (contentRef.current) {
+            const { scrollHeight: previewScrollHeight, clientHeight: previewClientHeight } = contentRef.current;
+            const previewMaxScroll = previewScrollHeight - previewClientHeight;
+            contentRef.current.scrollTop = Math.round(scrollPercent * previewMaxScroll);
+          }
+        });
+      }
+      containerRef.current.focus();
     }
   }, [markdownEditMode]);
 
@@ -1065,8 +1103,7 @@ export function FilePreview({ file, onClose, theme, markdownEditMode, setMarkdow
             `}</style>
             <ReactMarkdown
               remarkPlugins={[remarkGfm, remarkHighlight]}
-              rehypePlugins={[]}
-              skipHtml={false}
+              rehypePlugins={[rehypeRaw]}
               components={{
                 a: ({ node, href, children, ...props }) => (
                   <a
@@ -1078,13 +1115,6 @@ export function FilePreview({ file, onClose, theme, markdownEditMode, setMarkdow
                         window.maestro.shell.openExternal(href);
                       }
                     }}
-                    onMouseEnter={(e) => {
-                      if (href) {
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        setHoveredLink({ url: href, x: rect.left, y: rect.bottom });
-                      }
-                    }}
-                    onMouseLeave={() => setHoveredLink(null)}
                     style={{ color: theme.colors.accent, textDecoration: 'underline', cursor: 'pointer' }}
                   >
                     {children}
@@ -1169,22 +1199,6 @@ export function FilePreview({ file, onClose, theme, markdownEditMode, setMarkdow
         </div>
       )}
 
-      {/* Link Hover Tooltip */}
-      {hoveredLink && (
-        <div
-          className="fixed px-3 py-2 rounded shadow-lg text-xs font-mono max-w-md break-all z-50"
-          style={{
-            left: `${hoveredLink.x}px`,
-            top: `${hoveredLink.y + 5}px`,
-            backgroundColor: theme.colors.bgActivity,
-            color: theme.colors.textDim,
-            border: `1px solid ${theme.colors.border}`,
-            pointerEvents: 'none'
-          }}
-        >
-          {hoveredLink.url}
-        </div>
-      )}
     </div>
   );
 }

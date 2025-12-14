@@ -9,11 +9,21 @@ interface ToastContainerProps {
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+  const totalSeconds = Math.floor(ms / 1000);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0) parts.push(`${hours}h`);
+  if (minutes > 0) parts.push(`${minutes}m`);
+  if (seconds > 0 && days === 0) parts.push(`${seconds}s`); // Skip seconds when showing days
+
+  return parts.join(' ') || '0s';
 }
 
 function ToastItem({ toast, theme, onRemove, onSessionClick }: { toast: ToastType; theme: Theme; onRemove: () => void; onSessionClick?: (sessionId: string, tabId?: string) => void }) {

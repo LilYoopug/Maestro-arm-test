@@ -1,208 +1,22 @@
 import React, { useRef, useEffect, useMemo, forwardRef, useState, useCallback, memo } from 'react';
-import { Activity, X, ChevronDown, ChevronUp, Filter, PlusCircle, MinusCircle, Trash2, Copy, Volume2, Square, Check, ArrowDown, Eye, FileText, Clipboard, RotateCcw } from 'lucide-react';
+import { Activity, X, ChevronDown, ChevronUp, Trash2, Copy, Volume2, Square, Check, ArrowDown, Eye, FileText, RotateCcw } from 'lucide-react';
 import type { Session, Theme, LogEntry } from '../types';
 import Convert from 'ansi-to-html';
 import DOMPurify from 'dompurify';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { getActiveTab } from '../utils/tabHelpers';
 import { useDebouncedValue, useThrottledCallback } from '../hooks/useThrottle';
-
-// ============================================================================
-// CodeBlockWithCopy - Code block with copy button overlay
-// ============================================================================
-
-interface CodeBlockWithCopyProps {
-  language: string;
-  codeContent: string;
-  theme: Theme;
-  onCopy: (text: string) => void;
-}
-
-const CodeBlockWithCopy = memo(({ language, codeContent, theme, onCopy }: CodeBlockWithCopyProps) => {
-  return (
-    <div className="relative group/codeblock">
-      <button
-        onClick={() => onCopy(codeContent)}
-        className="absolute bottom-2 right-2 p-1.5 rounded opacity-0 group-hover/codeblock:opacity-70 hover:!opacity-100 transition-opacity z-10"
-        style={{
-          backgroundColor: theme.colors.bgActivity,
-          color: theme.colors.textDim,
-          border: `1px solid ${theme.colors.border}`
-        }}
-        title="Copy code"
-      >
-        <Clipboard className="w-3.5 h-3.5" />
-      </button>
-      <SyntaxHighlighter
-        language={language}
-        style={vscDarkPlus}
-        customStyle={{
-          margin: '0.5em 0',
-          padding: '1em',
-          background: theme.colors.bgSidebar,
-          fontSize: '0.9em',
-          borderRadius: '6px',
-        }}
-        PreTag="div"
-      >
-        {codeContent}
-      </SyntaxHighlighter>
-    </div>
-  );
-});
-
-CodeBlockWithCopy.displayName = 'CodeBlockWithCopy';
-
-// ============================================================================
-// Pure helper functions (moved outside component to prevent recreation)
-// ============================================================================
-
-// Process carriage returns to simulate terminal line overwrites
-const processCarriageReturns = (text: string): string => {
-  const lines = text.split('\n');
-  const processedLines = lines.map(line => {
-    if (line.includes('\r')) {
-      const segments = line.split('\r');
-      for (let i = segments.length - 1; i >= 0; i--) {
-        if (segments[i].trim()) {
-          return segments[i];
-        }
-      }
-      return '';
-    }
-    return line;
-  });
-  return processedLines.join('\n');
-};
-
-// Filter out bash prompt lines and apply processing
-const processLogTextHelper = (text: string, isTerminal: boolean): string => {
-  let processed = processCarriageReturns(text);
-  if (!isTerminal) return processed;
-
-  const lines = processed.split('\n');
-  const filteredLines = lines.filter(line => {
-    const trimmed = line.trim();
-    if (!trimmed) return false;
-    if (/^(bash-\d+\.\d+\$|zsh[%#]|\$|#)\s*$/.test(trimmed)) return false;
-    return true;
-  });
-
-  return filteredLines.join('\n');
-};
-
-// Filter text by lines containing the query (local filter)
-const filterTextByLinesHelper = (text: string, query: string, mode: 'include' | 'exclude', useRegex: boolean): string => {
-  if (!query) return text;
-
-  const lines = text.split('\n');
-
-  try {
-    if (useRegex) {
-      const regex = new RegExp(query, 'i');
-      const filteredLines = lines.filter(line => {
-        const matches = regex.test(line);
-        return mode === 'include' ? matches : !matches;
-      });
-      return filteredLines.join('\n');
-    } else {
-      const lowerQuery = query.toLowerCase();
-      const filteredLines = lines.filter(line => {
-        const matches = line.toLowerCase().includes(lowerQuery);
-        return mode === 'include' ? matches : !matches;
-      });
-      return filteredLines.join('\n');
-    }
-  } catch (error) {
-    const lowerQuery = query.toLowerCase();
-    const filteredLines = lines.filter(line => {
-      const matches = line.toLowerCase().includes(lowerQuery);
-      return mode === 'include' ? matches : !matches;
-    });
-    return filteredLines.join('\n');
-  }
-};
-
-// ============================================================================
-// PERF: ANSI conversion cache - stores converted HTML by content hash
-// ============================================================================
-// LRU-style cache for ANSI to HTML conversions to avoid re-converting on every render
-// Cache key is hash of (text content + theme ID), value is sanitized HTML
-const ANSI_CACHE_MAX_SIZE = 500;
-const ansiCache = new Map<string, string>();
-
-/**
- * Get cached ANSI-to-HTML conversion or compute and cache it
- * @param text - Raw text with ANSI codes
- * @param themeId - Theme identifier (ANSI colors depend on theme)
- * @param converter - The ANSI converter instance
- * @returns Sanitized HTML string
- */
-function getCachedAnsiHtml(text: string, themeId: string, converter: Convert): string {
-  // Create a simple hash key from text and theme
-  // For performance, use a substring-based key for long texts
-  const textKey = text.length > 200 ? `${text.slice(0, 100)}|${text.length}|${text.slice(-100)}` : text;
-  const cacheKey = `${themeId}:${textKey}`;
-
-  const cached = ansiCache.get(cacheKey);
-  if (cached !== undefined) {
-    return cached;
-  }
-
-  // Convert and sanitize
-  const html = DOMPurify.sanitize(converter.toHtml(text));
-
-  // LRU eviction: remove oldest entries if cache is full
-  if (ansiCache.size >= ANSI_CACHE_MAX_SIZE) {
-    const firstKey = ansiCache.keys().next().value;
-    if (firstKey) ansiCache.delete(firstKey);
-  }
-
-  ansiCache.set(cacheKey, html);
-  return html;
-}
-
-// Strip markdown formatting to show plain text
-const stripMarkdown = (text: string): string => {
-  return text
-    // Remove code blocks (```...```)
-    .replace(/```[\s\S]*?```/g, (match) => {
-      // Extract just the code content without the fence
-      const lines = match.split('\n');
-      // Remove first line (```lang) and last line (```)
-      return lines.slice(1, -1).join('\n');
-    })
-    // Remove inline code backticks
-    .replace(/`([^`]+)`/g, '$1')
-    // Remove bold/italic (***text***, **text**, *text*, ___text___, __text__, _text_)
-    .replace(/\*\*\*(.+?)\*\*\*/g, '$1')
-    .replace(/\*\*(.+?)\*\*/g, '$1')
-    .replace(/\*(.+?)\*/g, '$1')
-    .replace(/___(.+?)___/g, '$1')
-    .replace(/__(.+?)__/g, '$1')
-    .replace(/_(.+?)_/g, '$1')
-    // Remove headers (# text)
-    .replace(/^#{1,6}\s+/gm, '')
-    // Remove blockquotes (> text)
-    .replace(/^>\s*/gm, '')
-    // Remove horizontal rules
-    .replace(/^[-*_]{3,}\s*$/gm, '---')
-    // Remove link formatting [text](url) -> text
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    // Remove image formatting ![alt](url) -> alt
-    .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
-    // Remove strikethrough
-    .replace(/~~(.+?)~~/g, '$1')
-    // Clean up bullet points - convert to simple dashes
-    .replace(/^[\s]*[-*+]\s+/gm, '- ')
-    // Clean up numbered lists - keep the numbers
-    .replace(/^[\s]*(\d+)\.\s+/gm, '$1. ');
-};
+import {
+  processCarriageReturns,
+  processLogTextHelper,
+  filterTextByLinesHelper,
+  getCachedAnsiHtml,
+  stripMarkdown
+} from '../utils/textProcessing';
+import { MarkdownRenderer } from './MarkdownRenderer';
+import { QueuedItemsList } from './QueuedItemsList';
+import { LogFilterControls } from './LogFilterControls';
 
 // ============================================================================
 // LogItem - Memoized component for individual log entries
@@ -465,9 +279,27 @@ const LogItemComponent = memo(({
 
   return (
     <div ref={logItemRef} className={`flex gap-4 group ${isUserMessage ? 'flex-row-reverse' : ''} px-6 py-2`} data-log-index={index}>
-      <div className={`w-12 shrink-0 text-[10px] pt-2 ${isUserMessage ? 'text-right' : 'text-left'}`}
+      <div className={`w-16 shrink-0 text-[10px] pt-2 ${isUserMessage ? 'text-right' : 'text-left'}`}
            style={{ fontFamily, color: theme.colors.textDim, opacity: 0.6 }}>
-        {new Date(log.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+        {(() => {
+          const logDate = new Date(log.timestamp);
+          const today = new Date();
+          const isToday = logDate.toDateString() === today.toDateString();
+          const time = logDate.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+          if (isToday) {
+            return time;
+          }
+          // Format: YYYY-MM-DD on first line, time on second
+          const year = logDate.getFullYear();
+          const month = String(logDate.getMonth() + 1).padStart(2, '0');
+          const day = String(logDate.getDate()).padStart(2, '0');
+          return (
+            <>
+              <div>{year}-{month}-{day}</div>
+              <div>{time}</div>
+            </>
+          );
+        })()}
       </div>
       <div className={`flex-1 min-w-0 p-4 pb-10 ${isUserMessage && log.readOnly ? 'pt-8' : ''} rounded-xl border ${isUserMessage ? 'rounded-tr-none' : 'rounded-tl-none'} relative overflow-hidden`}
            style={{
@@ -502,79 +334,18 @@ const LogItemComponent = memo(({
         {/* Local filter icon for system output only */}
         {log.source !== 'user' && isTerminal && (
           <div className="absolute top-2 right-2 flex items-center gap-2">
-            {activeLocalFilter === log.id || localFilterQuery ? (
-              <div className="flex items-center gap-2 p-2 rounded border" style={{ backgroundColor: theme.colors.bgSidebar, borderColor: theme.colors.border }}>
-                <button
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => {
-                    onSetFilterMode(log.id, (current) => ({ ...current, mode: current.mode === 'include' ? 'exclude' : 'include' }));
-                  }}
-                  className="p-1 rounded hover:opacity-70 transition-opacity"
-                  style={{ color: filterMode.mode === 'include' ? theme.colors.success : theme.colors.error }}
-                  title={filterMode.mode === 'include' ? 'Include matching lines' : 'Exclude matching lines'}
-                >
-                  {filterMode.mode === 'include' ? <PlusCircle className="w-3.5 h-3.5" /> : <MinusCircle className="w-3.5 h-3.5" />}
-                </button>
-                <button
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => {
-                    onSetFilterMode(log.id, (current) => ({ ...current, regex: !current.regex }));
-                  }}
-                  className="px-2 py-1 rounded hover:opacity-70 transition-opacity text-xs font-bold"
-                  style={{ fontFamily, color: filterMode.regex ? theme.colors.accent : theme.colors.textDim }}
-                  title={filterMode.regex ? 'Using regex' : 'Using plain text'}
-                >
-                  {filterMode.regex ? '.*' : 'Aa'}
-                </button>
-                <input
-                  type="text"
-                  value={localFilterQuery}
-                  onChange={(e) => onSetLocalFilterQuery(log.id, e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') {
-                      e.stopPropagation();
-                      onClearLocalFilter(log.id);
-                    }
-                  }}
-                  onBlur={() => {
-                    if (!localFilterQuery) {
-                      onToggleLocalFilter(log.id);
-                    }
-                  }}
-                  placeholder={
-                    filterMode.mode === 'include'
-                      ? (filterMode.regex ? "Include by RegEx" : "Include by keyword")
-                      : (filterMode.regex ? "Exclude by RegEx" : "Exclude by keyword")
-                  }
-                  className="w-40 px-2 py-1 text-xs rounded border bg-transparent outline-none"
-                  style={{
-                    borderColor: theme.colors.accent,
-                    color: theme.colors.textMain,
-                    backgroundColor: theme.colors.bgMain
-                  }}
-                  autoFocus={activeLocalFilter === log.id}
-                />
-                <button
-                  onClick={() => onClearLocalFilter(log.id)}
-                  className="p-1 rounded hover:opacity-70 transition-opacity"
-                  style={{ color: theme.colors.textDim }}
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => onToggleLocalFilter(log.id)}
-                className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-opacity-10 transition-opacity"
-                style={{
-                  color: localFilterQuery ? theme.colors.accent : theme.colors.textDim,
-                  backgroundColor: localFilterQuery ? theme.colors.bgActivity : 'transparent'
-                }}
-                title="Filter this output"
-              >
-                <Filter className="w-3 h-3" />
-              </button>
-            )}
+            <LogFilterControls
+              logId={log.id}
+              fontFamily={fontFamily}
+              theme={theme}
+              filterQuery={localFilterQuery}
+              filterMode={filterMode}
+              isActive={activeLocalFilter === log.id}
+              onToggleFilter={onToggleLocalFilter}
+              onSetFilterQuery={onSetLocalFilterQuery}
+              onSetFilterMode={onSetFilterMode}
+              onClearFilter={onClearLocalFilter}
+            />
           </div>
         )}
         {log.images && log.images.length > 0 && (
@@ -625,49 +396,11 @@ const LogItemComponent = memo(({
                 <div className="overflow-x-auto scrollbar-thin" dangerouslySetInnerHTML={{ __html: displayHtmlContent }} />
               ) : isAIMode && !markdownEditMode ? (
                 // Collapsed markdown preview with rendered markdown
-                // Note: prose styles are injected once at TerminalOutput container level for performance
-                <div className="prose prose-sm max-w-none" style={{ color: theme.colors.textMain, lineHeight: 1.4, paddingLeft: '0.5em' }}>
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      a: ({ node, href, children, ...props }) => (
-                        <a
-                          href={href}
-                          {...props}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            if (href) {
-                              window.maestro.shell.openExternal(href);
-                            }
-                          }}
-                          style={{ color: theme.colors.accent, textDecoration: 'underline', cursor: 'pointer' }}
-                        >
-                          {children}
-                        </a>
-                      ),
-                      code: ({ node, inline, className, children, ...props }: any) => {
-                        const match = (className || '').match(/language-(\w+)/);
-                        const language = match ? match[1] : 'text';
-                        const codeContent = String(children).replace(/\n$/, '');
-
-                        return !inline && match ? (
-                          <CodeBlockWithCopy
-                            language={language}
-                            codeContent={codeContent}
-                            theme={theme}
-                            onCopy={copyToClipboard}
-                          />
-                        ) : (
-                          <code className={className} {...props}>
-                            {children}
-                          </code>
-                        );
-                      }
-                    }}
-                  >
-                    {displayText}
-                  </ReactMarkdown>
-                </div>
+                <MarkdownRenderer
+                  content={displayText}
+                  theme={theme}
+                  onCopy={copyToClipboard}
+                />
               ) : (
                 displayText
               )}
@@ -739,49 +472,11 @@ const LogItemComponent = memo(({
                 </div>
               ) : isAIMode && !markdownEditMode ? (
                 // Expanded markdown rendering
-                // Note: prose styles are injected once at TerminalOutput container level for performance
-                <div className="prose prose-sm max-w-none text-sm" style={{ color: theme.colors.textMain, lineHeight: 1.4, paddingLeft: '0.5em' }}>
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      a: ({ node, href, children, ...props }) => (
-                        <a
-                          href={href}
-                          {...props}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            if (href) {
-                              window.maestro.shell.openExternal(href);
-                            }
-                          }}
-                          style={{ color: theme.colors.accent, textDecoration: 'underline', cursor: 'pointer' }}
-                        >
-                          {children}
-                        </a>
-                      ),
-                      code: ({ node, inline, className, children, ...props }: any) => {
-                        const match = (className || '').match(/language-(\w+)/);
-                        const language = match ? match[1] : 'text';
-                        const codeContent = String(children).replace(/\n$/, '');
-
-                        return !inline && match ? (
-                          <CodeBlockWithCopy
-                            language={language}
-                            codeContent={codeContent}
-                            theme={theme}
-                            onCopy={copyToClipboard}
-                          />
-                        ) : (
-                          <code className={className} {...props}>
-                            {children}
-                          </code>
-                        );
-                      }
-                    }}
-                  >
-                    {filteredText}
-                  </ReactMarkdown>
-                </div>
+                <MarkdownRenderer
+                  content={filteredText}
+                  theme={theme}
+                  onCopy={copyToClipboard}
+                />
               ) : (
                 <div>{highlightMatches(filteredText, outputSearchQuery)}</div>
               )}
@@ -835,49 +530,11 @@ const LogItemComponent = memo(({
               </div>
             ) : isAIMode && !markdownEditMode ? (
               // Rendered markdown for AI responses
-              // Note: prose styles are injected once at TerminalOutput container level for performance
-              <div className="prose prose-sm max-w-none text-sm" style={{ color: theme.colors.textMain, lineHeight: 1.4, paddingLeft: '0.5em' }}>
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    a: ({ node, href, children, ...props }) => (
-                      <a
-                        href={href}
-                        {...props}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          if (href) {
-                            window.maestro.shell.openExternal(href);
-                          }
-                        }}
-                        style={{ color: theme.colors.accent, textDecoration: 'underline', cursor: 'pointer' }}
-                      >
-                        {children}
-                      </a>
-                    ),
-                    code: ({ node, inline, className, children, ...props }: any) => {
-                      const match = (className || '').match(/language-(\w+)/);
-                      const language = match ? match[1] : 'text';
-                      const codeContent = String(children).replace(/\n$/, '');
-
-                      return !inline && match ? (
-                        <CodeBlockWithCopy
-                          language={language}
-                          codeContent={codeContent}
-                          theme={theme}
-                          onCopy={copyToClipboard}
-                        />
-                      ) : (
-                        <code className={className} {...props}>
-                          {children}
-                        </code>
-                      );
-                    }
-                  }}
-                >
-                  {filteredText}
-                </ReactMarkdown>
-              </div>
+              <MarkdownRenderer
+                content={filteredText}
+                theme={theme}
+                onCopy={copyToClipboard}
+              />
             ) : (
               // Plain text mode (strip markdown formatting for readability)
               <div className="whitespace-pre-wrap text-sm break-all" style={{ color: theme.colors.textMain }}>
@@ -1135,11 +792,6 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
   // Counter to force re-render when delete confirmation changes
   const [deleteConfirmTrigger, setDeleteConfirmTrigger] = useState(0);
 
-  // Queue removal confirmation state
-  const [queueRemoveConfirmId, setQueueRemoveConfirmId] = useState<string | null>(null);
-
-  // Track which queued messages are expanded (for viewing full content)
-  const [expandedQueuedMessages, setExpandedQueuedMessages] = useState<Set<string>>(new Set());
 
   // Copy to clipboard notification state
   const [showCopiedNotification, setShowCopiedNotification] = useState(false);
@@ -1697,7 +1349,7 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
             type="text"
             value={outputSearchQuery}
             onChange={(e) => setOutputSearchQuery(e.target.value)}
-            placeholder="Filter output... (Esc to close)"
+            placeholder={isAIMode ? "Filter output... (Esc to close)" : "Search output... (Esc to close)"}
             className="w-full px-3 py-2 rounded border bg-transparent outline-none text-sm"
             style={{ borderColor: theme.colors.accent, color: theme.colors.textMain, backgroundColor: theme.colors.bgSidebar }}
             autoFocus
@@ -1780,183 +1432,16 @@ export const TerminalOutput = forwardRef<HTMLDivElement, TerminalOutputProps>((p
 
         {/* Queued items section - only show in AI mode */}
         {session.inputMode === 'ai' && session.executionQueue && session.executionQueue.length > 0 && (
-          <>
-            {/* QUEUED separator */}
-            <div className="mx-6 my-3 flex items-center gap-3">
-              <div className="flex-1 h-px" style={{ backgroundColor: theme.colors.border }} />
-              <span
-                className="text-xs font-bold tracking-wider"
-                style={{ color: theme.colors.warning }}
-              >
-                QUEUED ({session.executionQueue.length})
-              </span>
-              <div className="flex-1 h-px" style={{ backgroundColor: theme.colors.border }} />
-            </div>
-
-            {/* Queued items */}
-            {session.executionQueue.map((item) => {
-              const displayText = item.type === 'command' ? item.command : item.text || '';
-              const isLongMessage = displayText.length > 200;
-              const isQueuedExpanded = expandedQueuedMessages.has(item.id);
-
-              return (
-                <div
-                  key={item.id}
-                  className="mx-6 mb-2 p-3 rounded-lg opacity-60 relative group"
-                  style={{
-                    backgroundColor: item.type === 'command'
-                      ? theme.colors.success + '20'
-                      : theme.colors.accent + '20',
-                    borderLeft: `3px solid ${item.type === 'command' ? theme.colors.success : theme.colors.accent}`
-                  }}
-                >
-                  {/* Remove button */}
-                  <button
-                    onClick={() => setQueueRemoveConfirmId(item.id)}
-                    className="absolute top-2 right-2 p-1 rounded hover:bg-black/20 transition-colors"
-                    style={{ color: theme.colors.textDim }}
-                    title="Remove from queue"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-
-                  {/* Tab indicator */}
-                  {item.tabName && (
-                    <div
-                      className="text-xs mb-1 font-mono"
-                      style={{ color: theme.colors.textDim }}
-                    >
-                      → {item.tabName}
-                    </div>
-                  )}
-
-                  {/* Item content */}
-                  <div
-                    className="text-sm pr-8 whitespace-pre-wrap break-words"
-                    style={{ color: theme.colors.textMain }}
-                  >
-                    {item.type === 'command' && (
-                      <span style={{ color: theme.colors.success, fontWeight: 600 }}>
-                        {item.command}
-                      </span>
-                    )}
-                    {item.type === 'message' && (
-                      isLongMessage && !isQueuedExpanded
-                        ? displayText.substring(0, 200) + '...'
-                        : displayText
-                    )}
-                  </div>
-
-                  {/* Show more/less toggle for long messages */}
-                  {item.type === 'message' && isLongMessage && (
-                    <button
-                      onClick={() => {
-                        setExpandedQueuedMessages(prev => {
-                          const newSet = new Set(prev);
-                          if (newSet.has(item.id)) {
-                            newSet.delete(item.id);
-                          } else {
-                            newSet.add(item.id);
-                          }
-                          return newSet;
-                        });
-                      }}
-                      className="flex items-center gap-1 mt-2 text-xs px-2 py-1 rounded hover:opacity-70 transition-opacity"
-                      style={{
-                        color: theme.colors.accent,
-                        backgroundColor: theme.colors.bgActivity
-                      }}
-                    >
-                      {isQueuedExpanded ? (
-                        <>
-                          <ChevronUp className="w-3 h-3" />
-                          Show less
-                        </>
-                      ) : (
-                        <>
-                          <ChevronDown className="w-3 h-3" />
-                          Show all ({displayText.split('\n').length} lines)
-                        </>
-                      )}
-                    </button>
-                  )}
-
-                  {/* Images indicator */}
-                  {item.images && item.images.length > 0 && (
-                    <div
-                      className="mt-1 text-xs"
-                      style={{ color: theme.colors.textDim }}
-                    >
-                      {item.images.length} image{item.images.length > 1 ? 's' : ''} attached
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </>
+          <QueuedItemsList
+            executionQueue={session.executionQueue}
+            theme={theme}
+            onRemoveQueuedItem={onRemoveQueuedItem}
+          />
         )}
 
         {/* End ref for scrolling */}
         {session.state !== 'busy' && <div ref={logsEndRef} />}
       </div>
-
-      {/* Queue removal confirmation modal - moved outside scroll container */}
-      {queueRemoveConfirmId && (
-        <div
-          className="fixed inset-0 flex items-center justify-center z-50"
-          style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
-          onClick={() => setQueueRemoveConfirmId(null)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              if (onRemoveQueuedItem) {
-                onRemoveQueuedItem(queueRemoveConfirmId);
-              }
-              setQueueRemoveConfirmId(null);
-            } else if (e.key === 'Escape') {
-              e.preventDefault();
-              setQueueRemoveConfirmId(null);
-            }
-          }}
-        >
-          <div
-            className="p-4 rounded-lg shadow-xl max-w-md mx-4"
-            style={{ backgroundColor: theme.colors.bgMain }}
-            onClick={(e) => e.stopPropagation()}
-            tabIndex={-1}
-            ref={(el) => el?.focus()}
-          >
-            <h3 className="text-lg font-semibold mb-2" style={{ color: theme.colors.textMain }}>
-              Remove Queued Message?
-            </h3>
-            <p className="text-sm mb-4" style={{ color: theme.colors.textDim }}>
-              This message will be removed from the queue and will not be sent.
-            </p>
-            <div className="flex gap-2 justify-end">
-              <button
-                onClick={() => setQueueRemoveConfirmId(null)}
-                className="px-3 py-1.5 rounded text-sm"
-                style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textMain }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  if (onRemoveQueuedItem) {
-                    onRemoveQueuedItem(queueRemoveConfirmId);
-                  }
-                  setQueueRemoveConfirmId(null);
-                }}
-                className="px-3 py-1.5 rounded text-sm"
-                style={{ backgroundColor: theme.colors.error, color: 'white' }}
-                autoFocus
-              >
-                Remove
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* New Message Indicator - floating arrow button (AI mode only, terminal auto-scrolls) */}
       {hasNewMessages && !isAtBottom && session.inputMode === 'ai' && (

@@ -6,8 +6,9 @@
  * navigation buttons, and step indicator.
  */
 
-import type { Theme } from '../../../types';
+import type { Theme, Shortcut } from '../../../types';
 import type { TourStepConfig, SpotlightInfo } from './useTour';
+import { replaceShortcutPlaceholders } from './tourSteps';
 
 interface TourStepProps {
   theme: Theme;
@@ -33,6 +34,8 @@ interface TourStepProps {
   isPositionReady: boolean;
   /** Whether tour was launched from wizard (uses wizard-specific descriptions) */
   fromWizard?: boolean;
+  /** User's keyboard shortcuts for dynamic placeholder replacement */
+  shortcuts?: Record<string, Shortcut>;
 }
 
 /**
@@ -232,13 +235,19 @@ export function TourStep({
   isTransitioning,
   isPositionReady,
   fromWizard = false,
+  shortcuts,
 }: TourStepProps): JSX.Element {
   const { position, style } = calculateTooltipPosition(spotlight, step.position);
 
   // Use wizard-specific description if fromWizard, otherwise use generic (or fall back to description)
-  const description = fromWizard
+  const rawDescription = fromWizard
     ? step.description
     : (step.descriptionGeneric || step.description);
+
+  // Replace shortcut placeholders with formatted shortcuts
+  const description = shortcuts
+    ? replaceShortcutPlaceholders(rawDescription, shortcuts)
+    : rawDescription;
 
   // Only show tooltip when position is ready and not transitioning
   // This prevents flickering by ensuring position is calculated before becoming visible

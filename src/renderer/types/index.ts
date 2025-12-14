@@ -389,6 +389,8 @@ export interface Session {
   // Auto Run panel state (file-based document runner)
   autoRunFolderPath?: string;           // Persisted folder path for Runner Docs
   autoRunSelectedFile?: string;          // Currently selected markdown filename
+  autoRunContent?: string;              // Document content (per-session to prevent cross-contamination)
+  autoRunContentVersion?: number;       // Incremented on external file changes to force-sync
   autoRunMode?: 'edit' | 'preview';      // Current editing mode
   autoRunEditScrollPos?: number;         // Scroll position in edit mode
   autoRunPreviewScrollPos?: number;      // Scroll position in preview mode
@@ -464,6 +466,9 @@ export interface LeaderboardRegistration {
   registeredAt: number;          // Timestamp when registered
   emailConfirmed: boolean;       // Whether email has been confirmed
   lastSubmissionAt?: number;     // Last successful submission timestamp
+  // Authentication
+  clientToken?: string;          // Client-generated token for polling auth status
+  authToken?: string;            // 64-character token received after email confirmation
 }
 
 // Ranking info for a single leaderboard category

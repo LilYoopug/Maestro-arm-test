@@ -1,53 +1,34 @@
-import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'path';
 import os from 'os';
-import crypto from 'crypto';
 import fs from 'fs/promises';
 import fsSync from 'fs';
-import { createWriteStream } from 'fs';
-import archiver from 'archiver';
-import AdmZip from 'adm-zip';
 import { ProcessManager } from './process-manager';
 import { WebServer } from './web-server';
 import { AgentDetector } from './agent-detector';
-import { execFileNoThrow } from './utils/execFile';
 import { logger } from './utils/logger';
-import { detectShells } from './utils/shellDetector';
-import { isCloudflaredInstalled } from './utils/cliDetection';
 import { tunnelManager } from './tunnel-manager';
 import { getThemeById } from './themes';
-import { checkForUpdates } from './update-checker';
 import Store from 'electron-store';
+import { registerGitHandlers, registerAutorunHandlers, registerHistoryHandlers, registerAgentsHandlers, registerProcessHandlers, registerPersistenceHandlers, registerSystemHandlers, setupLoggerEventForwarding } from './ipc/handlers';
+import { DEMO_MODE, DEMO_DATA_PATH, CLAUDE_SESSION_PARSE_LIMITS, CLAUDE_PRICING } from './constants';
+import {
+  SessionStatsCache,
+  GlobalStatsCache,
+  STATS_CACHE_VERSION,
+  GLOBAL_STATS_CACHE_VERSION,
+  encodeClaudeProjectPath,
+  loadStatsCache,
+  saveStatsCache,
+  loadGlobalStatsCache,
+  saveGlobalStatsCache,
+} from './utils/statsCache';
 
 // Demo mode: use a separate data directory for fresh demos
-const DEMO_MODE = process.argv.includes('--demo') || !!process.env.MAESTRO_DEMO_DIR;
 if (DEMO_MODE) {
-  const demoPath = process.env.MAESTRO_DEMO_DIR || path.join(os.tmpdir(), 'maestro-demo');
-  app.setPath('userData', demoPath);
-  console.log(`[DEMO MODE] Using data directory: ${demoPath}`);
+  app.setPath('userData', DEMO_DATA_PATH);
+  console.log(`[DEMO MODE] Using data directory: ${DEMO_DATA_PATH}`);
 }
-
-// Constants for Claude session parsing
-const CLAUDE_SESSION_PARSE_LIMITS = {
-  /** Max lines to scan from start of file to find first user message */
-  FIRST_MESSAGE_SCAN_LINES: 20,
-  /** Max lines to scan from end of file to find last timestamp */
-  LAST_TIMESTAMP_SCAN_LINES: 10,
-  /** Max lines to scan for oldest timestamp in stats calculation */
-  OLDEST_TIMESTAMP_SCAN_LINES: 5,
-  /** Batch size for processing session files (allows UI updates) */
-  STATS_BATCH_SIZE: 20,
-  /** Max characters for first message preview */
-  FIRST_MESSAGE_PREVIEW_LENGTH: 200,
-};
-
-// Claude API pricing (per million tokens)
-const CLAUDE_PRICING = {
-  INPUT_PER_MILLION: 3,
-  OUTPUT_PER_MILLION: 15,
-  CACHE_READ_PER_MILLION: 0.30,
-  CACHE_CREATION_PER_MILLION: 3.75,
-};
 
 // Type definitions
 interface MaestroSettings {
@@ -85,131 +66,6 @@ const store = new Store<MaestroSettings>({
     webAuthToken: null,
   },
 });
-
-// Helper: Encode project path the same way Claude Code does
-// Claude replaces both '/' and '.' with '-' in the path encoding
-function encodeClaudeProjectPath(projectPath: string): string {
-  return projectPath.replace(/[/.]/g, '-');
-}
-
-// Cache structure for project stats
-interface SessionStatsCache {
-  // Per-session stats keyed by session ID
-  sessions: Record<string, {
-    messages: number;
-    costUsd: number;
-    sizeBytes: number;
-    tokens: number;
-    oldestTimestamp: string | null;
-    fileMtimeMs: number; // File modification time to detect changes
-  }>;
-  // Aggregate totals (computed from sessions)
-  totals: {
-    totalSessions: number;
-    totalMessages: number;
-    totalCostUsd: number;
-    totalSizeBytes: number;
-    totalTokens: number;
-    oldestTimestamp: string | null;
-  };
-  // Cache metadata
-  lastUpdated: number;
-  version: number; // Bump this to invalidate old caches
-}
-
-const STATS_CACHE_VERSION = 1;
-
-// Helper to get cache file path for a project
-function getStatsCachePath(projectPath: string): string {
-  const encodedPath = encodeClaudeProjectPath(projectPath);
-  return path.join(app.getPath('userData'), 'stats-cache', `${encodedPath}.json`);
-}
-
-// Helper to load stats cache for a project
-async function loadStatsCache(projectPath: string): Promise<SessionStatsCache | null> {
-  try {
-    const cachePath = getStatsCachePath(projectPath);
-    const content = await fs.readFile(cachePath, 'utf-8');
-    const cache = JSON.parse(content) as SessionStatsCache;
-    // Invalidate cache if version mismatch
-    if (cache.version !== STATS_CACHE_VERSION) {
-      return null;
-    }
-    return cache;
-  } catch {
-    return null;
-  }
-}
-
-// Helper to save stats cache for a project
-async function saveStatsCache(projectPath: string, cache: SessionStatsCache): Promise<void> {
-  try {
-    const cachePath = getStatsCachePath(projectPath);
-    const cacheDir = path.dirname(cachePath);
-    await fs.mkdir(cacheDir, { recursive: true });
-    await fs.writeFile(cachePath, JSON.stringify(cache), 'utf-8');
-  } catch (error) {
-    logger.warn('Failed to save stats cache', 'ClaudeSessions', { projectPath, error });
-  }
-}
-
-// Global stats cache structure (for About modal)
-interface GlobalStatsCache {
-  // Per-session stats keyed by "projectDir/sessionId"
-  sessions: Record<string, {
-    messages: number;
-    inputTokens: number;
-    outputTokens: number;
-    cacheReadTokens: number;
-    cacheCreationTokens: number;
-    sizeBytes: number;
-    fileMtimeMs: number;
-  }>;
-  // Aggregate totals
-  totals: {
-    totalSessions: number;
-    totalMessages: number;
-    totalInputTokens: number;
-    totalOutputTokens: number;
-    totalCacheReadTokens: number;
-    totalCacheCreationTokens: number;
-    totalCostUsd: number;
-    totalSizeBytes: number;
-  };
-  lastUpdated: number;
-  version: number;
-}
-
-const GLOBAL_STATS_CACHE_VERSION = 1;
-
-function getGlobalStatsCachePath(): string {
-  return path.join(app.getPath('userData'), 'stats-cache', 'global-stats.json');
-}
-
-async function loadGlobalStatsCache(): Promise<GlobalStatsCache | null> {
-  try {
-    const cachePath = getGlobalStatsCachePath();
-    const content = await fs.readFile(cachePath, 'utf-8');
-    const cache = JSON.parse(content) as GlobalStatsCache;
-    if (cache.version !== GLOBAL_STATS_CACHE_VERSION) {
-      return null;
-    }
-    return cache;
-  } catch {
-    return null;
-  }
-}
-
-async function saveGlobalStatsCache(cache: GlobalStatsCache): Promise<void> {
-  try {
-    const cachePath = getGlobalStatsCachePath();
-    const cacheDir = path.dirname(cachePath);
-    await fs.mkdir(cacheDir, { recursive: true });
-    await fs.writeFile(cachePath, JSON.stringify(cache), 'utf-8');
-  } catch (error) {
-    logger.warn('Failed to save global stats cache', 'ClaudeSessions', { error });
-  }
-}
 
 // Helper: Extract semantic text from message content
 // Skips images, tool_use, and tool_result - only returns actual text content
@@ -906,115 +762,7 @@ function startCliActivityWatcher() {
 }
 
 function setupIpcHandlers() {
-  // Settings management
-  ipcMain.handle('settings:get', async (_, key: string) => {
-    const value = store.get(key);
-    logger.debug(`Settings read: ${key}`, 'Settings', { key, value });
-    return value;
-  });
-
-  ipcMain.handle('settings:set', async (_, key: string, value: any) => {
-    store.set(key, value);
-    logger.info(`Settings updated: ${key}`, 'Settings', { key, value });
-
-    // Broadcast theme changes to connected web clients
-    if (key === 'activeThemeId' && webServer && webServer.getWebClientCount() > 0) {
-      const theme = getThemeById(value);
-      if (theme) {
-        webServer.broadcastThemeChange(theme);
-        logger.info(`Broadcasted theme change to web clients: ${value}`, 'WebServer');
-      }
-    }
-
-    // Broadcast custom commands changes to connected web clients
-    if (key === 'customAICommands' && webServer && webServer.getWebClientCount() > 0) {
-      webServer.broadcastCustomCommands(value);
-      logger.info(`Broadcasted custom commands change to web clients: ${value.length} commands`, 'WebServer');
-    }
-
-    return true;
-  });
-
-  ipcMain.handle('settings:getAll', async () => {
-    const settings = store.store;
-    logger.debug('All settings retrieved', 'Settings', { count: Object.keys(settings).length });
-    return settings;
-  });
-
-  // Sessions persistence
-  ipcMain.handle('sessions:getAll', async () => {
-    return sessionsStore.get('sessions', []);
-  });
-
-  ipcMain.handle('sessions:setAll', async (_, sessions: any[]) => {
-    // Debug: log autoRunFolderPath values received from renderer
-    const autoRunPaths = sessions.map((s: any) => ({ id: s.id, name: s.name, autoRunFolderPath: s.autoRunFolderPath }));
-    logger.debug('[Sessions:setAll] Received sessions with autoRunFolderPaths:', 'Sessions', autoRunPaths);
-
-    // Get previous sessions to detect changes
-    const previousSessions = sessionsStore.get('sessions', []);
-    const previousSessionMap = new Map(previousSessions.map((s: any) => [s.id, s]));
-    const currentSessionMap = new Map(sessions.map((s: any) => [s.id, s]));
-
-    // Detect and broadcast changes to web clients
-    if (webServer && webServer.getWebClientCount() > 0) {
-      // Check for state changes in existing sessions
-      for (const session of sessions) {
-        const prevSession = previousSessionMap.get(session.id);
-        if (prevSession) {
-          // Session exists - check if state changed
-          if (prevSession.state !== session.state ||
-              prevSession.inputMode !== session.inputMode ||
-              prevSession.name !== session.name ||
-              JSON.stringify(prevSession.cliActivity) !== JSON.stringify(session.cliActivity)) {
-            webServer.broadcastSessionStateChange(session.id, session.state, {
-              name: session.name,
-              toolType: session.toolType,
-              inputMode: session.inputMode,
-              cwd: session.cwd,
-              cliActivity: session.cliActivity,
-            });
-          }
-        } else {
-          // New session added
-          webServer.broadcastSessionAdded({
-            id: session.id,
-            name: session.name,
-            toolType: session.toolType,
-            state: session.state,
-            inputMode: session.inputMode,
-            cwd: session.cwd,
-          });
-        }
-      }
-
-      // Check for removed sessions
-      for (const prevSession of previousSessions) {
-        if (!currentSessionMap.has(prevSession.id)) {
-          webServer.broadcastSessionRemoved(prevSession.id);
-        }
-      }
-    }
-
-    sessionsStore.set('sessions', sessions);
-
-    // Debug: verify what was stored
-    const storedSessions = sessionsStore.get('sessions', []);
-    const storedAutoRunPaths = storedSessions.map((s: any) => ({ id: s.id, name: s.name, autoRunFolderPath: s.autoRunFolderPath }));
-    logger.debug('[Sessions:setAll] After store, autoRunFolderPaths:', 'Sessions', storedAutoRunPaths);
-
-    return true;
-  });
-
-  // Groups persistence
-  ipcMain.handle('groups:getAll', async () => {
-    return groupsStore.get('groups', []);
-  });
-
-  ipcMain.handle('groups:setAll', async (_, groups: any[]) => {
-    groupsStore.set('groups', groups);
-    return true;
-  });
+  // Settings, sessions, and groups persistence - extracted to src/main/ipc/handlers/persistence.ts
 
   // Broadcast user input to web clients (called when desktop sends a message)
   ipcMain.handle('web:broadcastUserInput', async (_, sessionId: string, command: string, inputMode: 'ai' | 'terminal') => {
@@ -1049,660 +797,56 @@ function setupIpcHandlers() {
     return false;
   });
 
-  // Session/Process management
-  ipcMain.handle('process:spawn', async (_, config: {
-    sessionId: string;
-    toolType: string;
-    cwd: string;
-    command: string;
-    args: string[];
-    prompt?: string;
-    shell?: string;
-    images?: string[]; // Base64 data URLs for images
-  }) => {
-    if (!processManager) throw new Error('Process manager not initialized');
-    if (!agentDetector) throw new Error('Agent detector not initialized');
+  // Git operations - extracted to src/main/ipc/handlers/git.ts
+  registerGitHandlers();
 
-    // Get agent definition to access config options
-    const agent = await agentDetector.getAgent(config.toolType);
-    let finalArgs = [...config.args];
-
-    // Build additional args from agent configuration
-    if (agent && agent.configOptions) {
-      const agentConfig = agentConfigsStore.get('configs', {})[config.toolType] || {};
-
-      for (const option of agent.configOptions) {
-        if (option.argBuilder) {
-          // Get config value, fallback to default
-          const value = agentConfig[option.key] !== undefined
-            ? agentConfig[option.key]
-            : option.default;
-
-          // Build args from this config value
-          const additionalArgs = option.argBuilder(value);
-          finalArgs = [...finalArgs, ...additionalArgs];
-        }
-      }
-    }
-
-    // If no shell is specified and this is a terminal session, use the default shell from settings
-    const shellToUse = config.shell || (config.toolType === 'terminal' ? store.get('defaultShell', 'zsh') : undefined);
-
-    // Extract Claude session ID from --resume arg if present
-    const resumeArgIndex = finalArgs.indexOf('--resume');
-    const claudeSessionId = resumeArgIndex !== -1 ? finalArgs[resumeArgIndex + 1] : undefined;
-
-    logger.info(`Spawning process: ${config.command}`, 'ProcessManager', {
-      sessionId: config.sessionId,
-      toolType: config.toolType,
-      cwd: config.cwd,
-      command: config.command,
-      args: finalArgs,
-      requiresPty: agent?.requiresPty || false,
-      shell: shellToUse,
-      ...(claudeSessionId && { claudeSessionId }),
-      ...(config.prompt && { prompt: config.prompt.length > 500 ? config.prompt.substring(0, 500) + '...' : config.prompt })
-    });
-
-    const result = processManager.spawn({
-      ...config,
-      args: finalArgs,
-      requiresPty: agent?.requiresPty,
-      prompt: config.prompt,
-      shell: shellToUse
-    });
-
-    logger.info(`Process spawned successfully`, 'ProcessManager', {
-      sessionId: config.sessionId,
-      pid: result.pid
-    });
-    return result;
+  // Auto Run operations - extracted to src/main/ipc/handlers/autorun.ts
+  registerAutorunHandlers({
+    mainWindow,
+    getMainWindow: () => mainWindow,
+    app,
   });
 
-  ipcMain.handle('process:write', async (_, sessionId: string, data: string) => {
-    if (!processManager) throw new Error('Process manager not initialized');
-    logger.debug(`Writing to process: ${sessionId}`, 'ProcessManager', { sessionId, dataLength: data.length });
-    return processManager.write(sessionId, data);
+  // History operations - extracted to src/main/ipc/handlers/history.ts
+  registerHistoryHandlers({
+    historyStore,
+    getHistoryNeedsReload: () => historyNeedsReload,
+    setHistoryNeedsReload: (value: boolean) => { historyNeedsReload = value; },
   });
 
-  ipcMain.handle('process:interrupt', async (_, sessionId: string) => {
-    if (!processManager) throw new Error('Process manager not initialized');
-    logger.info(`Interrupting process: ${sessionId}`, 'ProcessManager', { sessionId });
-    return processManager.interrupt(sessionId);
+  // Agent management operations - extracted to src/main/ipc/handlers/agents.ts
+  registerAgentsHandlers({
+    getAgentDetector: () => agentDetector,
+    agentConfigsStore,
   });
 
-  ipcMain.handle('process:kill', async (_, sessionId: string) => {
-    if (!processManager) throw new Error('Process manager not initialized');
-    logger.info(`Killing process: ${sessionId}`, 'ProcessManager', { sessionId });
-    return processManager.kill(sessionId);
+  // Process management operations - extracted to src/main/ipc/handlers/process.ts
+  registerProcessHandlers({
+    getProcessManager: () => processManager,
+    getAgentDetector: () => agentDetector,
+    agentConfigsStore,
+    settingsStore: store,
   });
 
-  ipcMain.handle('process:resize', async (_, sessionId: string, cols: number, rows: number) => {
-    if (!processManager) throw new Error('Process manager not initialized');
-    return processManager.resize(sessionId, cols, rows);
+  // Persistence operations - extracted to src/main/ipc/handlers/persistence.ts
+  registerPersistenceHandlers({
+    settingsStore: store,
+    sessionsStore,
+    groupsStore,
+    getWebServer: () => webServer,
   });
 
-  // Get all active processes managed by the ProcessManager
-  ipcMain.handle('process:getActiveProcesses', async () => {
-    if (!processManager) throw new Error('Process manager not initialized');
-    const processes = processManager.getAll();
-    // Return serializable process info (exclude non-serializable PTY/child process objects)
-    return processes.map(p => ({
-      sessionId: p.sessionId,
-      toolType: p.toolType,
-      pid: p.pid,
-      cwd: p.cwd,
-      isTerminal: p.isTerminal,
-      isBatchMode: p.isBatchMode || false,
-      startTime: p.startTime,
-    }));
+  // System operations - extracted to src/main/ipc/handlers/system.ts
+  registerSystemHandlers({
+    getMainWindow: () => mainWindow,
+    app,
+    settingsStore: store,
+    tunnelManager,
+    getWebServer: () => webServer,
   });
 
-  // Run a single command and capture only stdout/stderr (no PTY echo/prompts)
-  ipcMain.handle('process:runCommand', async (_, config: {
-    sessionId: string;
-    command: string;
-    cwd: string;
-    shell?: string;
-  }) => {
-    if (!processManager) throw new Error('Process manager not initialized');
-
-    // Get the shell from settings if not provided
-    // Shell name (e.g., 'zsh') will be resolved to full path in process-manager
-    const shell = config.shell || store.get('defaultShell', 'zsh');
-
-    logger.debug(`Running command: ${config.command}`, 'ProcessManager', {
-      sessionId: config.sessionId,
-      cwd: config.cwd,
-      shell
-    });
-
-    return processManager.runCommand(
-      config.sessionId,
-      config.command,
-      config.cwd,
-      shell
-    );
-  });
-
-  // Git operations
-  ipcMain.handle('git:status', async (_, cwd: string) => {
-    const result = await execFileNoThrow('git', ['status', '--porcelain'], cwd);
-    return { stdout: result.stdout, stderr: result.stderr };
-  });
-
-  ipcMain.handle('git:diff', async (_, cwd: string, file?: string) => {
-    const args = file ? ['diff', file] : ['diff'];
-    const result = await execFileNoThrow('git', args, cwd);
-    return { stdout: result.stdout, stderr: result.stderr };
-  });
-
-  ipcMain.handle('git:isRepo', async (_, cwd: string) => {
-    if (!processManager) throw new Error('Process manager not initialized');
-    try {
-      const result = await execFileNoThrow('git', ['rev-parse', '--is-inside-work-tree'], cwd);
-      return result.exitCode === 0;
-    } catch {
-      return false;
-    }
-  });
-
-  ipcMain.handle('git:numstat', async (_, cwd: string) => {
-    const result = await execFileNoThrow('git', ['diff', '--numstat'], cwd);
-    return { stdout: result.stdout, stderr: result.stderr };
-  });
-
-  ipcMain.handle('git:branch', async (_, cwd: string) => {
-    const result = await execFileNoThrow('git', ['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
-    return { stdout: result.stdout.trim(), stderr: result.stderr };
-  });
-
-  ipcMain.handle('git:remote', async (_, cwd: string) => {
-    const result = await execFileNoThrow('git', ['remote', 'get-url', 'origin'], cwd);
-    return { stdout: result.stdout.trim(), stderr: result.stderr };
-  });
-
-  // Get all local and remote branches
-  ipcMain.handle('git:branches', async (_, cwd: string) => {
-    // Get all branches (local and remote) in a simple format
-    // -a for all branches, --format to get clean names
-    const result = await execFileNoThrow('git', ['branch', '-a', '--format=%(refname:short)'], cwd);
-    if (result.exitCode !== 0) {
-      return { branches: [], stderr: result.stderr };
-    }
-    const branches = result.stdout
-      .split('\n')
-      .map(b => b.trim())
-      .filter(b => b.length > 0)
-      // Clean up remote branch names (origin/main -> main for remotes)
-      .map(b => b.replace(/^origin\//, ''))
-      // Remove duplicates (local and remote might have same name)
-      .filter((b, i, arr) => arr.indexOf(b) === i)
-      // Filter out HEAD pointer
-      .filter(b => b !== 'HEAD');
-    return { branches };
-  });
-
-  // Get all tags
-  ipcMain.handle('git:tags', async (_, cwd: string) => {
-    const result = await execFileNoThrow('git', ['tag', '--list'], cwd);
-    if (result.exitCode !== 0) {
-      return { tags: [], stderr: result.stderr };
-    }
-    const tags = result.stdout
-      .split('\n')
-      .map(t => t.trim())
-      .filter(t => t.length > 0);
-    return { tags };
-  });
-
-  ipcMain.handle('git:info', async (_, cwd: string) => {
-    // Get comprehensive git info in a single call
-    const [branchResult, remoteResult, statusResult, behindAheadResult] = await Promise.all([
-      execFileNoThrow('git', ['rev-parse', '--abbrev-ref', 'HEAD'], cwd),
-      execFileNoThrow('git', ['remote', 'get-url', 'origin'], cwd),
-      execFileNoThrow('git', ['status', '--porcelain'], cwd),
-      execFileNoThrow('git', ['rev-list', '--left-right', '--count', '@{upstream}...HEAD'], cwd)
-    ]);
-
-    // Parse behind/ahead counts
-    let behind = 0;
-    let ahead = 0;
-    if (behindAheadResult.exitCode === 0 && behindAheadResult.stdout.trim()) {
-      const parts = behindAheadResult.stdout.trim().split(/\s+/);
-      behind = parseInt(parts[0], 10) || 0;
-      ahead = parseInt(parts[1], 10) || 0;
-    }
-
-    // Count uncommitted changes
-    const uncommittedChanges = statusResult.stdout.trim()
-      ? statusResult.stdout.trim().split('\n').filter(l => l.length > 0).length
-      : 0;
-
-    return {
-      branch: branchResult.stdout.trim(),
-      remote: remoteResult.stdout.trim(),
-      behind,
-      ahead,
-      uncommittedChanges
-    };
-  });
-
-  ipcMain.handle('git:log', async (_, cwd: string, options?: { limit?: number; search?: string }) => {
-    // Get git log with formatted output for parsing
-    // Format: hash|author|date|refs|subject followed by shortstat
-    // Using a unique separator to split commits
-    const limit = options?.limit || 100;
-    const args = [
-      'log',
-      `--max-count=${limit}`,
-      '--pretty=format:COMMIT_START%H|%an|%ad|%D|%s',
-      '--date=iso-strict',
-      '--shortstat'
-    ];
-
-    // Add search filter if provided
-    if (options?.search) {
-      args.push('--all', `--grep=${options.search}`, '-i');
-    }
-
-    const result = await execFileNoThrow('git', args, cwd);
-
-    if (result.exitCode !== 0) {
-      return { entries: [], error: result.stderr };
-    }
-
-    // Split by COMMIT_START marker and parse each commit
-    const commits = result.stdout.split('COMMIT_START').filter(c => c.trim());
-    const entries = commits.map(commitBlock => {
-      const lines = commitBlock.split('\n').filter(l => l.trim());
-      const mainLine = lines[0];
-      const [hash, author, date, refs, ...subjectParts] = mainLine.split('|');
-
-      // Parse shortstat line (e.g., " 3 files changed, 10 insertions(+), 5 deletions(-)")
-      let additions = 0;
-      let deletions = 0;
-      const statLine = lines.find(l => l.includes('changed'));
-      if (statLine) {
-        const addMatch = statLine.match(/(\d+) insertion/);
-        const delMatch = statLine.match(/(\d+) deletion/);
-        if (addMatch) additions = parseInt(addMatch[1], 10);
-        if (delMatch) deletions = parseInt(delMatch[1], 10);
-      }
-
-      return {
-        hash,
-        shortHash: hash?.slice(0, 7),
-        author,
-        date,
-        refs: refs ? refs.split(', ').filter(r => r.trim()) : [],
-        subject: subjectParts.join('|'), // In case subject contains |
-        additions,
-        deletions,
-      };
-    });
-
-    return { entries, error: null };
-  });
-
-  ipcMain.handle('git:commitCount', async (_, cwd: string) => {
-    // Get total commit count using rev-list
-    const result = await execFileNoThrow('git', ['rev-list', '--count', 'HEAD'], cwd);
-    if (result.exitCode !== 0) {
-      return { count: 0, error: result.stderr };
-    }
-    return { count: parseInt(result.stdout.trim(), 10) || 0, error: null };
-  });
-
-  ipcMain.handle('git:show', async (_, cwd: string, hash: string) => {
-    // Get the full diff for a specific commit
-    const result = await execFileNoThrow('git', ['show', '--stat', '--patch', hash], cwd);
-    return { stdout: result.stdout, stderr: result.stderr };
-  });
-
-  // Read file content at a specific git ref (e.g., HEAD:path/to/file.png)
-  // Returns base64 data URL for images, raw content for text files
-  ipcMain.handle('git:showFile', async (_, cwd: string, ref: string, filePath: string) => {
-    try {
-      // Use git show to get file content at specific ref
-      // We need to handle binary files differently
-      const ext = filePath.split('.').pop()?.toLowerCase() || '';
-      const imageExtensions = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg', 'ico'];
-      const isImage = imageExtensions.includes(ext);
-
-      if (isImage) {
-        // For images, we need to get raw binary content
-        // Use spawnSync to capture raw binary output
-        const { spawnSync } = require('child_process');
-        const result = spawnSync('git', ['show', `${ref}:${filePath}`], {
-          cwd,
-          encoding: 'buffer',
-          maxBuffer: 50 * 1024 * 1024 // 50MB max
-        });
-
-        if (result.status !== 0) {
-          return { error: result.stderr?.toString() || 'Failed to read file from git' };
-        }
-
-        const base64 = result.stdout.toString('base64');
-        const mimeType = ext === 'svg' ? 'image/svg+xml' : `image/${ext === 'jpg' ? 'jpeg' : ext}`;
-        return { content: `data:${mimeType};base64,${base64}` };
-      } else {
-        // For text files, use regular exec
-        const result = await execFileNoThrow('git', ['show', `${ref}:${filePath}`], cwd);
-        if (result.exitCode !== 0) {
-          return { error: result.stderr || 'Failed to read file from git' };
-        }
-        return { content: result.stdout };
-      }
-    } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Unknown error' };
-    }
-  });
-
-  // Git worktree operations for Auto Run parallelization
-
-  // Get information about a worktree at a given path
-  ipcMain.handle('git:worktreeInfo', async (_, worktreePath: string) => {
-    try {
-      // Check if the path exists
-      try {
-        await fs.access(worktreePath);
-      } catch {
-        return { success: true, exists: false, isWorktree: false };
-      }
-
-      // Check if it's a git directory (could be main repo or worktree)
-      const isInsideWorkTree = await execFileNoThrow('git', ['rev-parse', '--is-inside-work-tree'], worktreePath);
-      if (isInsideWorkTree.exitCode !== 0) {
-        return { success: true, exists: true, isWorktree: false };
-      }
-
-      // Get the git directory path
-      const gitDirResult = await execFileNoThrow('git', ['rev-parse', '--git-dir'], worktreePath);
-      if (gitDirResult.exitCode !== 0) {
-        return { success: false, error: 'Failed to get git directory' };
-      }
-      const gitDir = gitDirResult.stdout.trim();
-
-      // A worktree's .git is a file pointing to the main repo, not a directory
-      // Check if this is a worktree by looking for .git file (not directory) or checking git-common-dir
-      const gitCommonDirResult = await execFileNoThrow('git', ['rev-parse', '--git-common-dir'], worktreePath);
-      const gitCommonDir = gitCommonDirResult.exitCode === 0 ? gitCommonDirResult.stdout.trim() : gitDir;
-
-      // If git-dir and git-common-dir are different, this is a worktree
-      const isWorktree = gitDir !== gitCommonDir;
-
-      // Get the current branch
-      const branchResult = await execFileNoThrow('git', ['rev-parse', '--abbrev-ref', 'HEAD'], worktreePath);
-      const currentBranch = branchResult.exitCode === 0 ? branchResult.stdout.trim() : undefined;
-
-      // Get the repository root (of the main repository)
-      const repoRootResult = await execFileNoThrow('git', ['rev-parse', '--show-toplevel'], worktreePath);
-      let repoRoot: string | undefined;
-
-      if (isWorktree && gitCommonDir) {
-        // For worktrees, we need to find the main repo root from the common dir
-        // The common dir points to the .git folder of the main repo
-        // The main repo root is the parent of the .git folder
-        const path = require('path');
-        const commonDirAbs = path.isAbsolute(gitCommonDir)
-          ? gitCommonDir
-          : path.resolve(worktreePath, gitCommonDir);
-        repoRoot = path.dirname(commonDirAbs);
-      } else if (repoRootResult.exitCode === 0) {
-        repoRoot = repoRootResult.stdout.trim();
-      }
-
-      return {
-        success: true,
-        exists: true,
-        isWorktree,
-        currentBranch,
-        repoRoot
-      };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
-  });
-
-  // Get the root directory of the git repository
-  ipcMain.handle('git:getRepoRoot', async (_, cwd: string) => {
-    try {
-      const result = await execFileNoThrow('git', ['rev-parse', '--show-toplevel'], cwd);
-      if (result.exitCode !== 0) {
-        return { success: false, error: result.stderr || 'Not a git repository' };
-      }
-      return { success: true, root: result.stdout.trim() };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
-  });
-
-  // Create or reuse a worktree
-  ipcMain.handle('git:worktreeSetup', async (_, mainRepoCwd: string, worktreePath: string, branchName: string) => {
-    try {
-      const path = require('path');
-
-      // Resolve paths to absolute for proper comparison
-      const resolvedMainRepo = path.resolve(mainRepoCwd);
-      const resolvedWorktree = path.resolve(worktreePath);
-
-      // Check if worktree path is inside the main repo (nested worktree)
-      // This can cause issues because git and Claude Code search upward for .git
-      // and may resolve to the parent repo instead of the worktree
-      if (resolvedWorktree.startsWith(resolvedMainRepo + path.sep)) {
-        return {
-          success: false,
-          error: 'Worktree path cannot be inside the main repository. Please use a sibling directory (e.g., ../my-worktree) instead.'
-        };
-      }
-
-      // First check if the worktree path already exists
-      let pathExists = true;
-      try {
-        await fs.access(worktreePath);
-      } catch {
-        pathExists = false;
-      }
-
-      if (pathExists) {
-        // Check if it's already a worktree of this repo
-        const worktreeInfoResult = await execFileNoThrow('git', ['rev-parse', '--is-inside-work-tree'], worktreePath);
-        if (worktreeInfoResult.exitCode !== 0) {
-          return { success: false, error: 'Path exists but is not a git worktree or repository' };
-        }
-
-        // Get the common dir to check if it's the same repo
-        const gitCommonDirResult = await execFileNoThrow('git', ['rev-parse', '--git-common-dir'], worktreePath);
-        const mainGitDirResult = await execFileNoThrow('git', ['rev-parse', '--git-dir'], mainRepoCwd);
-
-        if (gitCommonDirResult.exitCode === 0 && mainGitDirResult.exitCode === 0) {
-          const worktreeCommonDir = path.resolve(worktreePath, gitCommonDirResult.stdout.trim());
-          const mainGitDir = path.resolve(mainRepoCwd, mainGitDirResult.stdout.trim());
-
-          // Normalize paths for comparison
-          const normalizedWorktreeCommon = path.normalize(worktreeCommonDir);
-          const normalizedMainGit = path.normalize(mainGitDir);
-
-          if (normalizedWorktreeCommon !== normalizedMainGit) {
-            return { success: false, error: 'Worktree path belongs to a different repository' };
-          }
-        }
-
-        // Get current branch in the existing worktree
-        const currentBranchResult = await execFileNoThrow('git', ['rev-parse', '--abbrev-ref', 'HEAD'], worktreePath);
-        const currentBranch = currentBranchResult.exitCode === 0 ? currentBranchResult.stdout.trim() : '';
-
-        return {
-          success: true,
-          created: false,
-          currentBranch,
-          requestedBranch: branchName,
-          branchMismatch: currentBranch !== branchName && branchName !== ''
-        };
-      }
-
-      // Worktree doesn't exist, create it
-      // First check if the branch exists
-      const branchExistsResult = await execFileNoThrow('git', ['rev-parse', '--verify', branchName], mainRepoCwd);
-      const branchExists = branchExistsResult.exitCode === 0;
-
-      let createResult;
-      if (branchExists) {
-        // Branch exists, just add worktree pointing to it
-        createResult = await execFileNoThrow('git', ['worktree', 'add', worktreePath, branchName], mainRepoCwd);
-      } else {
-        // Branch doesn't exist, create it with -b flag
-        createResult = await execFileNoThrow('git', ['worktree', 'add', '-b', branchName, worktreePath], mainRepoCwd);
-      }
-
-      if (createResult.exitCode !== 0) {
-        return { success: false, error: createResult.stderr || 'Failed to create worktree' };
-      }
-
-      return {
-        success: true,
-        created: true,
-        currentBranch: branchName,
-        requestedBranch: branchName,
-        branchMismatch: false
-      };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
-  });
-
-  // Checkout a branch in a worktree (with uncommitted changes check)
-  ipcMain.handle('git:worktreeCheckout', async (_, worktreePath: string, branchName: string, createIfMissing: boolean) => {
-    try {
-      // Check for uncommitted changes
-      const statusResult = await execFileNoThrow('git', ['status', '--porcelain'], worktreePath);
-      if (statusResult.exitCode !== 0) {
-        return { success: false, hasUncommittedChanges: false, error: 'Failed to check git status' };
-      }
-
-      const hasUncommittedChanges = statusResult.stdout.trim().length > 0;
-      if (hasUncommittedChanges) {
-        return {
-          success: false,
-          hasUncommittedChanges: true,
-          error: 'Worktree has uncommitted changes. Please commit or stash them first.'
-        };
-      }
-
-      // Check if branch exists
-      const branchExistsResult = await execFileNoThrow('git', ['rev-parse', '--verify', branchName], worktreePath);
-      const branchExists = branchExistsResult.exitCode === 0;
-
-      let checkoutResult;
-      if (branchExists) {
-        checkoutResult = await execFileNoThrow('git', ['checkout', branchName], worktreePath);
-      } else if (createIfMissing) {
-        checkoutResult = await execFileNoThrow('git', ['checkout', '-b', branchName], worktreePath);
-      } else {
-        return { success: false, hasUncommittedChanges: false, error: `Branch '${branchName}' does not exist` };
-      }
-
-      if (checkoutResult.exitCode !== 0) {
-        return { success: false, hasUncommittedChanges: false, error: checkoutResult.stderr || 'Checkout failed' };
-      }
-
-      return { success: true, hasUncommittedChanges: false };
-    } catch (error) {
-      return { success: false, hasUncommittedChanges: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
-  });
-
-  // Create a PR from the worktree branch to a base branch
-  // ghPath parameter allows specifying custom path to gh binary
-  ipcMain.handle('git:createPR', async (_, worktreePath: string, baseBranch: string, title: string, body: string, ghPath?: string) => {
-    try {
-      // Use custom path if provided, otherwise fall back to 'gh' (expects it in PATH)
-      const ghCommand = ghPath || 'gh';
-
-      // First, push the current branch to origin
-      const pushResult = await execFileNoThrow('git', ['push', '-u', 'origin', 'HEAD'], worktreePath);
-      if (pushResult.exitCode !== 0) {
-        return { success: false, error: `Failed to push branch: ${pushResult.stderr}` };
-      }
-
-      // Create the PR using gh CLI
-      const prResult = await execFileNoThrow(ghCommand, [
-        'pr', 'create',
-        '--base', baseBranch,
-        '--title', title,
-        '--body', body
-      ], worktreePath);
-
-      if (prResult.exitCode !== 0) {
-        // Check if gh CLI is not installed
-        if (prResult.stderr.includes('command not found') || prResult.stderr.includes('not recognized')) {
-          return { success: false, error: 'GitHub CLI (gh) is not installed. Please install it to create PRs.' };
-        }
-        return { success: false, error: prResult.stderr || 'Failed to create PR' };
-      }
-
-      // The PR URL is typically in stdout
-      const prUrl = prResult.stdout.trim();
-      return { success: true, prUrl };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
-  });
-
-  // Check if GitHub CLI (gh) is installed and authenticated
-  // ghPath parameter allows specifying custom path to gh binary (e.g., /opt/homebrew/bin/gh)
-  ipcMain.handle('git:checkGhCli', async (_, ghPath?: string) => {
-    try {
-      // Use custom path if provided, otherwise fall back to 'gh' (expects it in PATH)
-      const ghCommand = ghPath || 'gh';
-
-      // Check if gh is installed by running gh --version
-      const versionResult = await execFileNoThrow(ghCommand, ['--version']);
-      if (versionResult.exitCode !== 0) {
-        return { installed: false, authenticated: false };
-      }
-
-      // Check if gh is authenticated by running gh auth status
-      const authResult = await execFileNoThrow(ghCommand, ['auth', 'status']);
-      const authenticated = authResult.exitCode === 0;
-
-      return { installed: true, authenticated };
-    } catch {
-      return { installed: false, authenticated: false };
-    }
-  });
-
-  // Get the default branch name (main or master)
-  ipcMain.handle('git:getDefaultBranch', async (_, cwd: string) => {
-    try {
-      // First try to get the default branch from remote
-      const remoteResult = await execFileNoThrow('git', ['remote', 'show', 'origin'], cwd);
-      if (remoteResult.exitCode === 0) {
-        // Parse "HEAD branch: main" from the output
-        const match = remoteResult.stdout.match(/HEAD branch:\s*(\S+)/);
-        if (match) {
-          return { success: true, branch: match[1] };
-        }
-      }
-
-      // Fallback: check if main or master exists locally
-      const mainResult = await execFileNoThrow('git', ['rev-parse', '--verify', 'main'], cwd);
-      if (mainResult.exitCode === 0) {
-        return { success: true, branch: 'main' };
-      }
-
-      const masterResult = await execFileNoThrow('git', ['rev-parse', '--verify', 'master'], cwd);
-      if (masterResult.exitCode === 0) {
-        return { success: true, branch: 'master' };
-      }
-
-      return { success: false, error: 'Could not determine default branch' };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
-  });
+  // Setup logger event forwarding to renderer
+  setupLoggerEventForwarding(() => mainWindow);
 
   // File system operations
   ipcMain.handle('fs:homeDir', () => {
@@ -1901,371 +1045,8 @@ function setupIpcHandlers() {
     return webServer?.getWebClientCount() || 0;
   });
 
-  // Helper to strip non-serializable functions from agent configs
-  const stripAgentFunctions = (agent: any) => {
-    if (!agent) return null;
-
-    return {
-      ...agent,
-      configOptions: agent.configOptions?.map((opt: any) => {
-        const { argBuilder, ...serializableOpt } = opt;
-        return serializableOpt;
-      })
-    };
-  };
-
-  // Agent management
-  ipcMain.handle('agents:detect', async () => {
-    if (!agentDetector) throw new Error('Agent detector not initialized');
-    logger.info('Detecting available agents', 'AgentDetector');
-    const agents = await agentDetector.detectAgents();
-    logger.info(`Detected ${agents.length} agents`, 'AgentDetector', {
-      agents: agents.map(a => a.id)
-    });
-    // Strip argBuilder functions before sending over IPC
-    return agents.map(stripAgentFunctions);
-  });
-
-  // Refresh agent detection with debug info (clears cache and returns detailed error info)
-  ipcMain.handle('agents:refresh', async (_event, agentId?: string) => {
-    if (!agentDetector) throw new Error('Agent detector not initialized');
-
-    // Clear the cache to force re-detection
-    agentDetector.clearCache();
-
-    // Get environment info for debugging
-    const envPath = process.env.PATH || '';
-    const homeDir = process.env.HOME || '';
-
-    // Detect all agents fresh
-    const agents = await agentDetector.detectAgents();
-
-    // If a specific agent was requested, return detailed debug info
-    if (agentId) {
-      const agent = agents.find(a => a.id === agentId);
-      const command = process.platform === 'win32' ? 'where' : 'which';
-
-      // Try to find the binary manually to get error info
-      let debugInfo = {
-        agentId,
-        available: agent?.available || false,
-        path: agent?.path || null,
-        binaryName: agent?.binaryName || agentId,
-        envPath,
-        homeDir,
-        platform: process.platform,
-        whichCommand: command,
-        error: null as string | null,
-      };
-
-      if (!agent?.available) {
-        // Try running which/where to get error output
-        const result = await execFileNoThrow(command, [agent?.binaryName || agentId]);
-        debugInfo.error = result.exitCode !== 0
-          ? `${command} ${agent?.binaryName || agentId} failed (exit code ${result.exitCode}): ${result.stderr || 'Binary not found in PATH'}`
-          : null;
-      }
-
-      logger.info(`Agent refresh debug info for ${agentId}`, 'AgentDetector', debugInfo);
-      return { agents: agents.map(stripAgentFunctions), debugInfo };
-    }
-
-    logger.info(`Refreshed agent detection`, 'AgentDetector', {
-      agents: agents.map(a => ({ id: a.id, available: a.available, path: a.path }))
-    });
-    return { agents: agents.map(stripAgentFunctions), debugInfo: null };
-  });
-
-  ipcMain.handle('agents:get', async (_event, agentId: string) => {
-    if (!agentDetector) throw new Error('Agent detector not initialized');
-    logger.debug(`Getting agent: ${agentId}`, 'AgentDetector');
-    const agent = await agentDetector.getAgent(agentId);
-    // Strip argBuilder functions before sending over IPC
-    return stripAgentFunctions(agent);
-  });
-
-  // Agent configuration management
-  ipcMain.handle('agents:getConfig', async (_event, agentId: string) => {
-    const allConfigs = agentConfigsStore.get('configs', {});
-    return allConfigs[agentId] || {};
-  });
-
-  ipcMain.handle('agents:setConfig', async (_event, agentId: string, config: Record<string, any>) => {
-    const allConfigs = agentConfigsStore.get('configs', {});
-    allConfigs[agentId] = config;
-    agentConfigsStore.set('configs', allConfigs);
-    logger.info(`Updated config for agent: ${agentId}`, 'AgentConfig', config);
-    return true;
-  });
-
-  ipcMain.handle('agents:getConfigValue', async (_event, agentId: string, key: string) => {
-    const allConfigs = agentConfigsStore.get('configs', {});
-    const agentConfig = allConfigs[agentId] || {};
-    return agentConfig[key];
-  });
-
-  ipcMain.handle('agents:setConfigValue', async (_event, agentId: string, key: string, value: any) => {
-    const allConfigs = agentConfigsStore.get('configs', {});
-    if (!allConfigs[agentId]) {
-      allConfigs[agentId] = {};
-    }
-    allConfigs[agentId][key] = value;
-    agentConfigsStore.set('configs', allConfigs);
-    logger.debug(`Updated config ${key} for agent ${agentId}`, 'AgentConfig', { value });
-    return true;
-  });
-
-  // Set custom path for an agent - used when agent is not in standard PATH locations
-  ipcMain.handle('agents:setCustomPath', async (_event, agentId: string, customPath: string | null) => {
-    if (!agentDetector) throw new Error('Agent detector not initialized');
-
-    const allConfigs = agentConfigsStore.get('configs', {});
-    if (!allConfigs[agentId]) {
-      allConfigs[agentId] = {};
-    }
-
-    if (customPath) {
-      allConfigs[agentId].customPath = customPath;
-      logger.info(`Set custom path for agent ${agentId}: ${customPath}`, 'AgentConfig');
-    } else {
-      delete allConfigs[agentId].customPath;
-      logger.info(`Cleared custom path for agent ${agentId}`, 'AgentConfig');
-    }
-
-    agentConfigsStore.set('configs', allConfigs);
-
-    // Update agent detector with all custom paths
-    const allCustomPaths: Record<string, string> = {};
-    for (const [id, config] of Object.entries(allConfigs)) {
-      if (config && typeof config === 'object' && 'customPath' in config && config.customPath) {
-        allCustomPaths[id] = config.customPath as string;
-      }
-    }
-    agentDetector.setCustomPaths(allCustomPaths);
-
-    return true;
-  });
-
-  // Get custom path for an agent
-  ipcMain.handle('agents:getCustomPath', async (_event, agentId: string) => {
-    const allConfigs = agentConfigsStore.get('configs', {});
-    return allConfigs[agentId]?.customPath || null;
-  });
-
-  // Get all custom paths for agents
-  ipcMain.handle('agents:getAllCustomPaths', async () => {
-    const allConfigs = agentConfigsStore.get('configs', {});
-    const customPaths: Record<string, string> = {};
-    for (const [agentId, config] of Object.entries(allConfigs)) {
-      if (config && typeof config === 'object' && 'customPath' in config && config.customPath) {
-        customPaths[agentId] = config.customPath as string;
-      }
-    }
-    return customPaths;
-  });
-
-  // Folder selection dialog
-  ipcMain.handle('dialog:selectFolder', async () => {
-    if (!mainWindow) return null;
-
-    const result = await dialog.showOpenDialog(mainWindow, {
-      properties: ['openDirectory', 'createDirectory'],
-      title: 'Select Working Directory',
-    });
-
-    if (result.canceled || result.filePaths.length === 0) {
-      return null;
-    }
-
-    return result.filePaths[0];
-  });
-
-  // Font detection
-  ipcMain.handle('fonts:detect', async () => {
-    try {
-      // Use fc-list on all platforms (faster than system_profiler on macOS)
-      // macOS: 0.74s (was 8.77s with system_profiler) - 11.9x faster
-      // Linux/Windows: 0.5-0.6s
-      const result = await execFileNoThrow('fc-list', [':', 'family']);
-
-      if (result.exitCode === 0 && result.stdout) {
-        // Parse font list and deduplicate
-        const fonts = result.stdout
-          .split('\n')
-          .filter(Boolean)
-          .map((line: string) => line.trim())
-          .filter(font => font.length > 0);
-
-        // Deduplicate fonts (fc-list can return duplicates)
-        return [...new Set(fonts)];
-      }
-
-      // Fallback if fc-list not available (rare on modern systems)
-      return ['Monaco', 'Menlo', 'Courier New', 'Consolas', 'Roboto Mono', 'Fira Code', 'JetBrains Mono'];
-    } catch (error) {
-      console.error('Font detection error:', error);
-      // Return common monospace fonts as fallback
-      return ['Monaco', 'Menlo', 'Courier New', 'Consolas', 'Roboto Mono', 'Fira Code', 'JetBrains Mono'];
-    }
-  });
-
-  // Shell detection
-  ipcMain.handle('shells:detect', async () => {
-    try {
-      logger.info('Detecting available shells', 'ShellDetector');
-      const shells = await detectShells();
-      logger.info(`Detected ${shells.filter(s => s.available).length} available shells`, 'ShellDetector', {
-        shells: shells.filter(s => s.available).map(s => s.id)
-      });
-      return shells;
-    } catch (error) {
-      logger.error('Shell detection error', 'ShellDetector', error);
-      // Return default shell list with all marked as unavailable
-      return [
-        { id: 'zsh', name: 'Zsh', available: false },
-        { id: 'bash', name: 'Bash', available: false },
-        { id: 'sh', name: 'Bourne Shell (sh)', available: false },
-        { id: 'fish', name: 'Fish', available: false },
-        { id: 'tcsh', name: 'Tcsh', available: false },
-      ];
-    }
-  });
-
-  // Shell operations
-  ipcMain.handle('shell:openExternal', async (_event, url: string) => {
-    await shell.openExternal(url);
-  });
-
-  // Tunnel operations (cloudflared CLI detection and tunnel management)
-  ipcMain.handle('tunnel:isCloudflaredInstalled', async () => {
-    return await isCloudflaredInstalled();
-  });
-
-  ipcMain.handle('tunnel:start', async () => {
-    // Get web server URL (includes the security token)
-    const serverUrl = webServer?.getSecureUrl();
-    if (!serverUrl) {
-      return { success: false, error: 'Web server not running' };
-    }
-
-    // Parse the URL to get port and token path
-    const parsedUrl = new URL(serverUrl);
-    const port = parseInt(parsedUrl.port, 10);
-    const tokenPath = parsedUrl.pathname; // e.g., "/7d7f7162-614c-43e2-bb8a-8a8123c2f56a"
-
-    const result = await tunnelManager.start(port);
-
-    if (result.success && result.url) {
-      // Append the token path to the tunnel URL for security
-      // e.g., "https://xyz.trycloudflare.com" + "/TOKEN" = "https://xyz.trycloudflare.com/TOKEN"
-      const fullTunnelUrl = result.url + tokenPath;
-      return { success: true, url: fullTunnelUrl };
-    }
-
-    return result;
-  });
-
-  ipcMain.handle('tunnel:stop', async () => {
-    await tunnelManager.stop();
-    return { success: true };
-  });
-
-  ipcMain.handle('tunnel:getStatus', async () => {
-    return tunnelManager.getStatus();
-  });
-
-  // DevTools operations
-  ipcMain.handle('devtools:open', async () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.openDevTools();
-    }
-  });
-
-  ipcMain.handle('devtools:close', async () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.closeDevTools();
-    }
-  });
-
-  ipcMain.handle('devtools:toggle', async () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      if (mainWindow.webContents.isDevToolsOpened()) {
-        mainWindow.webContents.closeDevTools();
-      } else {
-        mainWindow.webContents.openDevTools();
-      }
-    }
-  });
-
-  // Update check
-  ipcMain.handle('updates:check', async () => {
-    const currentVersion = app.getVersion();
-    return checkForUpdates(currentVersion);
-  });
-
-  // Logger operations
-  ipcMain.handle('logger:log', async (_event, level: string, message: string, context?: string, data?: unknown) => {
-    const logLevel = level as 'debug' | 'info' | 'warn' | 'error' | 'toast' | 'autorun';
-    switch (logLevel) {
-      case 'debug':
-        logger.debug(message, context, data);
-        break;
-      case 'info':
-        logger.info(message, context, data);
-        break;
-      case 'warn':
-        logger.warn(message, context, data);
-        break;
-      case 'error':
-        logger.error(message, context, data);
-        break;
-      case 'toast':
-        logger.toast(message, context, data);
-        break;
-      case 'autorun':
-        logger.autorun(message, context, data);
-        break;
-    }
-  });
-
-  ipcMain.handle('logger:getLogs', async (_event, filter?: { level?: string; context?: string; limit?: number }) => {
-    const typedFilter = filter ? {
-      level: filter.level as 'debug' | 'info' | 'warn' | 'error' | 'toast' | 'autorun' | undefined,
-      context: filter.context,
-      limit: filter.limit,
-    } : undefined;
-    return logger.getLogs(typedFilter);
-  });
-
-  ipcMain.handle('logger:clearLogs', async () => {
-    logger.clearLogs();
-  });
-
-  ipcMain.handle('logger:setLogLevel', async (_event, level: string) => {
-    const logLevel = level as 'debug' | 'info' | 'warn' | 'error';
-    logger.setLogLevel(logLevel);
-    store.set('logLevel', logLevel);
-  });
-
-  ipcMain.handle('logger:getLogLevel', async () => {
-    return logger.getLogLevel();
-  });
-
-  ipcMain.handle('logger:setMaxLogBuffer', async (_event, max: number) => {
-    logger.setMaxLogBuffer(max);
-    store.set('maxLogBuffer', max);
-  });
-
-  ipcMain.handle('logger:getMaxLogBuffer', async () => {
-    return logger.getMaxLogBuffer();
-  });
-
-  // Subscribe to new log events and forward to renderer
-  logger.on('newLog', (entry) => {
-    if (mainWindow) {
-      mainWindow.webContents.send('logger:newLog', entry);
-    }
-  });
+  // System operations (dialog, fonts, shells, tunnel, devtools, updates, logger)
+  // extracted to src/main/ipc/handlers/system.ts
 
   // Claude Code sessions API
   // Sessions are stored in ~/.claude/projects/<encoded-project-path>/<session-id>.jsonl
@@ -3700,110 +2481,7 @@ function setupIpcHandlers() {
     }
   });
 
-  // History persistence (per-project and optionally per-session)
-  ipcMain.handle('history:getAll', async (_event, projectPath?: string, sessionId?: string) => {
-    // If external changes were detected, reload from disk
-    let allEntries: HistoryEntry[];
-    if (historyNeedsReload) {
-      try {
-        const historyFilePath = historyStore.path;
-        const fileContent = fsSync.readFileSync(historyFilePath, 'utf-8');
-        const data = JSON.parse(fileContent);
-        allEntries = data.entries || [];
-        // Update the in-memory store with fresh data
-        historyStore.set('entries', allEntries);
-        historyNeedsReload = false;
-        logger.debug('Reloaded history from disk after external change', 'History');
-      } catch (error) {
-        logger.warn(`Failed to reload history from disk: ${error}`, 'History');
-        allEntries = historyStore.get('entries', []);
-      }
-    } else {
-      allEntries = historyStore.get('entries', []);
-    }
-    let filteredEntries = allEntries;
-
-    if (projectPath) {
-      // Filter by project path
-      filteredEntries = filteredEntries.filter(entry => entry.projectPath === projectPath);
-    }
-
-    if (sessionId) {
-      // Filter by session ID, but also include legacy entries without a sessionId
-      filteredEntries = filteredEntries.filter(entry => entry.sessionId === sessionId || !entry.sessionId);
-    }
-
-    return filteredEntries;
-  });
-
-  // Force reload history from disk (for manual refresh)
-  ipcMain.handle('history:reload', async () => {
-    try {
-      const historyFilePath = historyStore.path;
-      const fileContent = fsSync.readFileSync(historyFilePath, 'utf-8');
-      const data = JSON.parse(fileContent);
-      const entries = data.entries || [];
-      historyStore.set('entries', entries);
-      historyNeedsReload = false;
-      logger.debug('Force reloaded history from disk', 'History');
-      return true;
-    } catch (error) {
-      logger.warn(`Failed to force reload history from disk: ${error}`, 'History');
-      return false;
-    }
-  });
-
-  ipcMain.handle('history:add', async (_event, entry: HistoryEntry) => {
-    const entries = historyStore.get('entries', []);
-    entries.unshift(entry); // Add to beginning (most recent first)
-    // Keep only last 1000 entries to prevent unbounded growth
-    const trimmedEntries = entries.slice(0, 1000);
-    historyStore.set('entries', trimmedEntries);
-    logger.info(`Added history entry: ${entry.type}`, 'History', { summary: entry.summary });
-    return true;
-  });
-
-  ipcMain.handle('history:clear', async (_event, projectPath?: string) => {
-    if (projectPath) {
-      // Clear only entries for this project
-      const entries = historyStore.get('entries', []);
-      const filtered = entries.filter(entry => entry.projectPath !== projectPath);
-      historyStore.set('entries', filtered);
-      logger.info(`Cleared history for project: ${projectPath}`, 'History');
-    } else {
-      // Clear all entries
-      historyStore.set('entries', []);
-      logger.info('Cleared all history', 'History');
-    }
-    return true;
-  });
-
-  ipcMain.handle('history:delete', async (_event, entryId: string) => {
-    const entries = historyStore.get('entries', []);
-    const filtered = entries.filter(entry => entry.id !== entryId);
-    if (filtered.length === entries.length) {
-      logger.warn(`History entry not found: ${entryId}`, 'History');
-      return false;
-    }
-    historyStore.set('entries', filtered);
-    logger.info(`Deleted history entry: ${entryId}`, 'History');
-    return true;
-  });
-
-  // Update a history entry (for setting validated flag, etc.)
-  ipcMain.handle('history:update', async (_event, entryId: string, updates: Partial<HistoryEntry>) => {
-    const entries = historyStore.get('entries', []);
-    const index = entries.findIndex(entry => entry.id === entryId);
-    if (index === -1) {
-      logger.warn(`History entry not found for update: ${entryId}`, 'History');
-      return false;
-    }
-    // Merge updates into the existing entry
-    entries[index] = { ...entries[index], ...updates };
-    historyStore.set('entries', entries);
-    logger.info(`Updated history entry: ${entryId}`, 'History', { updates });
-    return true;
-  });
+  // History persistence - extracted to src/main/ipc/handlers/history.ts
 
   // Claude session origins tracking (distinguishes Maestro-created sessions from CLI sessions)
   ipcMain.handle('claude:registerSessionOrigin', async (_event, projectPath: string, claudeSessionId: string, origin: 'user' | 'auto', sessionName?: string) => {
@@ -4172,827 +2850,9 @@ function setupIpcHandlers() {
     return { success: true, path: attachmentsDir };
   });
 
-  // ============================================
-  // Auto Run IPC Handlers
-  // ============================================
+  // Auto Run operations - extracted to src/main/ipc/handlers/autorun.ts
 
-  // List markdown files in a directory for Auto Run (with recursive subfolder support)
-  ipcMain.handle('autorun:listDocs', async (_event, folderPath: string) => {
-    try {
-      // Validate the folder path exists
-      const folderStat = await fs.stat(folderPath);
-      if (!folderStat.isDirectory()) {
-        return { success: false, files: [], tree: [], error: 'Path is not a directory' };
-      }
-
-      // Recursive function to build tree structure
-      interface TreeNode {
-        name: string;
-        type: 'file' | 'folder';
-        path: string;  // Relative path from root folder
-        children?: TreeNode[];
-      }
-
-      const scanDirectory = async (dirPath: string, relativePath: string = ''): Promise<TreeNode[]> => {
-        const entries = await fs.readdir(dirPath, { withFileTypes: true });
-        const nodes: TreeNode[] = [];
-
-        // Sort entries: folders first, then files, both alphabetically
-        const sortedEntries = entries
-          .filter(entry => !entry.name.startsWith('.'))
-          .sort((a, b) => {
-            if (a.isDirectory() && !b.isDirectory()) return -1;
-            if (!a.isDirectory() && b.isDirectory()) return 1;
-            return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
-          });
-
-        for (const entry of sortedEntries) {
-          const entryRelativePath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
-
-          if (entry.isDirectory()) {
-            // Recursively scan subdirectory
-            const children = await scanDirectory(path.join(dirPath, entry.name), entryRelativePath);
-            // Only include folders that contain .md files (directly or in subfolders)
-            if (children.length > 0) {
-              nodes.push({
-                name: entry.name,
-                type: 'folder',
-                path: entryRelativePath,
-                children
-              });
-            }
-          } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) {
-            // Add .md file (without extension in name, but keep in path)
-            nodes.push({
-              name: entry.name.slice(0, -3),
-              type: 'file',
-              path: entryRelativePath.slice(0, -3)  // Remove .md from path too
-            });
-          }
-        }
-
-        return nodes;
-      };
-
-      const tree = await scanDirectory(folderPath);
-
-      // Also build flat list for backwards compatibility
-      const flattenTree = (nodes: TreeNode[]): string[] => {
-        const files: string[] = [];
-        for (const node of nodes) {
-          if (node.type === 'file') {
-            files.push(node.path);
-          } else if (node.children) {
-            files.push(...flattenTree(node.children));
-          }
-        }
-        return files;
-      };
-
-      const files = flattenTree(tree);
-
-      logger.info(`Listed ${files.length} markdown files in ${folderPath} (with subfolders)`, 'AutoRun');
-      return { success: true, files, tree };
-    } catch (error) {
-      logger.error('Error listing Auto Run docs', 'AutoRun', error);
-      return { success: false, files: [], tree: [], error: String(error) };
-    }
-  });
-
-  // Read a markdown document for Auto Run (supports subdirectories)
-  ipcMain.handle(
-    'autorun:readDoc',
-    async (_event, folderPath: string, filename: string) => {
-      try {
-        // Reject obvious traversal attempts
-        if (filename.includes('..')) {
-          return { success: false, content: '', error: 'Invalid filename' };
-        }
-
-        // Ensure filename has .md extension
-        const fullFilename = filename.endsWith('.md')
-          ? filename
-          : `${filename}.md`;
-
-        const filePath = path.join(folderPath, fullFilename);
-
-        // Validate the file is within the folder path (prevent traversal)
-        const resolvedPath = path.resolve(filePath);
-        const resolvedFolder = path.resolve(folderPath);
-        if (!resolvedPath.startsWith(resolvedFolder + path.sep) && resolvedPath !== resolvedFolder) {
-          return { success: false, content: '', error: 'Invalid file path' };
-        }
-
-        // Check if file exists
-        try {
-          await fs.access(filePath);
-        } catch {
-          return { success: false, content: '', error: 'File not found' };
-        }
-
-        // Read the file
-        const content = await fs.readFile(filePath, 'utf-8');
-
-        logger.info(`Read Auto Run doc: ${fullFilename}`, 'AutoRun');
-        return { success: true, content };
-      } catch (error) {
-        logger.error('Error reading Auto Run doc', 'AutoRun', error);
-        return { success: false, content: '', error: String(error) };
-      }
-    }
-  );
-
-  // Write a markdown document for Auto Run (supports subdirectories)
-  ipcMain.handle(
-    'autorun:writeDoc',
-    async (_event, folderPath: string, filename: string, content: string) => {
-      try {
-        // Reject obvious traversal attempts
-        if (filename.includes('..')) {
-          return { success: false, error: 'Invalid filename' };
-        }
-
-        // Ensure filename has .md extension
-        const fullFilename = filename.endsWith('.md')
-          ? filename
-          : `${filename}.md`;
-
-        const filePath = path.join(folderPath, fullFilename);
-
-        // Validate the file is within the folder path (prevent traversal)
-        const resolvedPath = path.resolve(filePath);
-        const resolvedFolder = path.resolve(folderPath);
-        if (!resolvedPath.startsWith(resolvedFolder + path.sep) && resolvedPath !== resolvedFolder) {
-          return { success: false, error: 'Invalid file path' };
-        }
-
-        // Ensure the parent directory exists (create if needed for subdirectories)
-        const parentDir = path.dirname(filePath);
-        try {
-          await fs.access(parentDir);
-        } catch {
-          // Parent dir doesn't exist - create it if it's within folderPath
-          const resolvedParent = path.resolve(parentDir);
-          if (resolvedParent.startsWith(resolvedFolder)) {
-            await fs.mkdir(parentDir, { recursive: true });
-          } else {
-            return { success: false, error: 'Invalid parent directory' };
-          }
-        }
-
-        // Write the file
-        await fs.writeFile(filePath, content, 'utf-8');
-
-        logger.info(`Wrote Auto Run doc: ${fullFilename}`, 'AutoRun');
-        return { success: true };
-      } catch (error) {
-        logger.error('Error writing Auto Run doc', 'AutoRun', error);
-        return { success: false, error: String(error) };
-      }
-    }
-  );
-
-  // Save image to Auto Run folder
-  ipcMain.handle(
-    'autorun:saveImage',
-    async (
-      _event,
-      folderPath: string,
-      docName: string,
-      base64Data: string,
-      extension: string
-    ) => {
-      try {
-        // Sanitize docName to prevent directory traversal
-        const sanitizedDocName = path.basename(docName).replace(/\.md$/i, '');
-        if (sanitizedDocName.includes('..') || sanitizedDocName.includes('/')) {
-          return { success: false, error: 'Invalid document name' };
-        }
-
-        // Validate extension (only allow common image formats)
-        const allowedExtensions = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
-        const sanitizedExtension = extension.toLowerCase().replace(/[^a-z]/g, '');
-        if (!allowedExtensions.includes(sanitizedExtension)) {
-          return { success: false, error: 'Invalid image extension' };
-        }
-
-        // Create images subdirectory if it doesn't exist
-        const imagesDir = path.join(folderPath, 'images');
-        try {
-          await fs.mkdir(imagesDir, { recursive: true });
-        } catch {
-          // Directory might already exist, that's fine
-        }
-
-        // Generate filename: {docName}-{timestamp}.{ext}
-        const timestamp = Date.now();
-        const filename = `${sanitizedDocName}-${timestamp}.${sanitizedExtension}`;
-        const filePath = path.join(imagesDir, filename);
-
-        // Validate the file is within the folder path (prevent traversal)
-        const resolvedPath = path.resolve(filePath);
-        const resolvedFolder = path.resolve(folderPath);
-        if (!resolvedPath.startsWith(resolvedFolder)) {
-          return { success: false, error: 'Invalid file path' };
-        }
-
-        // Decode and write the image
-        const buffer = Buffer.from(base64Data, 'base64');
-        await fs.writeFile(filePath, buffer);
-
-        // Return the relative path for markdown insertion
-        const relativePath = `images/${filename}`;
-        logger.info(`Saved Auto Run image: ${relativePath}`, 'AutoRun');
-        return { success: true, relativePath };
-      } catch (error) {
-        logger.error('Error saving Auto Run image', 'AutoRun', error);
-        return { success: false, error: String(error) };
-      }
-    }
-  );
-
-  // Delete image from Auto Run folder
-  ipcMain.handle(
-    'autorun:deleteImage',
-    async (_event, folderPath: string, relativePath: string) => {
-      try {
-        // Sanitize relativePath to prevent directory traversal
-        const normalizedPath = path.normalize(relativePath);
-        if (
-          normalizedPath.includes('..') ||
-          path.isAbsolute(normalizedPath) ||
-          !normalizedPath.startsWith('images/')
-        ) {
-          return { success: false, error: 'Invalid image path' };
-        }
-
-        const filePath = path.join(folderPath, normalizedPath);
-
-        // Validate the file is within the folder path (prevent traversal)
-        const resolvedPath = path.resolve(filePath);
-        const resolvedFolder = path.resolve(folderPath);
-        if (!resolvedPath.startsWith(resolvedFolder)) {
-          return { success: false, error: 'Invalid file path' };
-        }
-
-        // Check if file exists
-        try {
-          await fs.access(filePath);
-        } catch {
-          return { success: false, error: 'Image file not found' };
-        }
-
-        // Delete the file
-        await fs.unlink(filePath);
-        logger.info(`Deleted Auto Run image: ${relativePath}`, 'AutoRun');
-        return { success: true };
-      } catch (error) {
-        logger.error('Error deleting Auto Run image', 'AutoRun', error);
-        return { success: false, error: String(error) };
-      }
-    }
-  );
-
-  // List images for a document (by prefix match)
-  ipcMain.handle(
-    'autorun:listImages',
-    async (_event, folderPath: string, docName: string) => {
-      try {
-        // Sanitize docName to prevent directory traversal
-        const sanitizedDocName = path.basename(docName).replace(/\.md$/i, '');
-        if (sanitizedDocName.includes('..') || sanitizedDocName.includes('/')) {
-          return { success: false, error: 'Invalid document name' };
-        }
-
-        const imagesDir = path.join(folderPath, 'images');
-
-        // Check if images directory exists
-        try {
-          await fs.access(imagesDir);
-        } catch {
-          // No images directory means no images
-          return { success: true, images: [] };
-        }
-
-        // Read directory contents
-        const files = await fs.readdir(imagesDir);
-
-        // Filter files that start with the docName prefix
-        const imageExtensions = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
-        const images = files
-          .filter((file) => {
-            // Check if filename starts with docName-
-            if (!file.startsWith(`${sanitizedDocName}-`)) {
-              return false;
-            }
-            // Check if it has a valid image extension
-            const ext = file.split('.').pop()?.toLowerCase();
-            return ext && imageExtensions.includes(ext);
-          })
-          .map((file) => ({
-            filename: file,
-            relativePath: `images/${file}`,
-          }));
-
-        return { success: true, images };
-      } catch (error) {
-        logger.error('Error listing Auto Run images', 'AutoRun', error);
-        return { success: false, error: String(error) };
-      }
-    }
-  );
-
-  // Delete the entire Auto Run Docs folder (for wizard "start fresh" feature)
-  ipcMain.handle(
-    'autorun:deleteFolder',
-    async (_event, projectPath: string) => {
-      try {
-        // Validate input
-        if (!projectPath || typeof projectPath !== 'string') {
-          return { success: false, error: 'Invalid project path' };
-        }
-
-        // Construct the Auto Run Docs folder path
-        const autoRunFolder = path.join(projectPath, 'Auto Run Docs');
-
-        // Verify the folder exists
-        try {
-          const stat = await fs.stat(autoRunFolder);
-          if (!stat.isDirectory()) {
-            return { success: false, error: 'Auto Run Docs path is not a directory' };
-          }
-        } catch {
-          // Folder doesn't exist, nothing to delete
-          return { success: true };
-        }
-
-        // Safety check: ensure we're only deleting "Auto Run Docs" folder
-        const folderName = path.basename(autoRunFolder);
-        if (folderName !== 'Auto Run Docs') {
-          return { success: false, error: 'Safety check failed: not an Auto Run Docs folder' };
-        }
-
-        // Delete the folder recursively
-        await fs.rm(autoRunFolder, { recursive: true, force: true });
-
-        logger.info(`Deleted Auto Run Docs folder: ${autoRunFolder}`, 'AutoRun');
-        return { success: true };
-      } catch (error) {
-        logger.error('Error deleting Auto Run Docs folder', 'AutoRun', error);
-        return { success: false, error: String(error) };
-      }
-    }
-  );
-
-  // File watcher for Auto Run folder - detects external changes
-  const autoRunWatchers = new Map<string, fsSync.FSWatcher>();
-  let autoRunWatchDebounceTimer: NodeJS.Timeout | null = null;
-
-  // Start watching an Auto Run folder for changes
-  ipcMain.handle('autorun:watchFolder', async (_event, folderPath: string) => {
-    try {
-      // Stop any existing watcher for this folder
-      if (autoRunWatchers.has(folderPath)) {
-        autoRunWatchers.get(folderPath)?.close();
-        autoRunWatchers.delete(folderPath);
-      }
-
-      // Create folder if it doesn't exist (agent will create files in it)
-      try {
-        await fs.stat(folderPath);
-      } catch {
-        // Folder doesn't exist, create it
-        await fs.mkdir(folderPath, { recursive: true });
-        logger.info(`Created Auto Run folder for watching: ${folderPath}`, 'AutoRun');
-      }
-
-      // Validate folder exists
-      const folderStat = await fs.stat(folderPath);
-      if (!folderStat.isDirectory()) {
-        return { success: false, error: 'Path is not a directory' };
-      }
-
-      // Start watching the folder recursively
-      const watcher = fsSync.watch(folderPath, { recursive: true }, (eventType, filename) => {
-        // Only care about .md files
-        if (!filename || !filename.toLowerCase().endsWith('.md')) {
-          return;
-        }
-
-        // Debounce to avoid flooding with events during rapid saves
-        if (autoRunWatchDebounceTimer) {
-          clearTimeout(autoRunWatchDebounceTimer);
-        }
-
-        autoRunWatchDebounceTimer = setTimeout(() => {
-          autoRunWatchDebounceTimer = null;
-          // Send event to renderer
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            // Remove .md extension from filename to match autorun conventions
-            const filenameWithoutExt = filename.replace(/\.md$/i, '');
-            mainWindow.webContents.send('autorun:fileChanged', {
-              folderPath,
-              filename: filenameWithoutExt,
-              eventType, // 'rename' or 'change'
-            });
-            logger.info(`Auto Run file changed: ${filename} (${eventType})`, 'AutoRun');
-          }
-        }, 300); // 300ms debounce
-      });
-
-      autoRunWatchers.set(folderPath, watcher);
-
-      watcher.on('error', (error) => {
-        logger.error(`Auto Run watcher error for ${folderPath}`, 'AutoRun', error);
-      });
-
-      logger.info(`Started watching Auto Run folder: ${folderPath}`, 'AutoRun');
-      return { success: true };
-    } catch (error) {
-      logger.error('Error starting Auto Run folder watcher', 'AutoRun', error);
-      return { success: false, error: String(error) };
-    }
-  });
-
-  // Stop watching an Auto Run folder
-  ipcMain.handle('autorun:unwatchFolder', async (_event, folderPath: string) => {
-    try {
-      if (autoRunWatchers.has(folderPath)) {
-        autoRunWatchers.get(folderPath)?.close();
-        autoRunWatchers.delete(folderPath);
-        logger.info(`Stopped watching Auto Run folder: ${folderPath}`, 'AutoRun');
-      }
-      return { success: true };
-    } catch (error) {
-      logger.error('Error stopping Auto Run folder watcher', 'AutoRun', error);
-      return { success: false, error: String(error) };
-    }
-  });
-
-  // Clean up all watchers on app quit
-  app.on('before-quit', () => {
-    for (const [folderPath, watcher] of autoRunWatchers) {
-      watcher.close();
-      logger.info(`Cleaned up Auto Run watcher for: ${folderPath}`, 'AutoRun');
-    }
-    autoRunWatchers.clear();
-  });
-
-  // ============================================
-  // Playbook IPC Handlers
-  // ============================================
-
-  // Helper: Get path to playbooks file for a session
-  function getPlaybooksFilePath(sessionId: string): string {
-    const userDataPath = app.getPath('userData');
-    return path.join(userDataPath, 'playbooks', `${sessionId}.json`);
-  }
-
-  // Helper: Read playbooks from file
-  async function readPlaybooks(sessionId: string): Promise<any[]> {
-    const filePath = getPlaybooksFilePath(sessionId);
-    try {
-      const content = await fs.readFile(filePath, 'utf-8');
-      const data = JSON.parse(content);
-      return Array.isArray(data.playbooks) ? data.playbooks : [];
-    } catch {
-      // File doesn't exist or is invalid, return empty array
-      return [];
-    }
-  }
-
-  // Helper: Write playbooks to file
-  async function writePlaybooks(sessionId: string, playbooks: any[]): Promise<void> {
-    const filePath = getPlaybooksFilePath(sessionId);
-    const dir = path.dirname(filePath);
-
-    // Ensure the playbooks directory exists
-    await fs.mkdir(dir, { recursive: true });
-
-    // Write the playbooks file
-    await fs.writeFile(filePath, JSON.stringify({ playbooks }, null, 2), 'utf-8');
-  }
-
-  // List all playbooks for a session
-  ipcMain.handle('playbooks:list', async (_event, sessionId: string) => {
-    try {
-      const playbooks = await readPlaybooks(sessionId);
-      logger.info(`Listed ${playbooks.length} playbooks for session ${sessionId}`, 'Playbooks');
-      return { success: true, playbooks };
-    } catch (error) {
-      logger.error('Error listing playbooks', 'Playbooks', error);
-      return { success: false, playbooks: [], error: String(error) };
-    }
-  });
-
-  // Create a new playbook
-  ipcMain.handle(
-    'playbooks:create',
-    async (
-      _event,
-      sessionId: string,
-      playbook: {
-        name: string;
-        documents: any[];
-        loopEnabled: boolean;
-        prompt: string;
-        worktreeSettings?: {
-          branchNameTemplate: string;
-          createPROnCompletion: boolean;
-          prTargetBranch?: string;
-        };
-      }
-    ) => {
-      try {
-        const playbooks = await readPlaybooks(sessionId);
-
-        // Create new playbook with generated ID and timestamps
-        const now = Date.now();
-        const newPlaybook: {
-          id: string;
-          name: string;
-          createdAt: number;
-          updatedAt: number;
-          documents: any[];
-          loopEnabled: boolean;
-          prompt: string;
-          worktreeSettings?: {
-            branchNameTemplate: string;
-            createPROnCompletion: boolean;
-            prTargetBranch?: string;
-          };
-        } = {
-          id: crypto.randomUUID(),
-          name: playbook.name,
-          createdAt: now,
-          updatedAt: now,
-          documents: playbook.documents,
-          loopEnabled: playbook.loopEnabled,
-          prompt: playbook.prompt,
-        };
-
-        // Include worktree settings if provided
-        if (playbook.worktreeSettings) {
-          newPlaybook.worktreeSettings = playbook.worktreeSettings;
-        }
-
-        // Add to list and save
-        playbooks.push(newPlaybook);
-        await writePlaybooks(sessionId, playbooks);
-
-        logger.info(`Created playbook "${playbook.name}" for session ${sessionId}`, 'Playbooks');
-        return { success: true, playbook: newPlaybook };
-      } catch (error) {
-        logger.error('Error creating playbook', 'Playbooks', error);
-        return { success: false, error: String(error) };
-      }
-    }
-  );
-
-  // Update an existing playbook
-  ipcMain.handle(
-    'playbooks:update',
-    async (
-      _event,
-      sessionId: string,
-      playbookId: string,
-      updates: Partial<{
-        name: string;
-        documents: any[];
-        loopEnabled: boolean;
-        prompt: string;
-        updatedAt: number;
-        worktreeSettings?: {
-          branchNameTemplate: string;
-          createPROnCompletion: boolean;
-          prTargetBranch?: string;
-        };
-      }>
-    ) => {
-      try {
-        const playbooks = await readPlaybooks(sessionId);
-
-        // Find the playbook to update
-        const index = playbooks.findIndex((p: any) => p.id === playbookId);
-        if (index === -1) {
-          return { success: false, error: 'Playbook not found' };
-        }
-
-        // Update the playbook
-        const updatedPlaybook = {
-          ...playbooks[index],
-          ...updates,
-          updatedAt: Date.now(),
-        };
-        playbooks[index] = updatedPlaybook;
-
-        await writePlaybooks(sessionId, playbooks);
-
-        logger.info(`Updated playbook "${updatedPlaybook.name}" for session ${sessionId}`, 'Playbooks');
-        return { success: true, playbook: updatedPlaybook };
-      } catch (error) {
-        logger.error('Error updating playbook', 'Playbooks', error);
-        return { success: false, error: String(error) };
-      }
-    }
-  );
-
-  // Delete a playbook
-  ipcMain.handle('playbooks:delete', async (_event, sessionId: string, playbookId: string) => {
-    try {
-      const playbooks = await readPlaybooks(sessionId);
-
-      // Find the playbook to delete
-      const index = playbooks.findIndex((p: any) => p.id === playbookId);
-      if (index === -1) {
-        return { success: false, error: 'Playbook not found' };
-      }
-
-      const deletedName = playbooks[index].name;
-
-      // Remove from list and save
-      playbooks.splice(index, 1);
-      await writePlaybooks(sessionId, playbooks);
-
-      logger.info(`Deleted playbook "${deletedName}" from session ${sessionId}`, 'Playbooks');
-      return { success: true };
-    } catch (error) {
-      logger.error('Error deleting playbook', 'Playbooks', error);
-      return { success: false, error: String(error) };
-    }
-  });
-
-  // Export a playbook as a ZIP file
-  ipcMain.handle(
-    'playbooks:export',
-    async (
-      _event,
-      sessionId: string,
-      playbookId: string,
-      autoRunFolderPath: string
-    ): Promise<{ success: boolean; filePath?: string; error?: string }> => {
-      try {
-        const playbooks = await readPlaybooks(sessionId);
-        const playbook = playbooks.find((p: any) => p.id === playbookId);
-
-        if (!playbook) {
-          return { success: false, error: 'Playbook not found' };
-        }
-
-        // Show save dialog
-        const result = await dialog.showSaveDialog(mainWindow!, {
-          title: 'Export Playbook',
-          defaultPath: `${playbook.name.replace(/[^a-zA-Z0-9-_]/g, '_')}.maestro-playbook.zip`,
-          filters: [
-            { name: 'Maestro Playbook', extensions: ['maestro-playbook.zip'] },
-            { name: 'All Files', extensions: ['*'] }
-          ]
-        });
-
-        if (result.canceled || !result.filePath) {
-          return { success: false, error: 'Export cancelled' };
-        }
-
-        const zipPath = result.filePath;
-
-        // Create ZIP archive
-        const output = createWriteStream(zipPath);
-        const archive = archiver('zip', { zlib: { level: 9 } });
-
-        // Wait for archive to finish
-        const archivePromise = new Promise<void>((resolve, reject) => {
-          output.on('close', () => resolve());
-          archive.on('error', (err) => reject(err));
-        });
-
-        archive.pipe(output);
-
-        // Create manifest JSON (playbook settings without the id - will be regenerated on import)
-        const manifest = {
-          version: 1,
-          name: playbook.name,
-          documents: playbook.documents,
-          loopEnabled: playbook.loopEnabled,
-          maxLoops: playbook.maxLoops,
-          prompt: playbook.prompt,
-          worktreeSettings: playbook.worktreeSettings,
-          exportedAt: Date.now()
-        };
-
-        // Add manifest to archive
-        archive.append(JSON.stringify(manifest, null, 2), { name: 'manifest.json' });
-
-        // Add each document markdown file
-        for (const doc of playbook.documents) {
-          const docPath = path.join(autoRunFolderPath, `${doc.filename}.md`);
-          try {
-            const content = await fs.readFile(docPath, 'utf-8');
-            archive.append(content, { name: `documents/${doc.filename}.md` });
-          } catch (err) {
-            // Document file doesn't exist, skip it but log warning
-            logger.warn(`Document ${doc.filename}.md not found during export`, 'Playbooks');
-          }
-        }
-
-        // Finalize archive
-        await archive.finalize();
-        await archivePromise;
-
-        logger.info(`Exported playbook "${playbook.name}" to ${zipPath}`, 'Playbooks');
-        return { success: true, filePath: zipPath };
-      } catch (error) {
-        logger.error('Error exporting playbook', 'Playbooks', error);
-        return { success: false, error: String(error) };
-      }
-    }
-  );
-
-  // Import a playbook from a ZIP file
-  ipcMain.handle(
-    'playbooks:import',
-    async (
-      _event,
-      sessionId: string,
-      autoRunFolderPath: string
-    ): Promise<{ success: boolean; playbook?: any; importedDocs?: string[]; error?: string }> => {
-      try {
-        // Show open dialog
-        const result = await dialog.showOpenDialog(mainWindow!, {
-          title: 'Import Playbook',
-          filters: [
-            { name: 'Maestro Playbook', extensions: ['maestro-playbook.zip', 'zip'] },
-            { name: 'All Files', extensions: ['*'] }
-          ],
-          properties: ['openFile']
-        });
-
-        if (result.canceled || result.filePaths.length === 0) {
-          return { success: false, error: 'Import cancelled' };
-        }
-
-        const zipPath = result.filePaths[0];
-
-        // Read ZIP file
-        const zip = new AdmZip(zipPath);
-        const zipEntries = zip.getEntries();
-
-        // Find and parse manifest
-        const manifestEntry = zipEntries.find(e => e.entryName === 'manifest.json');
-        if (!manifestEntry) {
-          return { success: false, error: 'Invalid playbook file: missing manifest.json' };
-        }
-
-        const manifest = JSON.parse(manifestEntry.getData().toString('utf-8'));
-
-        // Validate manifest
-        if (!manifest.name || !Array.isArray(manifest.documents)) {
-          return { success: false, error: 'Invalid playbook manifest' };
-        }
-
-        // Extract document files to autorun folder
-        const importedDocs: string[] = [];
-        for (const entry of zipEntries) {
-          if (entry.entryName.startsWith('documents/') && entry.entryName.endsWith('.md')) {
-            const filename = path.basename(entry.entryName);
-            const destPath = path.join(autoRunFolderPath, filename);
-
-            // Ensure autorun folder exists
-            await fs.mkdir(autoRunFolderPath, { recursive: true });
-
-            // Write document file
-            await fs.writeFile(destPath, entry.getData().toString('utf-8'), 'utf-8');
-            importedDocs.push(filename.replace('.md', ''));
-          }
-        }
-
-        // Create new playbook entry
-        const playbooks = await readPlaybooks(sessionId);
-        const now = Date.now();
-
-        const newPlaybook = {
-          id: crypto.randomUUID(),
-          name: manifest.name,
-          createdAt: now,
-          updatedAt: now,
-          documents: manifest.documents,
-          loopEnabled: manifest.loopEnabled ?? false,
-          maxLoops: manifest.maxLoops,
-          prompt: manifest.prompt || '',
-          worktreeSettings: manifest.worktreeSettings
-        };
-
-        // Add to list and save
-        playbooks.push(newPlaybook);
-        await writePlaybooks(sessionId, playbooks);
-
-        logger.info(`Imported playbook "${manifest.name}" with ${importedDocs.length} documents`, 'Playbooks');
-        return { success: true, playbook: newPlaybook, importedDocs };
-      } catch (error) {
-        logger.error('Error importing playbook', 'Playbooks', error);
-        return { success: false, error: String(error) };
-      }
-    }
-  );
+  // Playbook operations - extracted to src/main/ipc/handlers/playbooks.ts
 
   // ==========================================================================
   // Leaderboard API
@@ -5015,13 +2875,16 @@ function setupIpcHandlers() {
         totalRuns: number;
         longestRunMs?: number;
         longestRunDate?: string;
+        theme?: string;
+        clientToken?: string; // Client-generated token for polling auth status
+        authToken?: string;   // Required for confirmed email addresses
       }
     ): Promise<{
       success: boolean;
       message: string;
-      requiresConfirmation?: boolean;
-      confirmationUrl?: string;
+      pendingEmailConfirmation?: boolean;
       error?: string;
+      authTokenRequired?: boolean; // True if 401 due to missing token
       ranking?: {
         cumulative: {
           rank: number;
@@ -5042,6 +2905,8 @@ function setupIpcHandlers() {
           displayName: data.displayName,
           email: data.email.substring(0, 3) + '***',
           badgeLevel: data.badgeLevel,
+          hasClientToken: !!data.clientToken,
+          hasAuthToken: !!data.authToken,
         });
 
         const response = await fetch('https://runmaestro.ai/api/m4estr0/submit', {
@@ -5056,8 +2921,7 @@ function setupIpcHandlers() {
         const result = await response.json() as {
           success?: boolean;
           message?: string;
-          requiresConfirmation?: boolean;
-          confirmationUrl?: string;
+          pendingEmailConfirmation?: boolean;
           error?: string;
           ranking?: {
             cumulative: {
@@ -5077,15 +2941,25 @@ function setupIpcHandlers() {
 
         if (response.ok) {
           logger.info('Leaderboard submission successful', 'Leaderboard', {
-            requiresConfirmation: result.requiresConfirmation,
+            pendingEmailConfirmation: result.pendingEmailConfirmation,
             ranking: result.ranking,
           });
           return {
             success: true,
             message: result.message || 'Submission received',
-            requiresConfirmation: result.requiresConfirmation,
-            confirmationUrl: result.confirmationUrl,
+            pendingEmailConfirmation: result.pendingEmailConfirmation,
             ranking: result.ranking,
+          };
+        } else if (response.status === 401) {
+          // Auth token required or invalid
+          logger.warn('Leaderboard submission requires auth token', 'Leaderboard', {
+            error: result.error || result.message,
+          });
+          return {
+            success: false,
+            message: result.message || 'Authentication required',
+            error: result.error || 'Auth token required for confirmed email addresses',
+            authTokenRequired: true,
           };
         } else {
           logger.warn('Leaderboard submission failed', 'Leaderboard', {
@@ -5103,6 +2977,61 @@ function setupIpcHandlers() {
         return {
           success: false,
           message: 'Failed to connect to leaderboard server',
+          error: error instanceof Error ? error.message : 'Unknown error',
+        };
+      }
+    }
+  );
+
+  // Poll for auth token after email confirmation
+  ipcMain.handle(
+    'leaderboard:pollAuthStatus',
+    async (
+      _event,
+      clientToken: string
+    ): Promise<{
+      status: 'pending' | 'confirmed' | 'expired' | 'error';
+      authToken?: string;
+      message?: string;
+      error?: string;
+    }> => {
+      try {
+        logger.debug('Polling leaderboard auth status', 'Leaderboard');
+
+        const response = await fetch(
+          `https://runmaestro.ai/api/m4estr0/auth-status?clientToken=${encodeURIComponent(clientToken)}`,
+          {
+            headers: {
+              'User-Agent': `Maestro/${app.getVersion()}`,
+            },
+          }
+        );
+
+        const result = await response.json() as {
+          status: 'pending' | 'confirmed' | 'expired';
+          authToken?: string;
+          message?: string;
+        };
+
+        if (response.ok) {
+          if (result.status === 'confirmed' && result.authToken) {
+            logger.info('Leaderboard auth token received', 'Leaderboard');
+          }
+          return {
+            status: result.status,
+            authToken: result.authToken,
+            message: result.message,
+          };
+        } else {
+          return {
+            status: 'error',
+            error: result.message || `Server error: ${response.status}`,
+          };
+        }
+      } catch (error) {
+        logger.error('Error polling leaderboard auth status', 'Leaderboard', error);
+        return {
+          status: 'error',
           error: error instanceof Error ? error.message : 'Unknown error',
         };
       }

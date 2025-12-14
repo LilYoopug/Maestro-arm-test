@@ -656,7 +656,12 @@ contextBridge.exposeInMainWorld('maestro', {
       totalRuns: number;
       longestRunMs?: number;
       longestRunDate?: string;
+      theme?: string;
+      clientToken?: string;
+      authToken?: string;
     }) => ipcRenderer.invoke('leaderboard:submit', data),
+    pollAuthStatus: (clientToken: string) =>
+      ipcRenderer.invoke('leaderboard:pollAuthStatus', clientToken),
     get: (options?: { limit?: number }) =>
       ipcRenderer.invoke('leaderboard:get', options),
     getLongestRuns: (options?: { limit?: number }) =>
@@ -1169,11 +1174,19 @@ export interface MaestroAPI {
       totalRuns: number;
       longestRunMs?: number;
       longestRunDate?: string;
+      clientToken?: string;
+      authToken?: string;
     }) => Promise<{
       success: boolean;
       message: string;
-      requiresConfirmation?: boolean;
-      confirmationUrl?: string;
+      pendingEmailConfirmation?: boolean;
+      error?: string;
+      authTokenRequired?: boolean;
+    }>;
+    pollAuthStatus: (clientToken: string) => Promise<{
+      status: 'pending' | 'confirmed' | 'expired' | 'error';
+      authToken?: string;
+      message?: string;
       error?: string;
     }>;
     get: (options?: { limit?: number }) => Promise<{

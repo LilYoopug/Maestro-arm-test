@@ -8,9 +8,14 @@
  * Steps have two description variants:
  * - description: Used when tour is launched from the wizard (Auto Run context)
  * - descriptionGeneric: Used when tour is launched from hamburger menu (general context)
+ *
+ * Descriptions can include shortcut placeholders like {{shortcutId}} which will be
+ * replaced with the user's configured keyboard shortcut at runtime.
  */
 
 import type { TourStepConfig, TourUIAction } from './useTour';
+import type { Shortcut } from '../../../types';
+import { formatShortcutKeys } from '../../../utils/shortcutFormatter';
 
 /**
  * All tour steps in order
@@ -32,9 +37,9 @@ export const tourSteps: TourStepConfig[] = [
     id: 'autorun-panel',
     title: 'Auto Run Panel',
     description:
-      'This is the Auto Run panel where your action plan is being executed right now. Each task from your Phase 1 document is being processed automatically by the AI agent. Watch as checkboxes get marked off!',
+      'This is the Auto Run panel where your action plan is being executed right now. Each task from your Phase 1 document is being processed automatically by the AI agent. Watch as checkboxes get marked off! Press {{goToAutoRun}} to jump here anytime.',
     descriptionGeneric:
-      'This is the Auto Run panel. Place markdown documents with task lists here to have the AI execute them automatically. Tasks are checked off as they complete.',
+      'This is the Auto Run panel. Place markdown documents with task lists here to have the AI execute them automatically. Tasks are checked off as they complete. Press {{goToAutoRun}} to jump here anytime.',
     selector: '[data-tour="autorun-tab"]',
     position: 'left',
     uiActions: [
@@ -60,9 +65,9 @@ export const tourSteps: TourStepConfig[] = [
     id: 'files-tab',
     title: 'File Explorer',
     description:
-      'The Files tab shows your project\'s file structure. As the AI creates and modifies files, you\'ll see them appear here in real-time. Click any file to preview its contents.',
+      'The Files tab shows your project\'s file structure. As the AI creates and modifies files, you\'ll see them appear here in real-time. Click any file to preview its contents. Press {{goToFiles}} to jump here.',
     descriptionGeneric:
-      'The Files tab shows your project\'s file structure. As the AI creates and modifies files, you\'ll see them appear here in real-time. Click any file to preview its contents.',
+      'The Files tab shows your project\'s file structure. As the AI creates and modifies files, you\'ll see them appear here in real-time. Click any file to preview its contents. Press {{goToFiles}} to jump here.',
     selector: '[data-tour="files-tab"]',
     position: 'left',
     uiActions: [
@@ -74,9 +79,9 @@ export const tourSteps: TourStepConfig[] = [
     id: 'history-tab',
     title: 'History & Tracking',
     description:
-      'The History tab tracks all changes made during your session. Auto Run entries are marked automatically, while manual changes you make are tracked separately. Great for reviewing what happened!',
+      'The History tab tracks all changes made during your session. Auto Run entries are marked automatically, while manual changes you make are tracked separately. Great for reviewing what happened! Press {{goToHistory}} to jump here.',
     descriptionGeneric:
-      'The History tab tracks all AI interactions in your session. Auto Run entries are marked automatically, while manual changes are tracked separately. Great for reviewing what happened!',
+      'The History tab tracks all AI interactions in your session. Auto Run entries are marked automatically, while manual changes are tracked separately. Great for reviewing what happened! Press {{goToHistory}} to jump here.',
     selector: '[data-tour="history-tab"]',
     position: 'left',
     uiActions: [
@@ -102,9 +107,9 @@ export const tourSteps: TourStepConfig[] = [
     id: 'session-list',
     title: 'Sessions & Groups',
     description:
-      'The session list shows all your AI assistant sessions. You can have multiple projects running simultaneously, organize them into groups, and quickly switch between them. Watch for the pulsing green dot—it indicates unread messages from an agent.',
+      'The session list shows all your AI assistant sessions. You can have multiple projects running simultaneously, organize them into groups, and quickly switch between them. Watch for the pulsing green dot—it indicates unread messages from an agent. Press {{focusSidebar}} to focus the session list.',
     descriptionGeneric:
-      'The session list shows all your AI assistant sessions. You can have multiple projects running simultaneously, organize them into groups, and quickly switch between them. A pulsing green dot indicates unread messages.',
+      'The session list shows all your AI assistant sessions. You can have multiple projects running simultaneously, organize them into groups, and quickly switch between them. A pulsing green dot indicates unread messages. Press {{focusSidebar}} to focus the session list.',
     selector: '[data-tour="session-list"]',
     position: 'right',
     uiActions: [
@@ -126,9 +131,9 @@ export const tourSteps: TourStepConfig[] = [
     id: 'input-area',
     title: 'Input Area',
     description:
-      'Type your messages here to communicate with the AI. During Auto Run, this area may be locked while tasks execute. You can queue messages to send after the current task completes.',
+      'Type your messages here to communicate with the AI. During Auto Run, this area may be locked while tasks execute. You can queue messages to send after the current task completes. Press {{focusInput}} to quickly jump here.',
     descriptionGeneric:
-      'Type your messages here to communicate with the AI. You can also use slash commands, @ mentions for files, and attach images.',
+      'Type your messages here to communicate with the AI. You can also use slash commands, @ mentions for files, and attach images. Press {{focusInput}} to quickly jump here.',
     selector: '[data-tour="input-area"]',
     position: 'top',
     uiActions: [],
@@ -137,9 +142,9 @@ export const tourSteps: TourStepConfig[] = [
     id: 'terminal-mode',
     title: 'Terminal Mode',
     description:
-      'Press Cmd+J (or Ctrl+J on Windows/Linux) to switch between AI mode and Terminal mode. Terminal mode gives you a direct shell for running commands yourself.',
+      'Press {{toggleMode}} to switch between AI mode and Terminal mode. Terminal mode gives you a direct shell for running commands yourself.',
     descriptionGeneric:
-      'Press Cmd+J (or Ctrl+J on Windows/Linux) to switch between AI mode and Terminal mode. Terminal mode gives you a direct shell for running commands yourself.',
+      'Press {{toggleMode}} to switch between AI mode and Terminal mode. Terminal mode gives you a direct shell for running commands yourself.',
     selector: '[data-tour="input-area"]',
     position: 'top',
     uiActions: [],
@@ -148,9 +153,9 @@ export const tourSteps: TourStepConfig[] = [
     id: 'keyboard-shortcuts',
     title: 'Keyboard Shortcuts',
     description:
-      'Maestro is keyboard-first. Press Cmd+/ (or Ctrl+/ on Windows/Linux) anytime to see all available shortcuts. You\'re now ready to build amazing things!',
+      'Maestro is keyboard-first. Press {{help}} anytime to see all available shortcuts. You\'re now ready to build amazing things!',
     descriptionGeneric:
-      'Maestro is keyboard-first. Press Cmd+/ (or Ctrl+/ on Windows/Linux) anytime to see all available shortcuts. You\'re ready to go!',
+      'Maestro is keyboard-first. Press {{help}} anytime to see all available shortcuts. You\'re ready to go!',
     selector: null, // Center screen, no specific element
     position: 'center',
     uiActions: [],
@@ -176,4 +181,35 @@ export function getTourStepIndex(id: string): number {
  */
 export function getTotalTourSteps(): number {
   return tourSteps.length;
+}
+
+/**
+ * Replace shortcut placeholders in a description string with formatted shortcuts.
+ *
+ * Placeholders are in the format {{shortcutId}} where shortcutId matches
+ * a key in the shortcuts record.
+ *
+ * @param text - The description text with placeholders
+ * @param shortcuts - Record of shortcut configurations
+ * @returns The text with placeholders replaced by formatted shortcuts
+ *
+ * @example
+ * replaceShortcutPlaceholders(
+ *   'Press {{toggleMode}} to switch modes.',
+ *   { toggleMode: { id: 'toggleMode', label: 'Switch Mode', keys: ['Meta', 'j'] } }
+ * )
+ * // Returns: 'Press ⌘ J to switch modes.' (on macOS)
+ */
+export function replaceShortcutPlaceholders(
+  text: string,
+  shortcuts: Record<string, Shortcut>
+): string {
+  return text.replace(/\{\{(\w+)\}\}/g, (match, shortcutId) => {
+    const shortcut = shortcuts[shortcutId];
+    if (shortcut?.keys) {
+      return formatShortcutKeys(shortcut.keys);
+    }
+    // If shortcut not found, return the placeholder as-is
+    return match;
+  });
 }

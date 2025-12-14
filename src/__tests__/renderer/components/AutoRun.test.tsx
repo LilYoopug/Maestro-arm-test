@@ -189,6 +189,11 @@ describe('AutoRun', () => {
       render(<AutoRun {...props} />);
 
       expect(screen.getByText('Select Auto Run Folder')).toBeInTheDocument();
+      // Other controls should be hidden when no folder is selected
+      expect(screen.queryByText('Edit')).not.toBeInTheDocument();
+      expect(screen.queryByText('Preview')).not.toBeInTheDocument();
+      expect(screen.queryByText('Run')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('document-selector')).not.toBeInTheDocument();
     });
 
     it('shows document selector when folder is configured', () => {
@@ -275,16 +280,20 @@ describe('AutoRun', () => {
       expect(textarea).toHaveValue('New content');
     });
 
-    it('syncs content to parent on blur', async () => {
-      const props = createDefaultProps({ content: '' });
+    it('shows Save/Revert buttons when content is dirty', async () => {
+      const props = createDefaultProps({ content: 'Initial' });
       render(<AutoRun {...props} />);
 
-      const textarea = screen.getByRole('textbox');
-      fireEvent.focus(textarea);
-      fireEvent.change(textarea, { target: { value: 'New content' } });
-      fireEvent.blur(textarea);
+      // Initially no Save/Revert buttons
+      expect(screen.queryByText('Save')).not.toBeInTheDocument();
+      expect(screen.queryByText('Revert')).not.toBeInTheDocument();
 
-      expect(props.onContentChange).toHaveBeenCalledWith('New content');
+      const textarea = screen.getByRole('textbox');
+      fireEvent.change(textarea, { target: { value: 'New content' } });
+
+      // Now Save/Revert buttons should appear
+      expect(screen.getByText('Save')).toBeInTheDocument();
+      expect(screen.getByText('Revert')).toBeInTheDocument();
     });
 
     it('does not allow editing when locked', () => {
@@ -305,19 +314,16 @@ describe('AutoRun', () => {
     });
   });
 
-  describe('Auto-Save Functionality', () => {
-    it('auto-saves content after 5 seconds of inactivity', async () => {
+  describe('Manual Save Functionality', () => {
+    it('saves content when clicking Save button', async () => {
       const props = createDefaultProps({ content: 'Initial' });
       render(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
-      fireEvent.focus(textarea);
       fireEvent.change(textarea, { target: { value: 'Updated content' } });
 
-      // Advance timers by 5 seconds
-      await act(async () => {
-        vi.advanceTimersByTime(5000);
-      });
+      // Click the Save button
+      fireEvent.click(screen.getByText('Save'));
 
       expect(mockMaestro.autorun.writeDoc).toHaveBeenCalledWith(
         '/test/folder',
@@ -326,30 +332,32 @@ describe('AutoRun', () => {
       );
     });
 
-    it('does not auto-save if content is empty', async () => {
+    it('reverts content when clicking Revert button', async () => {
       const props = createDefaultProps({ content: 'Initial' });
       render(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
-      fireEvent.focus(textarea);
-      fireEvent.change(textarea, { target: { value: '' } });
+      fireEvent.change(textarea, { target: { value: 'Changed content' } });
 
-      await act(async () => {
-        vi.advanceTimersByTime(5000);
-      });
+      // Textarea should show changed content
+      expect(textarea).toHaveValue('Changed content');
 
-      expect(mockMaestro.autorun.writeDoc).not.toHaveBeenCalled();
+      // Click the Revert button
+      fireEvent.click(screen.getByText('Revert'));
+
+      // Content should revert back
+      expect(textarea).toHaveValue('Initial');
+
+      // Save/Revert buttons should disappear
+      expect(screen.queryByText('Save')).not.toBeInTheDocument();
     });
 
-    it('does not auto-save if no folder is selected', async () => {
+    it('does not show Save button if no folder is selected', async () => {
       const props = createDefaultProps({ folderPath: null, content: 'Initial' });
       render(<AutoRun {...props} />);
 
-      await act(async () => {
-        vi.advanceTimersByTime(5000);
-      });
-
-      expect(mockMaestro.autorun.writeDoc).not.toHaveBeenCalled();
+      // Save button shouldn't be visible without a folder
+      expect(screen.queryByText('Save')).not.toBeInTheDocument();
     });
   });
 
@@ -608,19 +616,23 @@ describe('AutoRun', () => {
   });
 
   describe('Run/Stop Batch Processing', () => {
-    it('calls onOpenBatchRunner and syncs content when clicking Run', async () => {
+    it('calls onOpenBatchRunner and saves if dirty when clicking Run', async () => {
       const onOpenBatchRunner = vi.fn();
       const props = createDefaultProps({ onOpenBatchRunner, content: 'test' });
       render(<AutoRun {...props} />);
 
       // Change content first
       const textarea = screen.getByRole('textbox');
-      fireEvent.focus(textarea);
       fireEvent.change(textarea, { target: { value: 'new content' } });
 
       fireEvent.click(screen.getByText('Run'));
 
-      expect(props.onContentChange).toHaveBeenCalledWith('new content');
+      // Should save the dirty content before opening batch runner
+      expect(mockMaestro.autorun.writeDoc).toHaveBeenCalledWith(
+        '/test/folder',
+        'test-doc.md',
+        'new content'
+      );
       expect(onOpenBatchRunner).toHaveBeenCalled();
     });
 
@@ -2197,7 +2209,7 @@ describe('Document Tree Support', () => {
   });
 });
 
-describe('Auto-save Cleanup', () => {
+describe('Document Switching', () => {
   let mockMaestro: ReturnType<typeof setupMaestroMock>;
 
   beforeEach(() => {
@@ -2210,28 +2222,23 @@ describe('Auto-save Cleanup', () => {
     vi.useRealTimers();
   });
 
-  it('clears auto-save timer when document changes', async () => {
+  it('discards unsaved changes when switching documents (manual save model)', async () => {
+    // With manual save model, unsaved changes are discarded when switching documents
+    // Users must explicitly save before switching to preserve changes
     const props = createDefaultProps({ content: 'Initial', selectedFile: 'doc1' });
     const { rerender } = render(<AutoRun {...props} />);
 
     const textarea = screen.getByRole('textbox');
-    fireEvent.focus(textarea);
     fireEvent.change(textarea, { target: { value: 'Changed content' } });
 
-    // Change document before auto-save fires
+    // Change document - unsaved changes should be discarded
     rerender(<AutoRun {...props} selectedFile="doc2" content="Doc 2 content" />);
 
-    // Advance past auto-save time
-    await act(async () => {
-      vi.advanceTimersByTime(6000);
-    });
+    // No automatic save should happen
+    expect(mockMaestro.autorun.writeDoc).not.toHaveBeenCalled();
 
-    // Auto-save should NOT have been called for doc1's content
-    // because we switched documents before the timer fired
-    // It might be called for doc2 if there are pending changes, but not with doc1 content
-    const calls = mockMaestro.autorun.writeDoc.mock.calls;
-    const doc1SaveCalls = calls.filter((call: any[]) => call[1] === 'doc1.md' && call[2] === 'Changed content');
-    expect(doc1SaveCalls.length).toBe(0);
+    // Content should be doc2's content
+    expect(screen.getByRole('textbox')).toHaveValue('Doc 2 content');
   });
 
   it('should re-render when hideTopControls changes (memo regression test)', async () => {

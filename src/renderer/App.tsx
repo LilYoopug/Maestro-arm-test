@@ -36,9 +36,22 @@ import { EmptyStateView } from './components/EmptyStateView';
 
 // Import custom hooks
 import { useBatchProcessor } from './hooks/useBatchProcessor';
-import { useSettings, useActivityTracker, useMobileLandscape, useNavigationHistory } from './hooks';
+import { useSettings, useActivityTracker, useMobileLandscape, useNavigationHistory, useAutoRunHandlers, useInputSync, useSessionNavigation } from './hooks';
+import type { AutoRunTreeNode } from './hooks';
 import { useTabCompletion, TabCompletionSuggestion, TabCompletionFilter } from './hooks/useTabCompletion';
 import { useAtMentionCompletion } from './hooks/useAtMentionCompletion';
+import { useKeyboardShortcutHelpers } from './hooks/useKeyboardShortcutHelpers';
+import { useKeyboardNavigation } from './hooks/useKeyboardNavigation';
+import { useMainKeyboardHandler } from './hooks/useMainKeyboardHandler';
+import { useRemoteIntegration } from './hooks/useRemoteIntegration';
+import { useClaudeSessionManagement } from './hooks/useClaudeSessionManagement';
+import { useAgentExecution } from './hooks/useAgentExecution';
+import { useFileTreeManagement } from './hooks/useFileTreeManagement';
+import { useGroupManagement } from './hooks/useGroupManagement';
+import { useWebBroadcasting } from './hooks/useWebBroadcasting';
+import { useCliActivityMonitoring } from './hooks/useCliActivityMonitoring';
+import { useThemeStyles } from './hooks/useThemeStyles';
+import { useSortedSessions, compareNamesIgnoringEmojis } from './hooks/useSortedSessions';
 
 // Import contexts
 import { useLayerStack } from './contexts/LayerStackContext';
@@ -56,27 +69,11 @@ import type {
 import { THEMES } from './constants/themes';
 import { generateId } from './utils/ids';
 import { getContextColor } from './utils/theme';
-import { fuzzyMatch } from './utils/search';
 import { setActiveTab, createTab, closeTab, reopenClosedTab, getActiveTab, getWriteModeTab, navigateToNextTab, navigateToPrevTab, navigateToTabByIndex, navigateToLastTab } from './utils/tabHelpers';
 import { TAB_SHORTCUTS } from './constants/shortcuts';
-import { shouldOpenExternally, loadFileTree, getAllFolderPaths, flattenTree, compareFileTrees, FileTreeChanges } from './utils/fileExplorer';
+import { shouldOpenExternally, getAllFolderPaths, flattenTree } from './utils/fileExplorer';
 import { substituteTemplateVariables } from './utils/templateVariables';
 import { validateNewSession } from './utils/sessionValidation';
-
-// Strip leading emojis from a string for alphabetical sorting
-// Matches common emoji patterns at the start of the string
-const stripLeadingEmojis = (str: string): string => {
-  // Match emojis at the start: emoji characters, variation selectors, ZWJ sequences, etc.
-  const emojiRegex = /^(?:\p{Emoji_Presentation}|\p{Emoji}\uFE0F?|\p{Emoji_Modifier_Base}\p{Emoji_Modifier}?)+\s*/gu;
-  return str.replace(emojiRegex, '').trim();
-};
-
-// Compare two names, ignoring leading emojis for alphabetization
-const compareNamesIgnoringEmojis = (a: string, b: string): number => {
-  const aStripped = stripLeadingEmojis(a);
-  const bStripped = stripLeadingEmojis(b);
-  return aStripped.localeCompare(bStripped);
-};
 
 // Get description for Claude Code slash commands
 // Built-in commands have known descriptions, custom ones use a generic description
@@ -164,6 +161,7 @@ export default function MaestroConsole() {
     leftSidebarWidth, setLeftSidebarWidth,
     rightPanelWidth, setRightPanelWidth,
     markdownEditMode, setMarkdownEditMode,
+    showHiddenFiles, setShowHiddenFiles,
     terminalWidth, setTerminalWidth,
     logLevel, setLogLevel,
     logViewerSelectedLevels, setLogViewerSelectedLevels,
@@ -184,6 +182,9 @@ export default function MaestroConsole() {
     recordTourStart, recordTourComplete, recordTourSkip,
     leaderboardRegistration, setLeaderboardRegistration, isLeaderboardRegistered,
   } = settings;
+
+  // --- KEYBOARD SHORTCUT HELPERS ---
+  const { isShortcut, isTabShortcut } = useKeyboardShortcutHelpers({ shortcuts });
 
   // --- STATE ---
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -279,11 +280,6 @@ export default function MaestroConsole() {
   const [processMonitorOpen, setProcessMonitorOpen] = useState(false);
   const [playgroundOpen, setPlaygroundOpen] = useState(false);
   const [debugWizardModalOpen, setDebugWizardModalOpen] = useState(false);
-  const [createGroupModalOpen, setCreateGroupModalOpen] = useState(false);
-  const [newGroupName, setNewGroupName] = useState('');
-  const [newGroupEmoji, setNewGroupEmoji] = useState('📂');
-  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
-  const [moveSessionToNewGroup, setMoveSessionToNewGroup] = useState(false);
 
   // Confirmation Modal State
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
@@ -307,8 +303,7 @@ export default function MaestroConsole() {
   const [agentSessionsOpen, setAgentSessionsOpen] = useState(false);
   const [activeClaudeSessionId, setActiveClaudeSessionId] = useState<string | null>(null);
 
-  // Session jump shortcut state (Opt+Cmd+NUMBER to jump to visible session)
-  const [showSessionJumpNumbers, setShowSessionJumpNumbers] = useState(false);
+  // NOTE: showSessionJumpNumbers state is now provided by useMainKeyboardHandler hook
 
   // Execution Queue Browser Modal State
   const [queueBrowserOpen, setQueueBrowserOpen] = useState(false);
@@ -365,12 +360,11 @@ export default function MaestroConsole() {
   const [isLiveMode, setIsLiveMode] = useState(false);
   const [webInterfaceUrl, setWebInterfaceUrl] = useState<string | null>(null);
 
-  // Auto Run document management state
+  // Auto Run document management state (content is per-session in session.autoRunContent)
   const [autoRunDocumentList, setAutoRunDocumentList] = useState<string[]>([]);
-  const [autoRunDocumentTree, setAutoRunDocumentTree] = useState<Array<{ name: string; type: 'file' | 'folder'; path: string; children?: unknown[] }>>([]);
-  const [autoRunContent, setAutoRunContent] = useState<string>('');
-  const [autoRunContentVersion, setAutoRunContentVersion] = useState(0);  // Incremented on external file changes
+  const [autoRunDocumentTree, setAutoRunDocumentTree] = useState<AutoRunTreeNode[]>([]);
   const [autoRunIsLoadingDocuments, setAutoRunIsLoadingDocuments] = useState(false);
+  const [autoRunDocumentTaskCounts, setAutoRunDocumentTaskCounts] = useState<Map<string, { completed: number; total: number }>>(new Map());
 
   // Restore focus when LogViewer closes to ensure global hotkeys work
   useEffect(() => {
@@ -1528,6 +1522,7 @@ export default function MaestroConsole() {
   const logsEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const terminalOutputRef = useRef<HTMLDivElement>(null);
+  const sidebarContainerRef = useRef<HTMLDivElement>(null);
   const fileTreeContainerRef = useRef<HTMLDivElement>(null);
   const fileTreeFilterInputRef = useRef<HTMLInputElement>(null);
   const fileTreeKeyboardNavRef = useRef(false); // Track if selection change came from keyboard
@@ -1547,11 +1542,8 @@ export default function MaestroConsole() {
   customAICommandsRef.current = customAICommands;
   activeSessionIdRef.current = activeSessionId;
 
-  // Refs for slash command functions (to access latest values in remote command handler)
-  const spawnBackgroundSynopsisRef = useRef<typeof spawnBackgroundSynopsis | null>(null);
-  const addHistoryEntryRef = useRef<typeof addHistoryEntry | null>(null);
-  const spawnAgentWithPromptRef = useRef<typeof spawnAgentWithPrompt | null>(null);
-  const startNewClaudeSessionRef = useRef<typeof startNewClaudeSession | null>(null);
+  // Note: spawnBackgroundSynopsisRef and spawnAgentWithPromptRef are now provided by useAgentExecution hook
+  // Note: addHistoryEntryRef and startNewClaudeSessionRef are now provided by useClaudeSessionManagement hook
   // Ref for processQueuedMessage - allows batch exit handler to process queued messages
   const processQueuedItemRef = useRef<((sessionId: string, item: QueuedItem) => Promise<void>) | null>(null);
 
@@ -1614,347 +1606,31 @@ export default function MaestroConsole() {
   // @ mention completion hook for AI mode
   const { getSuggestions: getAtMentionSuggestions } = useAtMentionCompletion(activeSession);
 
-  // Broadcast active session change to web clients
-  useEffect(() => {
-    if (activeSessionId && isLiveMode) {
-      window.maestro.live.broadcastActiveSession(activeSessionId);
-    }
-  }, [activeSessionId, isLiveMode]);
+  // Remote integration hook - handles web interface communication
+  useRemoteIntegration({
+    activeSessionId,
+    isLiveMode,
+    sessionsRef,
+    activeSessionIdRef,
+    setSessions,
+    setActiveSessionId,
+    defaultSaveToHistory,
+  });
 
-  // Handle remote commands from web interface
-  // This allows web commands to go through the exact same code path as desktop commands
-  useEffect(() => {
-    console.log('[Remote] Setting up onRemoteCommand listener...');
-    const unsubscribeRemote = window.maestro.process.onRemoteCommand((sessionId: string, command: string, inputMode?: 'ai' | 'terminal') => {
-      // Verify the session exists
-      const targetSession = sessionsRef.current.find(s => s.id === sessionId);
+  // Web broadcasting hook - handles external history change notifications
+  useWebBroadcasting({
+    rightPanelRef,
+  });
 
-      console.log('[Remote] Received command from web interface:', {
-        maestroSessionId: sessionId,
-        claudeSessionId: targetSession?.claudeSessionId || 'none',
-        state: targetSession?.state || 'NOT_FOUND',
-        sessionInputMode: targetSession?.inputMode || 'unknown',
-        webInputMode: inputMode || 'not provided',
-        command: command.substring(0, 100)
-      });
+  // CLI activity monitoring hook - tracks CLI playbook runs and updates session states
+  useCliActivityMonitoring({
+    setSessions,
+  });
 
-      if (!targetSession) {
-        console.log('[Remote] ERROR: Session not found:', sessionId);
-        return;
-      }
-
-      // Check if session is busy (should have been checked by web server, but double-check)
-      if (targetSession.state === 'busy') {
-        console.log('[Remote] REJECTED: Session is busy:', sessionId);
-        return;
-      }
-
-      // If web provided an inputMode, sync the session state before executing
-      // This ensures the renderer uses the same mode the web intended
-      if (inputMode && targetSession.inputMode !== inputMode) {
-        console.log('[Remote] Syncing inputMode from web:', inputMode, '(was:', targetSession.inputMode, ')');
-        setSessions(prev => prev.map(s =>
-          s.id === sessionId ? { ...s, inputMode } : s
-        ));
-      }
-
-      // Switch to the target session (for visual feedback)
-      console.log('[Remote] Switching to target session...');
-      setActiveSessionId(sessionId);
-
-      // Dispatch event directly - handleRemoteCommand handles all the logic
-      // Don't set inputValue - we don't want command text to appear in the input bar
-      // Pass the inputMode from web so handleRemoteCommand uses it
-      console.log('[Remote] Dispatching maestro:remoteCommand event');
-      window.dispatchEvent(new CustomEvent('maestro:remoteCommand', {
-        detail: { sessionId, command, inputMode }
-      }));
-    });
-
-    return () => {
-      unsubscribeRemote();
-    };
-  }, []);
-
-  // Handle remote mode switches from web interface
-  // This allows web mode switches to go through the same code path as desktop
-  useEffect(() => {
-    const unsubscribeSwitchMode = window.maestro.process.onRemoteSwitchMode((sessionId: string, mode: 'ai' | 'terminal') => {
-      console.log('[Remote] Received mode switch from web interface:', { sessionId, mode });
-
-      // Find the session and update its mode
-      setSessions(prev => {
-        const session = prev.find(s => s.id === sessionId);
-        if (!session) {
-          console.log('[Remote] Session not found for mode switch:', sessionId);
-          return prev;
-        }
-
-        // Only switch if mode is different
-        if (session.inputMode === mode) {
-          console.log('[Remote] Session already in mode:', mode);
-          return prev;
-        }
-
-        console.log('[Remote] Switching session mode:', sessionId, 'to', mode);
-        return prev.map(s => {
-          if (s.id !== sessionId) return s;
-          return { ...s, inputMode: mode };
-        });
-      });
-    });
-
-    return () => {
-      unsubscribeSwitchMode();
-    };
-  }, []);
-
-  // Handle remote interrupts from web interface
-  // This allows web interrupts to go through the same code path as desktop (handleInterrupt)
-  useEffect(() => {
-    const unsubscribeInterrupt = window.maestro.process.onRemoteInterrupt(async (sessionId: string) => {
-      console.log('[Remote] Received interrupt from web interface:', { sessionId });
-
-      // Find the session
-      const session = sessionsRef.current.find(s => s.id === sessionId);
-      if (!session) {
-        console.log('[Remote] Session not found for interrupt:', sessionId);
-        return;
-      }
-
-      // Use the same logic as handleInterrupt
-      const currentMode = session.inputMode;
-      const targetSessionId = currentMode === 'ai' ? `${session.id}-ai` : `${session.id}-terminal`;
-
-      try {
-        // Send interrupt signal (Ctrl+C)
-        await window.maestro.process.interrupt(targetSessionId);
-
-        // Set state to idle (same as handleInterrupt)
-        setSessions(prev => prev.map(s => {
-          if (s.id !== session.id) return s;
-          return {
-            ...s,
-            state: 'idle',
-            busySource: undefined,
-            thinkingStartTime: undefined
-          };
-        }));
-
-        console.log('[Remote] Interrupt successful for session:', sessionId);
-      } catch (error) {
-        console.error('[Remote] Failed to interrupt session:', error);
-      }
-    });
-
-    return () => {
-      unsubscribeInterrupt();
-    };
-  }, []);
-
-  // Handle remote session selection from web interface
-  // This allows web clients to switch the active session in the desktop app
-  // If tabId is provided, also switches to that tab within the session
-  useEffect(() => {
-    const unsubscribeSelectSession = window.maestro.process.onRemoteSelectSession((sessionId: string, tabId?: string) => {
-      console.log('[Remote] Received session selection from web interface:', { sessionId, tabId });
-
-      // Check if session exists
-      const session = sessionsRef.current.find(s => s.id === sessionId);
-      if (!session) {
-        console.log('[Remote] Session not found for selection:', sessionId);
-        return;
-      }
-
-      // Switch to the session (same as clicking in SessionList)
-      setActiveSessionId(sessionId);
-      console.log('[Remote] Switched to session:', sessionId);
-
-      // If tabId provided, also switch to that tab
-      if (tabId) {
-        setSessions(prev => prev.map(s => {
-          if (s.id !== sessionId) return s;
-          // Check if tab exists
-          if (!s.aiTabs.some(t => t.id === tabId)) {
-            console.log('[Remote] Tab not found for selection:', tabId);
-            return s;
-          }
-          console.log('[Remote] Switched to tab:', tabId);
-          return { ...s, activeTabId: tabId };
-        }));
-      }
-    });
-
-    // Handle remote tab selection from web interface
-    // This also switches to the session if not already active
-    const unsubscribeSelectTab = window.maestro.process.onRemoteSelectTab((sessionId: string, tabId: string) => {
-      console.log('[Remote] Received tab selection from web interface:', { sessionId, tabId });
-
-      // First, switch to the session if not already active
-      const currentActiveId = activeSessionIdRef.current;
-      if (currentActiveId !== sessionId) {
-        console.log('[Remote] Switching to session:', sessionId);
-        setActiveSessionId(sessionId);
-      }
-
-      // Then update the active tab within the session
-      setSessions(prev => prev.map(s => {
-        if (s.id !== sessionId) return s;
-        // Check if tab exists
-        if (!s.aiTabs.some(t => t.id === tabId)) {
-          console.log('[Remote] Tab not found for selection:', tabId);
-          return s;
-        }
-        return { ...s, activeTabId: tabId };
-      }));
-    });
-
-    // Handle remote new tab from web interface
-    const unsubscribeNewTab = window.maestro.process.onRemoteNewTab((sessionId: string, responseChannel: string) => {
-      console.log('[Remote] Received new tab request from web interface:', { sessionId, responseChannel });
-
-      let newTabId: string | null = null;
-
-      setSessions(prev => prev.map(s => {
-        if (s.id !== sessionId) return s;
-
-        // Use createTab helper
-        const result = createTab(s, { saveToHistory: defaultSaveToHistory });
-        newTabId = result.tab.id;
-        return result.session;
-      }));
-
-      // Send response back with the new tab ID
-      if (newTabId) {
-        window.maestro.process.sendRemoteNewTabResponse(responseChannel, { tabId: newTabId });
-      } else {
-        window.maestro.process.sendRemoteNewTabResponse(responseChannel, null);
-      }
-    });
-
-    // Handle remote close tab from web interface
-    const unsubscribeCloseTab = window.maestro.process.onRemoteCloseTab((sessionId: string, tabId: string) => {
-      console.log('[Remote] Received close tab request from web interface:', { sessionId, tabId });
-
-      setSessions(prev => prev.map(s => {
-        if (s.id !== sessionId) return s;
-
-        // Use closeTab helper (handles last tab by creating a fresh one)
-        const result = closeTab(s, tabId);
-        return result?.session ?? s;
-      }));
-    });
-
-    return () => {
-      unsubscribeSelectSession();
-      unsubscribeSelectTab();
-      unsubscribeNewTab();
-      unsubscribeCloseTab();
-    };
-  }, []);
-
-  // Broadcast tab changes to web clients when tabs or activeTabId changes
-  // Use a ref to track previous values and only broadcast on actual changes
-  const prevTabsRef = useRef<Map<string, { tabCount: number; activeTabId: string }>>(new Map());
-
-  useEffect(() => {
-    // Broadcast tab changes for all sessions that have changed
-    sessions.forEach(session => {
-      if (!session.aiTabs || session.aiTabs.length === 0) return;
-
-      const prev = prevTabsRef.current.get(session.id);
-      const current = {
-        tabCount: session.aiTabs.length,
-        activeTabId: session.activeTabId || session.aiTabs[0]?.id || '',
-      };
-
-      // Check if anything changed
-      if (!prev || prev.tabCount !== current.tabCount || prev.activeTabId !== current.activeTabId) {
-        // Broadcast to web clients
-        const tabsForBroadcast = session.aiTabs.map(tab => ({
-          id: tab.id,
-          claudeSessionId: tab.claudeSessionId,
-          name: tab.name,
-          starred: tab.starred,
-          inputValue: tab.inputValue,
-          usageStats: tab.usageStats,
-          createdAt: tab.createdAt,
-          state: tab.state,
-          thinkingStartTime: tab.thinkingStartTime,
-        }));
-
-        window.maestro.web.broadcastTabsChange(
-          session.id,
-          tabsForBroadcast,
-          current.activeTabId
-        );
-
-        // Update ref
-        prevTabsRef.current.set(session.id, current);
-      }
-    });
-  }, [sessions]);
-
-  // Listen for external history changes (e.g., from CLI) and refresh history panel
-  useEffect(() => {
-    const unsubscribe = window.maestro.history.onExternalChange(async () => {
-      console.log('[History] External change detected, reloading from disk and refreshing history panel');
-      // Reload from disk before refreshing (to bypass electron-store cache)
-      await window.maestro.history.reload();
-      rightPanelRef.current?.refreshHistoryPanel();
-    });
-    return unsubscribe;
-  }, []);
-
-  // Listen for CLI activity changes (when CLI is running playbooks)
-  // Update session states to show busy when CLI is active
-  useEffect(() => {
-    const checkCliActivity = async () => {
-      try {
-        const activities = await window.maestro.cli.getActivity();
-        setSessions(prev => prev.map(session => {
-          const cliActivity = activities.find(a => a.sessionId === session.id);
-          if (cliActivity) {
-            // CLI is running a playbook on this session - mark as busy
-            // Only update if not already busy (to preserve aiPid-based busy state)
-            if (session.state !== 'busy') {
-              return {
-                ...session,
-                state: 'busy' as const,
-                cliActivity: {
-                  playbookId: cliActivity.playbookId,
-                  playbookName: cliActivity.playbookName,
-                  startedAt: cliActivity.startedAt,
-                },
-              };
-            }
-          } else if (session.cliActivity) {
-            // CLI activity ended - set back to idle (unless process is still running)
-            if (!session.aiPid) {
-              return {
-                ...session,
-                state: 'idle' as const,
-                cliActivity: undefined,
-              };
-            }
-          }
-          return session;
-        }));
-      } catch (error) {
-        console.error('[CLI Activity] Error checking activity:', error);
-      }
-    };
-
-    // Check immediately on mount
-    checkCliActivity();
-
-    // Listen for changes
-    const unsubscribe = window.maestro.cli.onActivityChange(() => {
-      console.log('[CLI Activity] Activity change detected');
-      checkCliActivity();
-    });
-    return unsubscribe;
-  }, []);
+  // Theme styles hook - manages CSS variables and scrollbar fade animations
+  useThemeStyles({
+    themeColors: theme.colors,
+  });
 
   // Combine built-in slash commands with custom AI commands AND Claude Code commands for autocomplete
   const allSlashCommands = useMemo(() => {
@@ -2030,32 +1706,19 @@ export default function MaestroConsole() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab?.id]);
 
-  // Function to persist AI input to session state (called on blur/submit)
-  const syncAiInputToSession = useCallback((value: string) => {
-    if (!activeSession) return;
-    setSessions(prev => prev.map(s => {
-      if (s.id !== activeSession.id) return s;
-      const currentActiveTab = getActiveTab(s);
-      if (!currentActiveTab) return s;
-      return {
-        ...s,
-        aiTabs: s.aiTabs.map(tab =>
-          tab.id === currentActiveTab.id
-            ? { ...tab, inputValue: value }
-            : tab
-        )
-      };
-    }));
-  }, [activeSession]);
+  // Input sync handlers (extracted to useInputSync hook)
+  const { syncAiInputToSession, syncTerminalInputToSession } = useInputSync(activeSession, {
+    setSessions,
+  });
 
-  // Function to persist terminal input to session state (called on blur/session switch)
-  const syncTerminalInputToSession = useCallback((value: string, sessionId?: string) => {
-    const targetSessionId = sessionId || activeSession?.id;
-    if (!targetSessionId) return;
-    setSessions(prev => prev.map(s =>
-      s.id === targetSessionId ? { ...s, terminalDraftInput: value } : s
-    ));
-  }, [activeSession?.id]);
+  // Session navigation handlers (extracted to useSessionNavigation hook)
+  const { handleNavBack, handleNavForward } = useSessionNavigation(sessions, {
+    navigateBack,
+    navigateForward,
+    setActiveSessionId: setActiveSessionIdInternal,
+    setSessions,
+    cyclePositionRef,
+  });
 
   // Sync terminal input when switching sessions
   // Save current terminal input to old session, load from new session
@@ -2198,414 +1861,45 @@ export default function MaestroConsole() {
     }
   }, [flatFileList, activeRightTab]);
 
-  // --- BATCH PROCESSOR ---
-  // Helper to spawn a Claude agent and wait for completion (for a specific session)
-  // cwdOverride allows running in a different directory (e.g., for worktree mode)
-  const spawnAgentForSession = useCallback(async (sessionId: string, prompt: string, cwdOverride?: string): Promise<{ success: boolean; response?: string; claudeSessionId?: string; usageStats?: UsageStats }> => {
-    // Use sessionsRef to get latest sessions (fixes stale closure when called right after session creation)
-    const session = sessionsRef.current.find(s => s.id === sessionId);
-    if (!session) return { success: false };
+  // --- AGENT EXECUTION ---
+  // Extracted hook for agent spawning and execution operations
+  const {
+    spawnAgentForSession,
+    spawnAgentWithPrompt,
+    spawnBackgroundSynopsis,
+    spawnBackgroundSynopsisRef,
+    spawnAgentWithPromptRef,
+    showFlashNotification,
+    showSuccessFlash,
+  } = useAgentExecution({
+    activeSession,
+    sessionsRef,
+    setSessions,
+    processQueuedItemRef,
+    setFlashNotification,
+    setSuccessFlashNotification,
+  });
 
-    // Use override cwd if provided (worktree mode), otherwise use session's cwd
-    const effectiveCwd = cwdOverride || session.cwd;
+  // --- CLAUDE SESSION MANAGEMENT ---
+  // Extracted hook for Claude-specific session operations (history, session clear, resume)
+  const {
+    addHistoryEntry,
+    addHistoryEntryRef,
+    startNewClaudeSession,
+    startNewClaudeSessionRef,
+    handleJumpToClaudeSession,
+    handleResumeSession,
+  } = useClaudeSessionManagement({
+    activeSession,
+    setSessions,
+    setActiveClaudeSessionId,
+    setAgentSessionsOpen,
+    addLogToActiveTab,
+    rightPanelRef,
+    defaultSaveToHistory,
+  });
 
-    // This spawns a new Claude session and waits for completion
-    try {
-      const agent = await window.maestro.agents.get('claude-code');
-      if (!agent) return { success: false };
-
-      // For batch processing, use a unique session ID per task run to avoid contaminating the main AI terminal
-      // This prevents batch output from appearing in the interactive AI terminal
-      const targetSessionId = `${sessionId}-batch-${Date.now()}`;
-
-      // Note: We intentionally do NOT set the session or tab state to 'busy' here.
-      // Batch operations run in isolation and should not affect the main UI state.
-      // The batch progress is tracked separately via BatchRunState in useBatchProcessor.
-
-      // Create a promise that resolves when the agent completes
-      return new Promise((resolve) => {
-        let claudeSessionId: string | undefined;
-        let responseText = '';
-        let taskUsageStats: UsageStats | undefined;
-
-        // Cleanup functions will be set when listeners are registered
-        let cleanupData: (() => void) | undefined;
-        let cleanupSessionId: (() => void) | undefined;
-        let cleanupExit: (() => void) | undefined;
-        let cleanupUsage: (() => void) | undefined;
-
-        const cleanup = () => {
-          cleanupData?.();
-          cleanupSessionId?.();
-          cleanupExit?.();
-          cleanupUsage?.();
-        };
-
-        // Set up listeners for this specific agent run
-        cleanupData = window.maestro.process.onData((sid: string, data: string) => {
-          if (sid === targetSessionId) {
-            responseText += data;
-          }
-        });
-
-        cleanupSessionId = window.maestro.process.onSessionId((sid: string, capturedId: string) => {
-          if (sid === targetSessionId) {
-            claudeSessionId = capturedId;
-          }
-        });
-
-        // Capture usage stats for this specific task
-        cleanupUsage = window.maestro.process.onUsage((sid: string, usageStats) => {
-          if (sid === targetSessionId) {
-            // Accumulate usage stats for this task (there may be multiple usage events per task)
-            if (!taskUsageStats) {
-              taskUsageStats = { ...usageStats };
-            } else {
-              // Accumulate tokens and cost
-              taskUsageStats = {
-                ...usageStats,
-                inputTokens: taskUsageStats.inputTokens + usageStats.inputTokens,
-                outputTokens: taskUsageStats.outputTokens + usageStats.outputTokens,
-                cacheReadInputTokens: taskUsageStats.cacheReadInputTokens + usageStats.cacheReadInputTokens,
-                cacheCreationInputTokens: taskUsageStats.cacheCreationInputTokens + usageStats.cacheCreationInputTokens,
-                totalCostUsd: taskUsageStats.totalCostUsd + usageStats.totalCostUsd,
-              };
-            }
-          }
-        });
-
-        cleanupExit = window.maestro.process.onExit((sid: string) => {
-          if (sid === targetSessionId) {
-            // Clean up listeners
-            cleanup();
-
-            // Check for queued items BEFORE updating state (using sessionsRef for latest state)
-            const currentSession = sessionsRef.current.find(s => s.id === sessionId);
-            let queuedItemToProcess: { sessionId: string; item: QueuedItem } | null = null;
-            const hasQueuedItems = currentSession && currentSession.executionQueue.length > 0;
-
-            if (hasQueuedItems) {
-              queuedItemToProcess = {
-                sessionId: sessionId,
-                item: currentSession!.executionQueue[0]
-              };
-            }
-
-            // Update state - if there are queued items, keep busy and process next
-            setSessions(prev => prev.map(s => {
-              if (s.id !== sessionId) return s;
-
-              if (s.executionQueue.length > 0) {
-                const [nextItem, ...remainingQueue] = s.executionQueue;
-                const targetTab = s.aiTabs.find(tab => tab.id === nextItem.tabId) || getActiveTab(s);
-
-                if (!targetTab) {
-                  // Fallback: no tabs exist
-                  return {
-                    ...s,
-                    state: 'busy' as SessionState,
-                    busySource: 'ai',
-                    executionQueue: remainingQueue,
-                    thinkingStartTime: Date.now(),
-                    currentCycleTokens: 0,
-                    currentCycleBytes: 0,
-                    pendingAICommandForSynopsis: undefined
-                  };
-                }
-
-                // For message items, add a log entry to the target tab
-                let updatedAiTabs = s.aiTabs;
-                if (nextItem.type === 'message' && nextItem.text) {
-                  const logEntry: LogEntry = {
-                    id: generateId(),
-                    timestamp: Date.now(),
-                    source: 'user',
-                    text: nextItem.text,
-                    images: nextItem.images
-                  };
-                  updatedAiTabs = s.aiTabs.map(tab =>
-                    tab.id === targetTab.id
-                      ? { ...tab, logs: [...tab.logs, logEntry] }
-                      : tab
-                  );
-                }
-
-                return {
-                  ...s,
-                  state: 'busy' as SessionState,
-                  busySource: 'ai',
-                  aiTabs: updatedAiTabs,
-                  activeTabId: targetTab.id,
-                  executionQueue: remainingQueue,
-                  thinkingStartTime: Date.now(),
-                  currentCycleTokens: 0,
-                  currentCycleBytes: 0,
-                  pendingAICommandForSynopsis: undefined
-                };
-              }
-
-              // No queued items - set to idle
-              // Set ALL busy tabs to 'idle' for write-mode tracking
-              const updatedAiTabs = s.aiTabs?.length > 0
-                ? s.aiTabs.map(tab =>
-                    tab.state === 'busy' ? { ...tab, state: 'idle' as const, thinkingStartTime: undefined } : tab
-                  )
-                : s.aiTabs;
-
-              return {
-                ...s,
-                state: 'idle' as SessionState,
-                busySource: undefined,
-                thinkingStartTime: undefined,
-                pendingAICommandForSynopsis: undefined,
-                aiTabs: updatedAiTabs
-              };
-            }));
-
-            // Process queued item AFTER state update
-            if (queuedItemToProcess && processQueuedItemRef.current) {
-              setTimeout(() => {
-                processQueuedItemRef.current!(queuedItemToProcess!.sessionId, queuedItemToProcess!.item);
-              }, 0);
-            }
-
-            // For batch processing (Auto Run): if there are queued items from manual writes,
-            // wait for the queue to drain before resolving. This ensures batch tasks don't
-            // race with queued manual writes. Worktree mode can skip this since it operates
-            // in a separate directory with no file conflicts.
-            // Note: cwdOverride is set when worktree is enabled
-            if (hasQueuedItems && !cwdOverride) {
-              // Wait for queue to drain by polling session state
-              // The queue is processed sequentially, so we wait until session becomes idle
-              const waitForQueueDrain = () => {
-                const checkSession = sessionsRef.current.find(s => s.id === sessionId);
-                if (!checkSession || checkSession.state === 'idle' || checkSession.executionQueue.length === 0) {
-                  // Queue drained or session idle - safe to continue batch
-                  resolve({ success: true, response: responseText, claudeSessionId, usageStats: taskUsageStats });
-                } else {
-                  // Queue still processing - check again
-                  setTimeout(waitForQueueDrain, 100);
-                }
-              };
-              // Start polling after a short delay to let state update propagate
-              setTimeout(waitForQueueDrain, 50);
-            } else {
-              // No queued items or worktree mode - resolve immediately
-              resolve({ success: true, response: responseText, claudeSessionId, usageStats: taskUsageStats });
-            }
-          }
-        });
-
-        // Spawn the agent with permission-mode plan for batch processing
-        // Use effectiveCwd which may be a worktree path for parallel execution
-        const commandToUse = agent.path || agent.command;
-        const spawnArgs = [...(agent.args || []), '--permission-mode', 'plan'];
-        window.maestro.process.spawn({
-          sessionId: targetSessionId,
-          toolType: 'claude-code',
-          cwd: effectiveCwd,
-          command: commandToUse,
-          args: spawnArgs,
-          prompt
-        }).catch(() => {
-          cleanup();
-          resolve({ success: false });
-        });
-      });
-    } catch (error) {
-      console.error('Error spawning agent:', error);
-      return { success: false };
-    }
-  }, []); // Uses sessionsRef for latest sessions, no closure dependencies needed
-
-  // Wrapper for slash commands that need to spawn an agent with just a prompt
-  const spawnAgentWithPrompt = useCallback(async (prompt: string) => {
-    if (!activeSession) return { success: false };
-    return spawnAgentForSession(activeSession.id, prompt);
-  }, [activeSession, spawnAgentForSession]);
-
-  // Background synopsis function - resumes an old Claude session without affecting main session state
-  const spawnBackgroundSynopsis = useCallback(async (
-    sessionId: string,
-    cwd: string,
-    resumeClaudeSessionId: string,
-    prompt: string
-  ): Promise<{ success: boolean; response?: string; claudeSessionId?: string; usageStats?: UsageStats }> => {
-    try {
-      const agent = await window.maestro.agents.get('claude-code');
-      if (!agent) return { success: false };
-
-      // Use a unique target ID for background synopsis
-      const targetSessionId = `${sessionId}-synopsis-${Date.now()}`;
-
-      return new Promise((resolve) => {
-        let claudeSessionId: string | undefined;
-        let responseText = '';
-        let synopsisUsageStats: UsageStats | undefined;
-
-        let cleanupData: (() => void) | undefined;
-        let cleanupSessionId: (() => void) | undefined;
-        let cleanupExit: (() => void) | undefined;
-        let cleanupUsage: (() => void) | undefined;
-
-        const cleanup = () => {
-          cleanupData?.();
-          cleanupSessionId?.();
-          cleanupExit?.();
-          cleanupUsage?.();
-        };
-
-        cleanupData = window.maestro.process.onData((sid: string, data: string) => {
-          if (sid === targetSessionId) {
-            responseText += data;
-          }
-        });
-
-        cleanupSessionId = window.maestro.process.onSessionId((sid: string, capturedId: string) => {
-          if (sid === targetSessionId) {
-            claudeSessionId = capturedId;
-          }
-        });
-
-        // Capture usage stats for this synopsis request
-        cleanupUsage = window.maestro.process.onUsage((sid: string, usageStats) => {
-          if (sid === targetSessionId) {
-            // Accumulate usage stats (there may be multiple events)
-            if (!synopsisUsageStats) {
-              synopsisUsageStats = { ...usageStats };
-            } else {
-              synopsisUsageStats = {
-                ...usageStats,
-                inputTokens: synopsisUsageStats.inputTokens + usageStats.inputTokens,
-                outputTokens: synopsisUsageStats.outputTokens + usageStats.outputTokens,
-                cacheReadInputTokens: synopsisUsageStats.cacheReadInputTokens + usageStats.cacheReadInputTokens,
-                cacheCreationInputTokens: synopsisUsageStats.cacheCreationInputTokens + usageStats.cacheCreationInputTokens,
-                totalCostUsd: synopsisUsageStats.totalCostUsd + usageStats.totalCostUsd,
-              };
-            }
-          }
-        });
-
-        cleanupExit = window.maestro.process.onExit((sid: string) => {
-          if (sid === targetSessionId) {
-            cleanup();
-            resolve({ success: true, response: responseText, claudeSessionId, usageStats: synopsisUsageStats });
-          }
-        });
-
-        // Spawn with --resume to continue the old session
-        const commandToUse = agent.path || agent.command;
-        const spawnArgs = [...(agent.args || []), '--resume', resumeClaudeSessionId];
-        window.maestro.process.spawn({
-          sessionId: targetSessionId,
-          toolType: 'claude-code',
-          cwd,
-          command: commandToUse,
-          args: spawnArgs,
-          prompt
-        }).catch(() => {
-          cleanup();
-          resolve({ success: false });
-        });
-      });
-    } catch (error) {
-      console.error('Error spawning background synopsis:', error);
-      return { success: false };
-    }
-  }, []);
-
-  // Helper to show flash notification (auto-dismisses after 2 seconds)
-  const showFlashNotification = useCallback((message: string) => {
-    setFlashNotification(message);
-    setTimeout(() => setFlashNotification(null), 2000);
-  }, []);
-
-  // Helper to show success flash notification (center screen, auto-dismisses after 2 seconds)
-  const showSuccessFlash = useCallback((message: string) => {
-    setSuccessFlashNotification(message);
-    setTimeout(() => setSuccessFlashNotification(null), 2000);
-  }, []);
-
-  // Helper to add history entry
-  // Note: usageStats should be passed explicitly for per-task tracking (e.g., batch runs)
-  // Do NOT use cumulative session stats here - they represent lifetime totals, not per-entry metrics
-  // IMPORTANT: For background operations (like synopsis), pass explicit sessionId/projectPath to avoid
-  // cross-agent bleed when the user switches agents while the background task is running
-  const addHistoryEntry = useCallback(async (entry: {
-    type: 'AUTO' | 'USER';
-    summary: string;
-    fullResponse?: string;
-    claudeSessionId?: string;
-    usageStats?: UsageStats;
-    // Optional overrides for background operations (prevents cross-agent bleed)
-    sessionId?: string;
-    projectPath?: string;
-    sessionName?: string;
-  }) => {
-    // Use provided values or fall back to activeSession
-    const targetSessionId = entry.sessionId || activeSession?.id;
-    const targetProjectPath = entry.projectPath || activeSession?.cwd;
-
-    if (!targetSessionId || !targetProjectPath) return;
-
-    // Get session name from entry, or from active tab if using activeSession
-    let sessionName = entry.sessionName;
-    if (!sessionName && activeSession && !entry.sessionId) {
-      const activeTab = getActiveTab(activeSession);
-      sessionName = activeTab?.name;
-    }
-
-    await window.maestro.history.add({
-      id: generateId(),
-      type: entry.type,
-      timestamp: Date.now(),
-      summary: entry.summary,
-      fullResponse: entry.fullResponse,
-      claudeSessionId: entry.claudeSessionId,
-      sessionId: targetSessionId,
-      sessionName: sessionName,
-      projectPath: targetProjectPath,
-      contextUsage: activeSession?.contextUsage,
-      // Only include usageStats if explicitly provided (per-task tracking)
-      // Never use cumulative session stats - they're lifetime totals
-      usageStats: entry.usageStats
-    });
-
-    // Refresh history panel to show the new entry
-    rightPanelRef.current?.refreshHistoryPanel();
-  }, [activeSession]);
-
-  // Helper to start a new Claude session
-  const startNewClaudeSession = useCallback(() => {
-    if (!activeSession) return;
-
-    // Block clearing when there are queued items
-    if (activeSession.executionQueue.length > 0) {
-      addLogToActiveTab(activeSession.id, {
-        source: 'system',
-        text: 'Cannot clear session while items are queued. Remove queued items first.'
-      });
-      return;
-    }
-
-    setSessions(prev => prev.map(s => {
-      if (s.id !== activeSession.id) return s;
-      // Reset active tab's state to 'idle' for write-mode tracking
-      const updatedAiTabs = s.aiTabs?.length > 0
-        ? s.aiTabs.map(tab =>
-            tab.id === s.activeTabId ? { ...tab, state: 'idle' as const, thinkingStartTime: undefined } : tab
-          )
-        : s.aiTabs;
-      return { ...s, claudeSessionId: undefined, aiLogs: [], state: 'idle' as SessionState, busySource: undefined, thinkingStartTime: undefined, aiTabs: updatedAiTabs };
-    }));
-    setActiveClaudeSessionId(null);
-  }, [activeSession]);
-
-  // Update refs for slash command functions (so remote command handler can access latest versions)
-  spawnBackgroundSynopsisRef.current = spawnBackgroundSynopsis;
-  addHistoryEntryRef.current = addHistoryEntry;
-  spawnAgentWithPromptRef.current = spawnAgentWithPrompt;
-  startNewClaudeSessionRef.current = startNewClaudeSession;
+  // Note: spawnBackgroundSynopsisRef and spawnAgentWithPromptRef are now updated in useAgentExecution hook
 
   // Initialize batch processor (supports parallel batches per session)
   const {
@@ -2722,20 +2016,25 @@ export default function MaestroConsole() {
             longestRunDate = new Date(autoRunStats.longestRunTimestamp).toISOString().split('T')[0];
           }
 
-          // Submit to leaderboard in background
-          window.maestro.leaderboard.submit({
-            email: leaderboardRegistration.email,
-            displayName: leaderboardRegistration.displayName,
-            githubUsername: leaderboardRegistration.githubUsername,
-            twitterHandle: leaderboardRegistration.twitterHandle,
-            linkedinHandle: leaderboardRegistration.linkedinHandle,
-            badgeLevel: updatedBadgeLevel,
-            badgeName: updatedBadgeName,
-            cumulativeTimeMs: updatedCumulativeTimeMs,
-            totalRuns: updatedTotalRuns,
-            longestRunMs: updatedLongestRunMs,
-            longestRunDate,
-          }).then(result => {
+          // Submit to leaderboard in background (only if we have an auth token)
+          if (!leaderboardRegistration.authToken) {
+            console.warn('Leaderboard submission skipped: no auth token');
+          } else {
+            window.maestro.leaderboard.submit({
+              email: leaderboardRegistration.email,
+              displayName: leaderboardRegistration.displayName,
+              githubUsername: leaderboardRegistration.githubUsername,
+              twitterHandle: leaderboardRegistration.twitterHandle,
+              linkedinHandle: leaderboardRegistration.linkedinHandle,
+              badgeLevel: updatedBadgeLevel,
+              badgeName: updatedBadgeName,
+              cumulativeTimeMs: updatedCumulativeTimeMs,
+              totalRuns: updatedTotalRuns,
+              longestRunMs: updatedLongestRunMs,
+              longestRunDate,
+              theme: activeThemeId,
+              authToken: leaderboardRegistration.authToken,
+            }).then(result => {
             if (result.success) {
               // Update last submission timestamp
               setLeaderboardRegistration({
@@ -2778,9 +2077,10 @@ export default function MaestroConsole() {
               }
             }
             // Silent failure - don't bother the user if submission fails
-          }).catch(() => {
-            // Silent failure - leaderboard submission is not critical
-          });
+            }).catch(() => {
+              // Silent failure - leaderboard submission is not critical
+            });
+          }
         }
       }
     },
@@ -2888,68 +2188,40 @@ export default function MaestroConsole() {
     }
   }, [activeSession]);
 
-  // Handler for auto run folder selection from setup modal
-  const handleAutoRunFolderSelected = useCallback(async (folderPath: string) => {
+  // Auto Run handlers (extracted to useAutoRunHandlers hook)
+  const {
+    handleAutoRunFolderSelected,
+    handleStartBatchRun,
+    getDocumentTaskCount,
+    handleAutoRunContentChange,
+    handleAutoRunModeChange,
+    handleAutoRunStateChange,
+    handleAutoRunSelectDocument,
+    handleAutoRunRefresh,
+    handleAutoRunOpenSetup,
+    handleAutoRunCreateDocument,
+  } = useAutoRunHandlers(activeSession, {
+    setSessions,
+    setAutoRunDocumentList,
+    setAutoRunDocumentTree,
+    setAutoRunIsLoadingDocuments,
+    setAutoRunSetupModalOpen,
+    setBatchRunnerModalOpen,
+    setActiveRightTab,
+    setRightPanelOpen,
+    setActiveFocus,
+    setSuccessFlashNotification,
+    autoRunDocumentList,
+    startBatchRun,
+  });
+
+  // File tree auto-refresh interval change handler (kept in App.tsx as it's not Auto Run specific)
+  const handleAutoRefreshChange = useCallback((interval: number) => {
     if (!activeSession) return;
-
-    // Load the document list from the folder
-    const result = await window.maestro.autorun.listDocs(folderPath);
-    if (result.success) {
-      setAutoRunDocumentList(result.files || []);
-      setAutoRunDocumentTree((result.tree as Array<{ name: string; type: 'file' | 'folder'; path: string; children?: unknown[] }>) || []);
-      // Auto-select first document if available
-      const firstFile = result.files?.[0];
-      setSessions(prev => prev.map(s =>
-        s.id === activeSession.id
-          ? {
-              ...s,
-              autoRunFolderPath: folderPath,
-              autoRunSelectedFile: firstFile,
-            }
-          : s
-      ));
-      // Load content of first document
-      if (firstFile) {
-        const contentResult = await window.maestro.autorun.readDoc(folderPath, firstFile + '.md');
-        if (contentResult.success) {
-          setAutoRunContent(contentResult.content || '');
-        }
-      }
-    } else {
-      setSessions(prev => prev.map(s =>
-        s.id === activeSession.id
-          ? { ...s, autoRunFolderPath: folderPath }
-          : s
-      ));
-    }
-    setAutoRunSetupModalOpen(false);
-    // Switch to the autorun tab now that folder is configured
-    setActiveRightTab('autorun');
-    setRightPanelOpen(true);
-    setActiveFocus('right');
+    setSessions(prev => prev.map(s =>
+      s.id === activeSession.id ? { ...s, fileTreeAutoRefreshInterval: interval } : s
+    ));
   }, [activeSession]);
-
-  // Handler to start batch run from modal with multi-document support
-  const handleStartBatchRun = useCallback((config: BatchRunConfig) => {
-    console.log('[App] handleStartBatchRun called with config:', config);
-    if (!activeSession || !activeSession.autoRunFolderPath) {
-      console.log('[App] handleStartBatchRun early return - no active session or autoRunFolderPath');
-      return;
-    }
-    console.log('[App] Starting batch run for session:', activeSession.id, 'folder:', activeSession.autoRunFolderPath);
-    setBatchRunnerModalOpen(false);
-    startBatchRun(activeSession.id, config, activeSession.autoRunFolderPath);
-  }, [activeSession, startBatchRun]);
-
-  // Memoized function to get task count for a document (used by BatchRunnerModal)
-  const getDocumentTaskCount = useCallback(async (filename: string) => {
-    if (!activeSession?.autoRunFolderPath) return 0;
-    const result = await window.maestro.autorun.readDoc(activeSession.autoRunFolderPath, filename + '.md');
-    if (!result.success || !result.content) return 0;
-    // Count unchecked tasks: - [ ] pattern
-    const matches = result.content.match(/^[\s]*-\s*\[\s*\]\s*.+$/gm);
-    return matches ? matches.length : 0;
-  }, [activeSession?.autoRunFolderPath]);
 
   // Handler to stop batch run (with confirmation)
   // Stops the first active batch run, or falls back to active session
@@ -2963,16 +2235,6 @@ export default function MaestroConsole() {
     setConfirmModalOnConfirm(() => () => stopBatchRun(sessionId));
     setConfirmModalOpen(true);
   }, [activeBatchSessionIds, activeSession, stopBatchRun]);
-
-  // Handler to jump to a Claude session from history
-  const handleJumpToClaudeSession = useCallback((claudeSessionId: string) => {
-    // Set the Claude session ID and load its messages
-    if (activeSession) {
-      setActiveClaudeSessionId(claudeSessionId);
-      // Open the agent sessions browser to show the selected session
-      setAgentSessionsOpen(true);
-    }
-  }, [activeSession]);
 
   // Handler for toast navigation - switches to session and optionally to a specific tab
   const handleToastSessionClick = useCallback((sessionId: string, tabId?: string) => {
@@ -2991,147 +2253,51 @@ export default function MaestroConsole() {
     }
   }, [setActiveSessionId]);
 
-  // Handler to resume a Claude session - opens as a new tab (or switches to existing tab)
-  const handleResumeSession = useCallback(async (
-    claudeSessionId: string,
-    providedMessages?: LogEntry[],
-    sessionName?: string,
-    starred?: boolean
-  ) => {
-    if (!activeSession?.cwd) return;
-
-    // Check if a tab with this claudeSessionId already exists
-    const existingTab = activeSession.aiTabs?.find(tab => tab.claudeSessionId === claudeSessionId);
-    if (existingTab) {
-      // Switch to the existing tab instead of creating a duplicate
-      setSessions(prev => prev.map(s =>
-        s.id === activeSession.id
-          ? { ...s, activeTabId: existingTab.id, inputMode: 'ai' }
-          : s
-      ));
-      setActiveClaudeSessionId(claudeSessionId);
-      return;
-    }
-
-    try {
-      // Use provided messages or fetch them
-      let messages: LogEntry[];
-      if (providedMessages && providedMessages.length > 0) {
-        messages = providedMessages;
-      } else {
-        // Load the session messages
-        const result = await window.maestro.claude.readSessionMessages(
-          activeSession.cwd,
-          claudeSessionId,
-          { offset: 0, limit: 100 }
-        );
-
-        // Convert to log entries
-        messages = result.messages.map((msg: { type: string; content: string; timestamp: string; uuid: string }) => ({
-          id: msg.uuid || generateId(),
-          timestamp: new Date(msg.timestamp).getTime(),
-          source: msg.type === 'user' ? 'user' as const : 'stdout' as const,
-          text: msg.content || ''
-        }));
-      }
-
-      // Look up starred status and session name from stores if not provided
-      let isStarred = starred ?? false;
-      let name = sessionName ?? null;
-
-      if (!starred && !sessionName) {
-        try {
-          // Look up session metadata from Claude session origins (name and starred)
-          const origins = await window.maestro.claude.getSessionOrigins(activeSession.cwd);
-          const originData = origins[claudeSessionId];
-          if (originData && typeof originData === 'object') {
-            if (originData.sessionName) {
-              name = originData.sessionName;
-            }
-            if (originData.starred !== undefined) {
-              isStarred = originData.starred;
-            }
-          }
-        } catch (error) {
-          console.warn('[handleResumeSession] Failed to lookup starred/named status:', error);
-        }
-      }
-
-      // Update the session and switch to AI mode
-      // IMPORTANT: Use functional update to get fresh session state and avoid race conditions
-      setSessions(prev => prev.map(s => {
-        if (s.id !== activeSession.id) return s;
-
-        // Create tab from the CURRENT session state (not stale closure value)
-        const { session: updatedSession } = createTab(s, {
-          claudeSessionId,
-          logs: messages,
-          name,
-          starred: isStarred,
-          saveToHistory: defaultSaveToHistory
-        });
-
-        return { ...updatedSession, inputMode: 'ai' };
-      }));
-      setActiveClaudeSessionId(claudeSessionId);
-    } catch (error) {
-      console.error('Failed to resume session:', error);
-    }
-  }, [activeSession?.cwd, activeSession?.id, activeSession?.aiTabs]);
-
   // Handler to open lightbox with optional context images for navigation
   const handleSetLightboxImage = useCallback((image: string | null, contextImages?: string[]) => {
     setLightboxImage(image);
     setLightboxImages(contextImages || []);
   }, []);
 
-  // Create sorted sessions array that matches visual display order (includes ALL sessions)
-  // Note: sorting ignores leading emojis for proper alphabetization
-  const sortedSessions = useMemo(() => {
-    const sorted: Session[] = [];
+  // --- SESSION SORTING ---
+  // Extracted hook for sorted and visible session lists (ignores leading emojis for alphabetization)
+  const { sortedSessions, visibleSessions } = useSortedSessions({
+    sessions,
+    groups,
+    bookmarksCollapsed,
+  });
 
-    // First, add sessions from sorted groups (ignoring leading emojis)
-    const sortedGroups = [...groups].sort((a, b) => compareNamesIgnoringEmojis(a.name, b.name));
-    sortedGroups.forEach(group => {
-      const groupSessions = sessions
-        .filter(s => s.groupId === group.id)
-        .sort((a, b) => compareNamesIgnoringEmojis(a.name, b.name));
-      sorted.push(...groupSessions);
-    });
+  // --- KEYBOARD NAVIGATION ---
+  // Extracted hook for sidebar navigation, panel focus, and related keyboard handlers
+  const {
+    handleSidebarNavigation,
+    handleTabNavigation,
+    handleEnterToActivate,
+    handleEscapeInMain,
+  } = useKeyboardNavigation({
+    sortedSessions,
+    selectedSidebarIndex,
+    setSelectedSidebarIndex,
+    activeSessionId,
+    setActiveSessionId,
+    activeFocus,
+    setActiveFocus,
+    groups,
+    setGroups,
+    bookmarksCollapsed,
+    setBookmarksCollapsed,
+    editingSessionId,
+    editingGroupId,
+    inputRef,
+    terminalOutputRef,
+  });
 
-    // Then, add ungrouped sessions (sorted alphabetically, ignoring leading emojis)
-    const ungroupedSessions = sessions
-      .filter(s => !s.groupId)
-      .sort((a, b) => compareNamesIgnoringEmojis(a.name, b.name));
-    sorted.push(...ungroupedSessions);
-
-    return sorted;
-  }, [sessions, groups]);
-
-  // Create visible sessions array for session jump shortcuts (Opt+Cmd+NUMBER)
-  // Order: Bookmarked sessions first (if bookmarks folder expanded), then groups/ungrouped
-  // Note: A session can appear twice if it's both bookmarked and in an expanded group
-  const visibleSessions = useMemo(() => {
-    const result: Session[] = [];
-
-    // Add bookmarked sessions first (if bookmarks folder is expanded)
-    if (!bookmarksCollapsed) {
-      const bookmarkedSessions = sessions
-        .filter(s => s.bookmarked)
-        .sort((a, b) => compareNamesIgnoringEmojis(a.name, b.name));
-      result.push(...bookmarkedSessions);
-    }
-
-    // Add sessions from expanded groups and ungrouped sessions
-    const groupAndUngrouped = sortedSessions.filter(session => {
-      if (!session.groupId) return true; // Ungrouped sessions always visible
-      const group = groups.find(g => g.id === session.groupId);
-      return group && !group.collapsed; // Only show if group is expanded
-    });
-    result.push(...groupAndUngrouped);
-
-    return result;
-  }, [sortedSessions, groups, sessions, bookmarksCollapsed]);
+  // --- MAIN KEYBOARD HANDLER ---
+  // Extracted hook for main keyboard event listener (empty deps, uses ref pattern)
+  const {
+    keyboardHandlerRef,
+    showSessionJumpNumbers,
+  } = useMainKeyboardHandler();
 
   // Persist sessions and groups to electron-store (only after initial load)
   useEffect(() => {
@@ -3146,783 +2312,9 @@ export default function MaestroConsole() {
     }
   }, [groups]);
 
-  // Set CSS variables for theme colors (for scrollbar styling)
-  useEffect(() => {
-    document.documentElement.style.setProperty('--accent-color', theme.colors.accent);
-    document.documentElement.style.setProperty('--highlight-color', theme.colors.accent);
-  }, [theme.colors.accent]);
-
-  // Add scroll listeners to highlight scrollbars during active scrolling
-  useEffect(() => {
-    const scrollTimeouts = new Map<Element, NodeJS.Timeout>();
-    const fadeTimeouts = new Map<Element, NodeJS.Timeout>();
-
-    const handleScroll = (e: Event) => {
-      const target = e.target as Element;
-      if (!target.classList.contains('scrollbar-thin')) return;
-
-      // Cancel any pending fade completion
-      const existingFadeTimeout = fadeTimeouts.get(target);
-      if (existingFadeTimeout) {
-        clearTimeout(existingFadeTimeout);
-        fadeTimeouts.delete(target);
-      }
-
-      // Add scrolling class, remove fading if present
-      target.classList.remove('fading');
-      target.classList.add('scrolling');
-
-      // Clear existing timeout for this element
-      const existingTimeout = scrollTimeouts.get(target);
-      if (existingTimeout) {
-        clearTimeout(existingTimeout);
-      }
-
-      // Start fade-out after 1 second of no scrolling
-      const timeout = setTimeout(() => {
-        // Add fading class to trigger CSS transition
-        target.classList.add('fading');
-        target.classList.remove('scrolling');
-        scrollTimeouts.delete(target);
-
-        // Remove fading class after transition completes (500ms)
-        const fadeTimeout = setTimeout(() => {
-          target.classList.remove('fading');
-          fadeTimeouts.delete(target);
-        }, 500);
-        fadeTimeouts.set(target, fadeTimeout);
-      }, 1000);
-
-      scrollTimeouts.set(target, timeout);
-    };
-
-    // Add listener to capture scroll events
-    document.addEventListener('scroll', handleScroll, true);
-
-    return () => {
-      document.removeEventListener('scroll', handleScroll, true);
-      scrollTimeouts.forEach(timeout => clearTimeout(timeout));
-      scrollTimeouts.clear();
-      fadeTimeouts.forEach(timeout => clearTimeout(timeout));
-      fadeTimeouts.clear();
-    };
-  }, []);
-
-  // --- KEYBOARD MANAGEMENT ---
-  const isShortcut = (e: KeyboardEvent, actionId: string) => {
-    const sc = shortcuts[actionId];
-    if (!sc) return false;
-    const keys = sc.keys.map(k => k.toLowerCase());
-
-    const metaPressed = e.metaKey || e.ctrlKey;
-    const shiftPressed = e.shiftKey;
-    const altPressed = e.altKey;
-    const key = e.key.toLowerCase();
-
-    const configMeta = keys.includes('meta') || keys.includes('ctrl') || keys.includes('command');
-    const configShift = keys.includes('shift');
-    const configAlt = keys.includes('alt');
-
-    if (metaPressed !== configMeta) return false;
-    if (shiftPressed !== configShift) return false;
-    if (altPressed !== configAlt) return false;
-
-    const mainKey = keys[keys.length - 1];
-    if (mainKey === '/' && key === '/') return true;
-    if (mainKey === 'arrowleft' && key === 'arrowleft') return true;
-    if (mainKey === 'arrowright' && key === 'arrowright') return true;
-    if (mainKey === 'arrowup' && key === 'arrowup') return true;
-    if (mainKey === 'arrowdown' && key === 'arrowdown') return true;
-    if (mainKey === 'backspace' && key === 'backspace') return true;
-    // Handle Shift+[ producing { and Shift+] producing }
-    if (mainKey === '[' && (key === '[' || key === '{')) return true;
-    if (mainKey === ']' && (key === ']' || key === '}')) return true;
-    // Handle Shift+number producing symbol (US keyboard layout)
-    // Shift+1='!', Shift+2='@', Shift+3='#', etc.
-    const shiftNumberMap: Record<string, string> = {
-      '!': '1', '@': '2', '#': '3', '$': '4', '%': '5',
-      '^': '6', '&': '7', '*': '8', '(': '9', ')': '0'
-    };
-    if (shiftNumberMap[key] === mainKey) return true;
-
-    // For Alt+Meta shortcuts on macOS, e.key produces special characters (e.g., Alt+p = π, Alt+l = ¬)
-    // Use e.code to get the physical key pressed instead
-    if (altPressed && e.code) {
-      const codeKey = e.code.replace('Key', '').toLowerCase();
-      return codeKey === mainKey;
-    }
-
-    return key === mainKey;
-  };
-
-  // Check if a key event matches a tab shortcut (AI mode only)
-  // Checks both TAB_SHORTCUTS and editable shortcuts (for prevTab/nextTab)
-  const isTabShortcut = (e: KeyboardEvent, actionId: string) => {
-    const sc = TAB_SHORTCUTS[actionId] || shortcuts[actionId];
-    if (!sc) return false;
-    const keys = sc.keys.map(k => k.toLowerCase());
-
-    const metaPressed = e.metaKey || e.ctrlKey;
-    const shiftPressed = e.shiftKey;
-    const altPressed = e.altKey;
-    const key = e.key.toLowerCase();
-
-    const configMeta = keys.includes('meta') || keys.includes('ctrl') || keys.includes('command');
-    const configShift = keys.includes('shift');
-    const configAlt = keys.includes('alt');
-
-    if (metaPressed !== configMeta) return false;
-    if (shiftPressed !== configShift) return false;
-    if (altPressed !== configAlt) return false;
-
-    const mainKey = keys[keys.length - 1];
-    // Handle Shift+[ producing { and Shift+] producing }
-    if (mainKey === '[' && (key === '[' || key === '{')) return true;
-    if (mainKey === ']' && (key === ']' || key === '}')) return true;
-
-    // For Alt+Meta shortcuts on macOS, e.key produces special characters (e.g., Alt+t = †)
-    // Use e.code to get the physical key pressed instead
-    if (altPressed && e.code) {
-      const codeKey = e.code.replace('Key', '').toLowerCase();
-      return codeKey === mainKey;
-    }
-
-    return key === mainKey;
-  };
-
-  // Ref to hold all keyboard handler dependencies - avoids re-attaching listener on every state change
-  // This is a critical performance optimization: the keyboard handler was being removed and re-added
-  // on every state change due to 51+ dependencies, causing memory leaks and event listener bloat
-  // NOTE: Initialize with null - the actual value is set synchronously below during render.
-  // This avoids referencing functions like addNewSession before they're defined.
-  const keyboardHandlerRef = useRef<any>(null);
-  // NOTE: keyboardHandlerRef.current is assigned later in the file (after all handler functions are defined)
-  // to avoid "Cannot access before initialization" errors with functions like addNewSession
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Block browser refresh (Cmd+R / Ctrl+R / Cmd+Shift+R / Ctrl+Shift+R) globally
-      // We override these shortcuts for other purposes, but even in views where that
-      // doesn't apply (e.g., file preview), we never want the app to refresh
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'r') {
-        e.preventDefault();
-      }
-
-      // Read all values from ref - this allows the handler to stay attached while still
-      // accessing current state values
-      const ctx = keyboardHandlerRef.current;
-
-      // When layers (modals/overlays) are open, we need nuanced shortcut handling:
-      // - Escape: handled by LayerStackContext in capture phase
-      // - Tab: allowed for accessibility navigation
-      // - Cmd+Shift+[/]: depends on layer type (modal vs overlay)
-      //
-      // TRUE MODALS (Settings, QuickActions, etc.): Block ALL shortcuts except Tab
-      //   - These modals have their own internal handlers for Cmd+Shift+[]
-      //
-      // OVERLAYS (FilePreview, LogViewer): Allow Cmd+Shift+[] for tab cycling
-      //   - App.tsx handles this with modified behavior (cycle tabs not sessions)
-
-      if (ctx.hasOpenLayers()) {
-        // Allow Tab for accessibility navigation within modals
-        if (e.key === 'Tab') return;
-
-        const isCycleShortcut = (e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === '[' || e.key === ']');
-        // Allow sidebar toggle shortcuts (Alt+Cmd+Arrow) even when modals are open
-        const isLayoutShortcut = e.altKey && (e.metaKey || e.ctrlKey) && (e.key === 'ArrowLeft' || e.key === 'ArrowRight');
-        // Allow right panel tab shortcuts (Cmd+Shift+F/H/S) even when overlays are open
-        const keyLower = e.key.toLowerCase();
-        const isRightPanelShortcut = (e.metaKey || e.ctrlKey) && e.shiftKey && (keyLower === 'f' || keyLower === 'h' || keyLower === 's');
-        // Allow jumpToBottom (Cmd+Shift+J) from anywhere - always scroll main panel to bottom
-        const isJumpToBottomShortcut = (e.metaKey || e.ctrlKey) && e.shiftKey && keyLower === 'j';
-        // Allow system utility shortcuts (Alt+Cmd+L for logs, Alt+Cmd+P for processes) even when modals are open
-        // NOTE: Must use e.code for Alt key combos on macOS because e.key produces special characters (e.g., Alt+P = π)
-        const codeKeyLower = e.code?.replace('Key', '').toLowerCase() || '';
-        const isSystemUtilShortcut = e.altKey && (e.metaKey || e.ctrlKey) && (codeKeyLower === 'l' || codeKeyLower === 'p');
-        // Allow session jump shortcuts (Alt+Cmd+NUMBER) even when modals are open
-        // NOTE: Must use e.code for Alt key combos on macOS because e.key produces special characters
-        const isSessionJumpShortcut = e.altKey && (e.metaKey || e.ctrlKey) && /^Digit[0-9]$/.test(e.code || '');
-
-        if (ctx.hasOpenModal()) {
-          // TRUE MODAL is open - block most shortcuts from App.tsx
-          // The modal's own handler will handle Cmd+Shift+[] if it supports it
-          // BUT allow layout shortcuts (sidebar toggles), system utility shortcuts, session jump, and jumpToBottom to work
-          if (!isLayoutShortcut && !isSystemUtilShortcut && !isSessionJumpShortcut && !isJumpToBottomShortcut) {
-            return;
-          }
-          // Fall through to handle layout/system utility/session jump/jumpToBottom shortcuts below
-        } else {
-          // Only OVERLAYS are open (FilePreview, LogViewer, etc.)
-          // Allow Cmd+Shift+[] to fall through to App.tsx handler
-          // (which will cycle right panel tabs when previewFile is set)
-          // Also allow right panel tab shortcuts to switch tabs while overlay is open
-          if (!isCycleShortcut && !isLayoutShortcut && !isRightPanelShortcut && !isSystemUtilShortcut && !isSessionJumpShortcut && !isJumpToBottomShortcut) {
-            return;
-          }
-          // Fall through to cyclePrev/cycleNext logic below
-        }
-      }
-
-      // Skip all keyboard handling when editing a session or group name in the sidebar
-      if (ctx.editingSessionId || ctx.editingGroupId) {
-        return;
-      }
-
-      // Sidebar navigation with arrow keys (works when sidebar has focus)
-      // Skip if Alt+Cmd+Arrow is pressed - that's the sidebar/panel toggle shortcut
-      const isToggleLayoutShortcut = e.altKey && (e.metaKey || e.ctrlKey) && (e.key === 'ArrowLeft' || e.key === 'ArrowRight');
-      if (ctx.activeFocus === 'sidebar' && !isToggleLayoutShortcut && (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === ' ')) {
-        e.preventDefault();
-        if (ctx.sortedSessions.length === 0) return;
-
-        // Get the currently selected session
-        const currentSession = ctx.sortedSessions[ctx.selectedSidebarIndex];
-
-        // ArrowLeft: Collapse the current group or bookmarks section
-        if (e.key === 'ArrowLeft' && currentSession) {
-          // Check if session is bookmarked and bookmarks section is expanded
-          if (currentSession.bookmarked && !ctx.bookmarksCollapsed) {
-            // Collapse bookmarks section
-            ctx.setBookmarksCollapsed(true);
-            return;
-          }
-
-          // Check if session is in a group
-          if (currentSession.groupId) {
-            const currentGroup = ctx.groups.find(g => g.id === currentSession.groupId);
-            if (currentGroup && !currentGroup.collapsed) {
-              // Collapse the group
-              ctx.setGroups(prev => prev.map(g =>
-                g.id === currentGroup.id ? { ...g, collapsed: true } : g
-              ));
-              return;
-            }
-          }
-          return;
-        }
-
-        // ArrowRight: Expand the current group or bookmarks section (if collapsed)
-        if (e.key === 'ArrowRight' && currentSession) {
-          // Check if session is bookmarked and bookmarks section is collapsed
-          if (currentSession.bookmarked && ctx.bookmarksCollapsed) {
-            // Expand bookmarks section
-            ctx.setBookmarksCollapsed(false);
-            return;
-          }
-
-          // Check if session is in a collapsed group
-          if (currentSession.groupId) {
-            const currentGroup = ctx.groups.find(g => g.id === currentSession.groupId);
-            if (currentGroup && currentGroup.collapsed) {
-              // Expand the group
-              ctx.setGroups(prev => prev.map(g =>
-                g.id === currentGroup.id ? { ...g, collapsed: false } : g
-              ));
-              return;
-            }
-          }
-          return;
-        }
-
-        // Space: Close the current group and jump to nearest visible session
-        if (e.key === ' ' && currentSession?.groupId) {
-          const currentGroup = ctx.groups.find(g => g.id === currentSession.groupId);
-          if (currentGroup && !currentGroup.collapsed) {
-            // Collapse the group
-            ctx.setGroups(prev => prev.map(g =>
-              g.id === currentGroup.id ? { ...g, collapsed: true } : g
-            ));
-
-            // Helper to check if a session will be visible after collapse
-            const willBeVisible = (s: Session) => {
-              if (s.groupId === currentGroup.id) return false; // In the group being collapsed
-              if (!s.groupId) return true; // Ungrouped sessions are always visible
-              const g = ctx.groups.find(grp => grp.id === s.groupId);
-              return g && !g.collapsed; // In an expanded group
-            };
-
-            // Find current position in sortedSessions
-            const currentIndex = ctx.sortedSessions.findIndex(s => s.id === currentSession.id);
-
-            // First, look BELOW (after) the current position
-            let nextVisible: Session | undefined;
-            for (let i = currentIndex + 1; i < ctx.sortedSessions.length; i++) {
-              if (willBeVisible(ctx.sortedSessions[i])) {
-                nextVisible = ctx.sortedSessions[i];
-                break;
-              }
-            }
-
-            // If nothing below, look ABOVE (before) the current position
-            if (!nextVisible) {
-              for (let i = currentIndex - 1; i >= 0; i--) {
-                if (willBeVisible(ctx.sortedSessions[i])) {
-                  nextVisible = ctx.sortedSessions[i];
-                  break;
-                }
-              }
-            }
-
-            if (nextVisible) {
-              const newIndex = ctx.sortedSessions.findIndex(s => s.id === nextVisible!.id);
-              ctx.setSelectedSidebarIndex(newIndex);
-              ctx.setActiveSessionId(nextVisible.id);
-            }
-            return;
-          }
-        }
-
-        // ArrowUp/ArrowDown: Navigate through sessions, expanding collapsed groups as needed
-        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-          const currentIndex = ctx.selectedSidebarIndex;
-          const totalSessions = ctx.sortedSessions.length;
-
-          // Helper to check if a session is in a collapsed group
-          const isInCollapsedGroup = (session: Session) => {
-            if (!session.groupId) return false;
-            const group = ctx.groups.find(g => g.id === session.groupId);
-            return group?.collapsed ?? false;
-          };
-
-          // Helper to get all sessions in a group
-          const getGroupSessions = (groupId: string) => {
-            return ctx.sortedSessions.filter(s => s.groupId === groupId);
-          };
-
-          // Find the next session, skipping visible sessions in collapsed groups
-          // but stopping when we hit a NEW collapsed group (to expand it)
-          let nextIndex = currentIndex;
-          let foundCollapsedGroup: string | null = null;
-
-          if (e.key === 'ArrowDown') {
-            // Moving down
-            for (let i = 1; i <= totalSessions; i++) {
-              const candidateIndex = (currentIndex + i) % totalSessions;
-              const candidate = ctx.sortedSessions[candidateIndex];
-
-              if (!candidate.groupId) {
-                // Ungrouped session - can navigate to it
-                nextIndex = candidateIndex;
-                break;
-              }
-
-              const candidateGroup = ctx.groups.find(g => g.id === candidate.groupId);
-              if (!candidateGroup?.collapsed) {
-                // Session in expanded group - can navigate to it
-                nextIndex = candidateIndex;
-                break;
-              }
-
-              // Session is in a collapsed group
-              // Check if this is a different group than we're currently in
-              if (candidate.groupId !== currentSession?.groupId) {
-                // We've hit a collapsed group - expand it and go to FIRST item
-                foundCollapsedGroup = candidate.groupId;
-                const groupSessions = getGroupSessions(candidate.groupId);
-                nextIndex = ctx.sortedSessions.findIndex(s => s.id === groupSessions[0]?.id);
-                break;
-              }
-              // Same collapsed group, keep looking (shouldn't happen if current is visible)
-            }
-          } else {
-            // Moving up
-            for (let i = 1; i <= totalSessions; i++) {
-              const candidateIndex = (currentIndex - i + totalSessions) % totalSessions;
-              const candidate = ctx.sortedSessions[candidateIndex];
-
-              if (!candidate.groupId) {
-                // Ungrouped session - can navigate to it
-                nextIndex = candidateIndex;
-                break;
-              }
-
-              const candidateGroup = ctx.groups.find(g => g.id === candidate.groupId);
-              if (!candidateGroup?.collapsed) {
-                // Session in expanded group - can navigate to it
-                nextIndex = candidateIndex;
-                break;
-              }
-
-              // Session is in a collapsed group
-              // Check if this is a different group than we're currently in
-              if (candidate.groupId !== currentSession?.groupId) {
-                // We've hit a collapsed group - expand it and go to LAST item
-                foundCollapsedGroup = candidate.groupId;
-                const groupSessions = getGroupSessions(candidate.groupId);
-                nextIndex = ctx.sortedSessions.findIndex(s => s.id === groupSessions[groupSessions.length - 1]?.id);
-                break;
-              }
-              // Same collapsed group, keep looking
-            }
-          }
-
-          // If we found a collapsed group, expand it
-          if (foundCollapsedGroup) {
-            ctx.setGroups(prev => prev.map(g =>
-              g.id === foundCollapsedGroup ? { ...g, collapsed: false } : g
-            ));
-          }
-
-          ctx.setSelectedSidebarIndex(nextIndex);
-        }
-        return;
-      }
-
-      // Enter to load selected session from sidebar
-      if (ctx.activeFocus === 'sidebar' && e.key === 'Enter') {
-        e.preventDefault();
-        if (ctx.sortedSessions[ctx.selectedSidebarIndex]) {
-          ctx.setActiveSessionId(ctx.sortedSessions[ctx.selectedSidebarIndex].id);
-        }
-        return;
-      }
-
-      // Tab navigation between panels (disabled when input is focused for tab completion)
-      if (e.key === 'Tab') {
-        // Skip global Tab handling when input is focused - let handleInputKeyDown handle it
-        if (document.activeElement === ctx.inputRef.current) {
-          return;
-        }
-        e.preventDefault();
-        if (ctx.activeFocus === 'sidebar' && !e.shiftKey) {
-          // Tab from sidebar goes to main input
-          ctx.setActiveFocus('main');
-          setTimeout(() => ctx.inputRef.current?.focus(), 0);
-          return;
-        }
-        const order: FocusArea[] = ['sidebar', 'main', 'right'];
-        const currentIdx = order.indexOf(ctx.activeFocus);
-        if (e.shiftKey) {
-           const next = currentIdx === 0 ? order.length - 1 : currentIdx - 1;
-           ctx.setActiveFocus(order[next]);
-        } else {
-           const next = currentIdx === order.length - 1 ? 0 : currentIdx + 1;
-           ctx.setActiveFocus(order[next]);
-        }
-        return;
-      }
-
-      // Escape in main area focuses terminal output
-      if (ctx.activeFocus === 'main' && e.key === 'Escape' && document.activeElement === ctx.inputRef.current) {
-        e.preventDefault();
-        ctx.inputRef.current?.blur();
-        ctx.terminalOutputRef.current?.focus();
-        return;
-      }
-
-
-      // General shortcuts
-      // Only allow collapsing left sidebar when there are sessions (prevent collapse on empty state)
-      if (ctx.isShortcut(e, 'toggleSidebar')) {
-        if (ctx.sessions.length > 0 || !ctx.leftSidebarOpen) {
-          ctx.setLeftSidebarOpen(p => !p);
-        }
-      }
-      else if (ctx.isShortcut(e, 'toggleRightPanel')) ctx.setRightPanelOpen(p => !p);
-      else if (ctx.isShortcut(e, 'newInstance')) ctx.addNewSession();
-      else if (ctx.isShortcut(e, 'killInstance')) ctx.deleteSession(ctx.activeSessionId);
-      else if (ctx.isShortcut(e, 'moveToGroup')) {
-        if (ctx.activeSession) {
-          ctx.setQuickActionInitialMode('move-to-group');
-          ctx.setQuickActionOpen(true);
-        }
-      }
-      else if (ctx.isShortcut(e, 'cyclePrev')) {
-        // Cycle to previous Maestro session (global shortcut)
-        ctx.cycleSession('prev');
-      }
-      else if (ctx.isShortcut(e, 'cycleNext')) {
-        // Cycle to next Maestro session (global shortcut)
-        ctx.cycleSession('next');
-      }
-      else if (ctx.isShortcut(e, 'navBack')) {
-        // Navigate back in history (through sessions and tabs)
-        e.preventDefault();
-        ctx.handleNavBack();
-      }
-      else if (ctx.isShortcut(e, 'navForward')) {
-        // Navigate forward in history (through sessions and tabs)
-        e.preventDefault();
-        ctx.handleNavForward();
-      }
-      else if (ctx.isShortcut(e, 'toggleMode')) ctx.toggleInputMode();
-      else if (ctx.isShortcut(e, 'quickAction')) {
-        // Only open quick actions if there are agents
-        if (ctx.sessions.length > 0) {
-          ctx.setQuickActionInitialMode('main');
-          ctx.setQuickActionOpen(true);
-        }
-      }
-      else if (ctx.isShortcut(e, 'help')) ctx.setShortcutsHelpOpen(true);
-      else if (ctx.isShortcut(e, 'settings')) { ctx.setSettingsModalOpen(true); ctx.setSettingsTab('general'); }
-      else if (ctx.isShortcut(e, 'goToFiles')) { e.preventDefault(); ctx.setRightPanelOpen(true); ctx.handleSetActiveRightTab('files'); ctx.setActiveFocus('right'); }
-      else if (ctx.isShortcut(e, 'goToHistory')) { e.preventDefault(); ctx.setRightPanelOpen(true); ctx.handleSetActiveRightTab('history'); ctx.setActiveFocus('right'); }
-      else if (ctx.isShortcut(e, 'goToAutoRun')) { e.preventDefault(); ctx.setRightPanelOpen(true); ctx.handleSetActiveRightTab('autorun'); ctx.setActiveFocus('right'); }
-      else if (ctx.isShortcut(e, 'openImageCarousel')) {
-        e.preventDefault();
-        if (ctx.stagedImages.length > 0) {
-          ctx.handleSetLightboxImage(ctx.stagedImages[0], ctx.stagedImages);
-        }
-      }
-      else if (ctx.isShortcut(e, 'toggleTabStar')) {
-        e.preventDefault();
-        ctx.toggleTabStar();
-      }
-      else if (ctx.isShortcut(e, 'openPromptComposer')) {
-        e.preventDefault();
-        // Only open in AI mode
-        if (ctx.activeSession?.inputMode === 'ai') {
-          ctx.setPromptComposerOpen(true);
-        }
-      }
-      else if (ctx.isShortcut(e, 'openWizard')) {
-        e.preventDefault();
-        ctx.openWizardModal();
-      }
-      else if (ctx.isShortcut(e, 'focusInput')) {
-        e.preventDefault();
-        ctx.setActiveFocus('main');
-        setTimeout(() => ctx.inputRef.current?.focus(), 0);
-      }
-      else if (ctx.isShortcut(e, 'focusSidebar')) {
-        e.preventDefault();
-        // Expand sidebar if collapsed
-        if (!ctx.leftSidebarOpen) {
-          ctx.setLeftSidebarOpen(true);
-        }
-        // Focus the sidebar
-        ctx.setActiveFocus('sidebar');
-      }
-      else if (ctx.isShortcut(e, 'viewGitDiff')) {
-        e.preventDefault();
-        ctx.handleViewGitDiff();
-      }
-      else if (ctx.isShortcut(e, 'viewGitLog')) {
-        e.preventDefault();
-        if (ctx.activeSession?.isGitRepo) {
-          ctx.setGitLogOpen(true);
-        }
-      }
-      else if (ctx.isShortcut(e, 'agentSessions')) {
-        e.preventDefault();
-        if (ctx.activeSession?.toolType === 'claude-code') {
-          ctx.setActiveClaudeSessionId(null);
-          ctx.setAgentSessionsOpen(true);
-        }
-      }
-      else if (ctx.isShortcut(e, 'systemLogs')) {
-        e.preventDefault();
-        ctx.setLogViewerOpen(true);
-      }
-      else if (ctx.isShortcut(e, 'processMonitor')) {
-        e.preventDefault();
-        ctx.setProcessMonitorOpen(true);
-      }
-      else if (ctx.isShortcut(e, 'jumpToBottom')) {
-        e.preventDefault();
-        // Jump to the bottom of the current main panel output (AI logs or terminal output)
-        ctx.logsEndRef.current?.scrollIntoView({ behavior: 'instant' });
-      }
-      else if (ctx.isShortcut(e, 'toggleMarkdownMode')) {
-        // Toggle markdown raw mode for AI message history
-        // Skip when in AutoRun panel (it has its own Cmd+E handler for edit/preview toggle)
-        // Skip when FilePreview is open (it handles its own Cmd+E)
-        const isInAutoRunPanel = ctx.activeFocus === 'right' && ctx.activeRightTab === 'autorun';
-        if (!isInAutoRunPanel && !ctx.previewFile) {
-          e.preventDefault();
-          ctx.setMarkdownEditMode(!ctx.markdownEditMode);
-        }
-      }
-
-      // Opt+Cmd+NUMBER: Jump to visible session by number (1-9, 0=10th)
-      // Use e.code instead of e.key because Option key on macOS produces special characters
-      const digitMatch = e.code?.match(/^Digit([0-9])$/);
-      if (e.altKey && (e.metaKey || e.ctrlKey) && digitMatch) {
-        e.preventDefault();
-        const digit = digitMatch[1];
-        const num = digit === '0' ? 10 : parseInt(digit, 10);
-        const targetIndex = num - 1;
-        if (targetIndex >= 0 && targetIndex < ctx.visibleSessions.length) {
-          const targetSession = ctx.visibleSessions[targetIndex];
-          ctx.setActiveSessionId(targetSession.id);
-          // Also expand sidebar if collapsed
-          if (!ctx.leftSidebarOpen) {
-            ctx.setLeftSidebarOpen(true);
-          }
-        }
-      }
-
-      // Tab shortcuts (AI mode only, requires an explicitly selected session)
-      if (ctx.activeSessionId && ctx.activeSession?.inputMode === 'ai' && ctx.activeSession?.aiTabs) {
-        if (ctx.isTabShortcut(e, 'tabSwitcher')) {
-          e.preventDefault();
-          ctx.setTabSwitcherOpen(true);
-        }
-        if (ctx.isTabShortcut(e, 'newTab')) {
-          e.preventDefault();
-          const result = ctx.createTab(ctx.activeSession, { saveToHistory: ctx.defaultSaveToHistory });
-          ctx.setSessions(prev => prev.map(s =>
-            s.id === ctx.activeSession!.id ? result.session : s
-          ));
-          // Auto-focus the input so user can start typing immediately
-          ctx.setActiveFocus('main');
-          setTimeout(() => ctx.inputRef.current?.focus(), 50);
-        }
-        if (ctx.isTabShortcut(e, 'closeTab')) {
-          e.preventDefault();
-          // Only close if there's more than one tab (closeTab returns null otherwise)
-          const result = ctx.closeTab(ctx.activeSession, ctx.activeSession.activeTabId);
-          if (result) {
-            ctx.setSessions(prev => prev.map(s =>
-              s.id === ctx.activeSession!.id ? result.session : s
-            ));
-          }
-        }
-        if (ctx.isTabShortcut(e, 'reopenClosedTab')) {
-          e.preventDefault();
-          // Reopen the most recently closed tab, or switch to existing if duplicate
-          const result = ctx.reopenClosedTab(ctx.activeSession);
-          if (result) {
-            ctx.setSessions(prev => prev.map(s =>
-              s.id === ctx.activeSession!.id ? result.session : s
-            ));
-          }
-        }
-        if (ctx.isTabShortcut(e, 'renameTab')) {
-          e.preventDefault();
-          const activeTab = ctx.getActiveTab(ctx.activeSession);
-          // Only allow rename if tab has an active Claude session
-          if (activeTab?.claudeSessionId) {
-            ctx.setRenameTabId(activeTab.id);
-            ctx.setRenameTabInitialName(activeTab.name || '');
-            ctx.setRenameTabModalOpen(true);
-          }
-        }
-        if (ctx.isTabShortcut(e, 'toggleReadOnlyMode')) {
-          e.preventDefault();
-          ctx.setSessions(prev => prev.map(s => {
-            if (s.id !== ctx.activeSession!.id) return s;
-            return {
-              ...s,
-              aiTabs: s.aiTabs.map(tab =>
-                tab.id === s.activeTabId ? { ...tab, readOnlyMode: !tab.readOnlyMode } : tab
-              )
-            };
-          }));
-        }
-        if (ctx.isTabShortcut(e, 'toggleSaveToHistory')) {
-          e.preventDefault();
-          ctx.setSessions(prev => prev.map(s => {
-            if (s.id !== ctx.activeSession!.id) return s;
-            return {
-              ...s,
-              aiTabs: s.aiTabs.map(tab =>
-                tab.id === s.activeTabId ? { ...tab, saveToHistory: !tab.saveToHistory } : tab
-              )
-            };
-          }));
-        }
-        if (ctx.isTabShortcut(e, 'filterUnreadTabs')) {
-          e.preventDefault();
-          ctx.toggleUnreadFilter();
-        }
-        if (ctx.isTabShortcut(e, 'nextTab')) {
-          e.preventDefault();
-          const result = ctx.navigateToNextTab(ctx.activeSession, ctx.showUnreadOnly);
-          if (result) {
-            ctx.setSessions(prev => prev.map(s =>
-              s.id === ctx.activeSession!.id ? result.session : s
-            ));
-          }
-        }
-        if (ctx.isTabShortcut(e, 'prevTab')) {
-          e.preventDefault();
-          const result = ctx.navigateToPrevTab(ctx.activeSession, ctx.showUnreadOnly);
-          if (result) {
-            ctx.setSessions(prev => prev.map(s =>
-              s.id === ctx.activeSession!.id ? result.session : s
-            ));
-          }
-        }
-        // Cmd+1 through Cmd+9: Jump to specific tab by index (disabled in unread-only mode)
-        if (!ctx.showUnreadOnly) {
-          for (let i = 1; i <= 9; i++) {
-            if (ctx.isTabShortcut(e, `goToTab${i}`)) {
-              e.preventDefault();
-              const result = ctx.navigateToTabByIndex(ctx.activeSession, i - 1);
-              if (result) {
-                ctx.setSessions(prev => prev.map(s =>
-                  s.id === ctx.activeSession!.id ? result.session : s
-                ));
-              }
-              break;
-            }
-          }
-          // Cmd+0: Jump to last tab
-          if (ctx.isTabShortcut(e, 'goToLastTab')) {
-            e.preventDefault();
-            const result = ctx.navigateToLastTab(ctx.activeSession);
-            if (result) {
-              ctx.setSessions(prev => prev.map(s =>
-                s.id === ctx.activeSession!.id ? result.session : s
-              ));
-            }
-          }
-        }
-      }
-
-      // Cmd+F to open file tree filter when file tree has focus
-      if (e.key === 'f' && (e.metaKey || e.ctrlKey) && ctx.activeFocus === 'right' && ctx.activeRightTab === 'files') {
-        e.preventDefault();
-        ctx.setFileTreeFilterOpen(true);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []); // Empty dependencies - handler reads from ref
-
-  // Track Opt+Cmd modifier keys to show session jump number badges
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Show number badges when Opt+Cmd is held (but no number pressed yet)
-      if (e.altKey && (e.metaKey || e.ctrlKey) && !showSessionJumpNumbers) {
-        setShowSessionJumpNumbers(true);
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      // Hide number badges when either modifier is released
-      if (!e.altKey || (!e.metaKey && !e.ctrlKey)) {
-        setShowSessionJumpNumbers(false);
-      }
-    };
-
-    // Also hide when window loses focus
-    const handleBlur = () => {
-      setShowSessionJumpNumbers(false);
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    window.addEventListener('blur', handleBlur);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-      window.removeEventListener('blur', handleBlur);
-    };
-  }, [showSessionJumpNumbers]);
-
-  // Sync selectedSidebarIndex with activeSessionId
-  // IMPORTANT: Only sync when activeSessionId changes, NOT when sortedSessions changes
-  // This allows keyboard navigation to move the selector independently of the active session
-  // The sync happens when user clicks a session or presses Enter to activate
-  useEffect(() => {
-    const currentIndex = sortedSessions.findIndex(s => s.id === activeSessionId);
-    if (currentIndex !== -1) {
-      setSelectedSidebarIndex(currentIndex);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSessionId]); // Intentionally excluding sortedSessions - see comment above
+  // NOTE: Theme CSS variables and scrollbar fade animations are now handled by useThemeStyles hook
+  // NOTE: Main keyboard handler is now provided by useMainKeyboardHandler hook
+  // NOTE: Sync selectedSidebarIndex with activeSessionId is now handled by useKeyboardNavigation hook
 
   // Restore file tree scroll position when switching sessions
   useEffect(() => {
@@ -3950,13 +2342,47 @@ export default function MaestroConsole() {
     }
   }, [shortcutsHelpOpen]);
 
-  // Load Auto Run document list and content when session changes or autorun tab becomes active
+  // Helper to count tasks in document content
+  const countTasksInContent = useCallback((content: string): { completed: number; total: number } => {
+    const completedRegex = /^[\s]*[-*]\s*\[x\]/gim;
+    const uncheckedRegex = /^[\s]*[-*]\s*\[\s\]/gim;
+    const completedMatches = content.match(completedRegex) || [];
+    const uncheckedMatches = content.match(uncheckedRegex) || [];
+    const completed = completedMatches.length;
+    const total = completed + uncheckedMatches.length;
+    return { completed, total };
+  }, []);
+
+  // Load task counts for all documents
+  const loadTaskCounts = useCallback(async (folderPath: string, documents: string[]) => {
+    const counts = new Map<string, { completed: number; total: number }>();
+
+    // Load content and count tasks for each document in parallel
+    await Promise.all(documents.map(async (docPath) => {
+      try {
+        const result = await window.maestro.autorun.readDoc(folderPath, docPath + '.md');
+        if (result.success && result.content) {
+          const taskCount = countTasksInContent(result.content);
+          if (taskCount.total > 0) {
+            counts.set(docPath, taskCount);
+          }
+        }
+      } catch {
+        // Ignore errors for individual documents
+      }
+    }));
+
+    return counts;
+  }, [countTasksInContent]);
+
+  // Load Auto Run document list and content when session changes
+  // Always reload content from disk when switching sessions to ensure fresh data
   useEffect(() => {
     const loadAutoRunData = async () => {
       if (!activeSession?.autoRunFolderPath) {
         setAutoRunDocumentList([]);
         setAutoRunDocumentTree([]);
-        setAutoRunContent('');
+        setAutoRunDocumentTaskCounts(new Map());
         return;
       }
 
@@ -3964,38 +2390,44 @@ export default function MaestroConsole() {
       setAutoRunIsLoadingDocuments(true);
       const listResult = await window.maestro.autorun.listDocs(activeSession.autoRunFolderPath);
       if (listResult.success) {
-        setAutoRunDocumentList(listResult.files || []);
+        const files = listResult.files || [];
+        setAutoRunDocumentList(files);
         setAutoRunDocumentTree((listResult.tree as Array<{ name: string; type: 'file' | 'folder'; path: string; children?: unknown[] }>) || []);
+
+        // Load task counts for all documents
+        const counts = await loadTaskCounts(activeSession.autoRunFolderPath, files);
+        setAutoRunDocumentTaskCounts(counts);
       }
       setAutoRunIsLoadingDocuments(false);
 
-      // Load content of selected document
+      // Always load content from disk when switching sessions
+      // This ensures we have fresh data and prevents stale content from showing
       if (activeSession.autoRunSelectedFile) {
         const contentResult = await window.maestro.autorun.readDoc(
           activeSession.autoRunFolderPath,
           activeSession.autoRunSelectedFile + '.md'
         );
-        if (contentResult.success) {
-          setAutoRunContent(contentResult.content || '');
-        } else {
-          setAutoRunContent('');
-        }
-      } else {
-        setAutoRunContent('');
+        const newContent = contentResult.success ? (contentResult.content || '') : '';
+        setSessions(prev => prev.map(s =>
+          s.id === activeSession.id
+            ? { ...s, autoRunContent: newContent, autoRunContentVersion: (s.autoRunContentVersion || 0) + 1 }
+            : s
+        ));
       }
     };
 
     loadAutoRunData();
-  }, [activeSessionId, activeSession?.autoRunFolderPath, activeSession?.autoRunSelectedFile]);
+  }, [activeSessionId, activeSession?.autoRunFolderPath, activeSession?.autoRunSelectedFile, loadTaskCounts]);
 
   // File watching for Auto Run - watch whenever a folder is configured
   // Updates reflect immediately whether from batch runs, terminal commands, or external editors
   useEffect(() => {
+    const sessionId = activeSession?.id;
     const folderPath = activeSession?.autoRunFolderPath;
     const selectedFile = activeSession?.autoRunSelectedFile;
 
     // Only watch if folder is set
-    if (!folderPath) return;
+    if (!folderPath || !sessionId) return;
 
     // Start watching the folder
     window.maestro.autorun.watchFolder(folderPath);
@@ -4008,20 +2440,33 @@ export default function MaestroConsole() {
       // Reload document list for any change (in case files added/removed)
       const listResult = await window.maestro.autorun.listDocs(folderPath);
       if (listResult.success) {
-        setAutoRunDocumentList(listResult.files || []);
+        const files = listResult.files || [];
+        setAutoRunDocumentList(files);
         setAutoRunDocumentTree((listResult.tree as Array<{ name: string; type: 'file' | 'folder'; path: string; children?: unknown[] }>) || []);
+
+        // Reload task counts for all documents
+        const counts = await loadTaskCounts(folderPath, files);
+        setAutoRunDocumentTaskCounts(counts);
       }
 
       // If we have a selected document and it matches the changed file, reload its content
+      // Update in session state (per-session, not global)
       if (selectedFile && data.filename === selectedFile) {
         const contentResult = await window.maestro.autorun.readDoc(
           folderPath,
           selectedFile + '.md'
         );
         if (contentResult.success) {
-          setAutoRunContent(contentResult.content || '');
-          // Increment version to force AutoRun editor to sync (even if user was editing)
-          setAutoRunContentVersion(v => v + 1);
+          // Update content in the specific session that owns this folder
+          setSessions(prev => prev.map(s =>
+            s.id === sessionId
+              ? {
+                  ...s,
+                  autoRunContent: contentResult.content || '',
+                  autoRunContentVersion: (s.autoRunContentVersion || 0) + 1,
+                }
+              : s
+          ));
         }
       }
     });
@@ -4031,7 +2476,7 @@ export default function MaestroConsole() {
       window.maestro.autorun.unwatchFolder(folderPath);
       unsubscribe();
     };
-  }, [activeSession?.autoRunFolderPath, activeSession?.autoRunSelectedFile]);
+  }, [activeSession?.id, activeSession?.autoRunFolderPath, activeSession?.autoRunSelectedFile, loadTaskCounts]);
 
   // Auto-scroll logs
   const activeTabLogs = activeSession ? getActiveTab(activeSession)?.logs : undefined;
@@ -4548,87 +2993,6 @@ export default function MaestroConsole() {
     }
   };
 
-  // Navigate back in history (through sessions and tabs)
-  const handleNavBack = useCallback(() => {
-    const entry = navigateBack();
-    if (entry) {
-      // Check if session still exists
-      const sessionExists = sessions.some(s => s.id === entry.sessionId);
-      if (sessionExists) {
-        // Navigate to the session
-        setActiveSessionIdInternal(entry.sessionId);
-        cyclePositionRef.current = -1;
-
-        // If there's a tab ID, also switch to that tab
-        if (entry.tabId) {
-          setSessions(prev => prev.map(s => {
-            if (s.id === entry.sessionId && s.aiTabs?.some(t => t.id === entry.tabId)) {
-              return { ...s, activeTabId: entry.tabId };
-            }
-            return s;
-          }));
-        }
-      }
-    }
-  }, [navigateBack, sessions]);
-
-  // Navigate forward in history (through sessions and tabs)
-  const handleNavForward = useCallback(() => {
-    const entry = navigateForward();
-    if (entry) {
-      // Check if session still exists
-      const sessionExists = sessions.some(s => s.id === entry.sessionId);
-      if (sessionExists) {
-        // Navigate to the session
-        setActiveSessionIdInternal(entry.sessionId);
-        cyclePositionRef.current = -1;
-
-        // If there's a tab ID, also switch to that tab
-        if (entry.tabId) {
-          setSessions(prev => prev.map(s => {
-            if (s.id === entry.sessionId && s.aiTabs?.some(t => t.id === entry.tabId)) {
-              return { ...s, activeTabId: entry.tabId };
-            }
-            return s;
-          }));
-        }
-      }
-    }
-  }, [navigateForward, sessions]);
-
-  // Update keyboardHandlerRef synchronously during render (before effects run)
-  // This must be placed after all handler functions are defined to avoid TDZ errors
-  keyboardHandlerRef.current = {
-    shortcuts, activeFocus, activeRightTab, sessions, selectedSidebarIndex, activeSessionId,
-    quickActionOpen, settingsModalOpen, shortcutsHelpOpen, newInstanceModalOpen, aboutModalOpen,
-    processMonitorOpen, logViewerOpen, createGroupModalOpen, confirmModalOpen, renameInstanceModalOpen,
-    renameGroupModalOpen, activeSession, previewFile, fileTreeFilter, fileTreeFilterOpen, gitDiffPreview,
-    gitLogOpen, lightboxImage, hasOpenLayers, hasOpenModal, visibleSessions, sortedSessions, groups,
-    bookmarksCollapsed, leftSidebarOpen, editingSessionId, editingGroupId, markdownEditMode, defaultSaveToHistory,
-    setLeftSidebarOpen, setRightPanelOpen, addNewSession, deleteSession, setQuickActionInitialMode,
-    setQuickActionOpen, cycleSession, toggleInputMode, setShortcutsHelpOpen, setSettingsModalOpen,
-    setSettingsTab, setActiveRightTab, handleSetActiveRightTab, setActiveFocus, setBookmarksCollapsed, setGroups,
-    setSelectedSidebarIndex, setActiveSessionId, handleViewGitDiff, setGitLogOpen, setActiveClaudeSessionId,
-    setAgentSessionsOpen, setLogViewerOpen, setProcessMonitorOpen, logsEndRef, inputRef, terminalOutputRef,
-    setSessions, createTab, closeTab, reopenClosedTab, getActiveTab, setRenameTabId, setRenameTabInitialName,
-    setRenameTabModalOpen, navigateToNextTab, navigateToPrevTab, navigateToTabByIndex, navigateToLastTab,
-    setFileTreeFilterOpen, isShortcut, isTabShortcut, handleNavBack, handleNavForward, toggleUnreadFilter,
-    setTabSwitcherOpen, showUnreadOnly, stagedImages, handleSetLightboxImage, setMarkdownEditMode,
-    toggleTabStar, setPromptComposerOpen, openWizardModal
-  };
-
-  const toggleGroup = (groupId: string) => {
-    setGroups(prev => prev.map(g => g.id === groupId ? { ...g, collapsed: !g.collapsed } : g));
-  };
-
-  const startRenamingGroup = (groupId: string) => {
-    setEditingGroupId(groupId);
-  };
-
-  const finishRenamingGroup = (groupId: string, newName: string) => {
-    setGroups(prev => prev.map(g => g.id === groupId ? { ...g, name: newName.toUpperCase() } : g));
-    setEditingGroupId(null);
-  };
 
   // startRenamingSession now accepts a unique key (e.g., 'bookmark-id', 'group-gid-id', 'ungrouped-id')
   // to support renaming the same session from different UI locations (bookmarks vs groups)
@@ -4658,210 +3022,6 @@ export default function MaestroConsole() {
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
   };
-
-  const handleDropOnGroup = (groupId: string) => {
-    if (draggingSessionId) {
-      setSessions(prev => prev.map(s =>
-        s.id === draggingSessionId ? { ...s, groupId } : s
-      ));
-      setDraggingSessionId(null);
-    }
-  };
-
-  const handleDropOnUngrouped = () => {
-    if (draggingSessionId) {
-      setSessions(prev => prev.map(s =>
-        s.id === draggingSessionId ? { ...s, groupId: undefined } : s
-      ));
-      setDraggingSessionId(null);
-    }
-  };
-
-  const createNewGroup = () => {
-    setNewGroupName('');
-    setNewGroupEmoji('📂');
-    setMoveSessionToNewGroup(false);
-    setCreateGroupModalOpen(true);
-  };
-
-  const handleCreateGroupConfirm = () => {
-    if (newGroupName.trim()) {
-      const newGroup: Group = {
-        id: `group-${Date.now()}`,
-        name: newGroupName.trim().toUpperCase(),
-        emoji: newGroupEmoji,
-        collapsed: false
-      };
-      setGroups([...groups, newGroup]);
-
-      // If we should move the session to the new group
-      if (moveSessionToNewGroup) {
-        setSessions(prev => prev.map(s =>
-          s.id === activeSessionId ? { ...s, groupId: newGroup.id } : s
-        ));
-      }
-
-      setCreateGroupModalOpen(false);
-      setNewGroupName('');
-      setNewGroupEmoji('📂');
-      setEmojiPickerOpen(false);
-    }
-  };
-
-  // Auto Run document content change handler
-  const handleAutoRunContentChange = useCallback(async (content: string) => {
-    setAutoRunContent(content);
-    // Auto-save to file
-    if (activeSession?.autoRunFolderPath && activeSession?.autoRunSelectedFile) {
-      await window.maestro.autorun.writeDoc(
-        activeSession.autoRunFolderPath,
-        activeSession.autoRunSelectedFile + '.md',
-        content
-      );
-    }
-  }, [activeSession?.autoRunFolderPath, activeSession?.autoRunSelectedFile]);
-
-  // Auto Run mode change handler
-  const handleAutoRunModeChange = useCallback((mode: 'edit' | 'preview') => {
-    if (!activeSession) return;
-    setSessions(prev => prev.map(s =>
-      s.id === activeSession.id ? { ...s, autoRunMode: mode } : s
-    ));
-  }, [activeSession]);
-
-  // File tree auto-refresh interval change handler
-  const handleAutoRefreshChange = useCallback((interval: number) => {
-    if (!activeSession) return;
-    setSessions(prev => prev.map(s =>
-      s.id === activeSession.id ? { ...s, fileTreeAutoRefreshInterval: interval } : s
-    ));
-  }, [activeSession]);
-
-  // Auto Run state change handler (scroll/cursor positions)
-  const handleAutoRunStateChange = useCallback((state: {
-    mode: 'edit' | 'preview';
-    cursorPosition: number;
-    editScrollPos: number;
-    previewScrollPos: number;
-  }) => {
-    if (!activeSession) return;
-    setSessions(prev => prev.map(s =>
-      s.id === activeSession.id ? {
-        ...s,
-        autoRunMode: state.mode,
-        autoRunCursorPosition: state.cursorPosition,
-        autoRunEditScrollPos: state.editScrollPos,
-        autoRunPreviewScrollPos: state.previewScrollPos,
-      } : s
-    ));
-  }, [activeSession]);
-
-  // Auto Run document selection handler
-  const handleAutoRunSelectDocument = useCallback(async (filename: string) => {
-    if (!activeSession?.autoRunFolderPath) return;
-
-    // Save current document first if there's content
-    if (activeSession.autoRunSelectedFile && autoRunContent) {
-      await window.maestro.autorun.writeDoc(
-        activeSession.autoRunFolderPath,
-        activeSession.autoRunSelectedFile + '.md',
-        autoRunContent
-      );
-    }
-
-    // Load new document content FIRST (before updating selectedFile)
-    // This ensures content prop updates atomically with the file selection
-    const result = await window.maestro.autorun.readDoc(
-      activeSession.autoRunFolderPath,
-      filename + '.md'
-    );
-    const newContent = result.success ? (result.content || '') : '';
-
-    // Update content first, then selected file
-    // This prevents the AutoRun component from seeing mismatched file/content
-    setAutoRunContent(newContent);
-
-    // Then update the selected file
-    setSessions(prev => prev.map(s =>
-      s.id === activeSession.id ? { ...s, autoRunSelectedFile: filename } : s
-    ));
-  }, [activeSession, autoRunContent]);
-
-  // Auto Run refresh handler - reload document list and show flash notification
-  const handleAutoRunRefresh = useCallback(async () => {
-    if (!activeSession?.autoRunFolderPath) return;
-    const previousCount = autoRunDocumentList.length;
-    setAutoRunIsLoadingDocuments(true);
-    const result = await window.maestro.autorun.listDocs(activeSession.autoRunFolderPath);
-    if (result.success) {
-      const newFiles = result.files || [];
-      setAutoRunDocumentList(newFiles);
-      setAutoRunDocumentTree((result.tree as Array<{ name: string; type: 'file' | 'folder'; path: string; children?: unknown[] }>) || []);
-      setAutoRunIsLoadingDocuments(false);
-
-      // Show flash notification with result
-      const diff = newFiles.length - previousCount;
-      let message: string;
-      if (diff > 0) {
-        message = `Found ${diff} new document${diff === 1 ? '' : 's'}`;
-      } else if (diff < 0) {
-        message = `${Math.abs(diff)} document${Math.abs(diff) === 1 ? '' : 's'} removed`;
-      } else {
-        message = 'Refresh complete, no new documents';
-      }
-      setSuccessFlashNotification(message);
-      setTimeout(() => setSuccessFlashNotification(null), 2000);
-      return;
-    }
-    setAutoRunIsLoadingDocuments(false);
-  }, [activeSession?.autoRunFolderPath, autoRunDocumentList.length]);
-
-  // Auto Run open setup handler
-  const handleAutoRunOpenSetup = useCallback(() => {
-    setAutoRunSetupModalOpen(true);
-  }, []);
-
-  // Auto Run create new document handler
-  const handleAutoRunCreateDocument = useCallback(async (filename: string): Promise<boolean> => {
-    if (!activeSession?.autoRunFolderPath) return false;
-
-    try {
-      // Create the document with empty content so placeholder hint shows
-      const result = await window.maestro.autorun.writeDoc(
-        activeSession.autoRunFolderPath,
-        filename + '.md',
-        ''
-      );
-
-      if (result.success) {
-        // Refresh the document list
-        const listResult = await window.maestro.autorun.listDocs(activeSession.autoRunFolderPath);
-        if (listResult.success) {
-          setAutoRunDocumentList(listResult.files || []);
-        }
-
-        // Select the new document and switch to edit mode
-        setSessions(prev => prev.map(s =>
-          s.id === activeSession.id ? { ...s, autoRunSelectedFile: filename, autoRunMode: 'edit' } : s
-        ));
-
-        // Load the new document content
-        const contentResult = await window.maestro.autorun.readDoc(
-          activeSession.autoRunFolderPath,
-          filename + '.md'
-        );
-        if (contentResult.success) {
-          setAutoRunContent(contentResult.content || '');
-        }
-
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error('Failed to create document:', error);
-      return false;
-    }
-  }, [activeSession]);
 
   const processInput = async (overrideInputValue?: string) => {
     const effectiveInputValue = overrideInputValue ?? inputValue;
@@ -6087,6 +4247,13 @@ export default function MaestroConsole() {
   };
 
   const handleInputKeyDown = (e: React.KeyboardEvent) => {
+    // Cmd+F opens output search from input field - handle first, before any modal logic
+    if (e.key === 'f' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      setOutputSearchOpen(true);
+      return;
+    }
+
     // Handle command history modal
     if (commandHistoryOpen) {
       return; // Let the modal handle keys
@@ -6391,144 +4558,81 @@ export default function MaestroConsole() {
     }));
   };
 
-  // Refresh file tree for a session and return the changes detected
-  const refreshFileTree = useCallback(async (sessionId: string): Promise<FileTreeChanges | undefined> => {
-    // Use sessionsRef to avoid dependency on sessions state (prevents timer reset on every session change)
-    const session = sessionsRef.current.find(s => s.id === sessionId);
-    if (!session) return undefined;
+  // --- FILE TREE MANAGEMENT ---
+  // Extracted hook for file tree operations (refresh, git state, filtering)
+  const {
+    refreshFileTree,
+    refreshGitFileState,
+    filteredFileTree,
+  } = useFileTreeManagement({
+    sessions,
+    sessionsRef,
+    setSessions,
+    activeSessionId,
+    activeSession,
+    fileTreeFilter,
+    rightPanelRef,
+  });
 
-    try {
-      const oldTree = session.fileTree || [];
-      const newTree = await loadFileTree(session.cwd);
-      const changes = compareFileTrees(oldTree, newTree);
+  // --- GROUP MANAGEMENT ---
+  // Extracted hook for group CRUD operations (toggle, rename, create, drag-drop)
+  const {
+    toggleGroup,
+    startRenamingGroup,
+    finishRenamingGroup,
+    createNewGroup,
+    handleCreateGroupConfirm,
+    handleDropOnGroup,
+    handleDropOnUngrouped,
+    modalState: groupModalState,
+  } = useGroupManagement({
+    groups,
+    setGroups,
+    setSessions,
+    activeSessionId,
+    draggingSessionId,
+    setDraggingSessionId,
+    editingGroupId,
+    setEditingGroupId,
+  });
 
-      setSessions(prev => prev.map(s =>
-        s.id === sessionId ? { ...s, fileTree: newTree, fileTreeError: undefined } : s
-      ));
+  // Destructure group modal state for use in JSX
+  const {
+    createGroupModalOpen,
+    newGroupName,
+    newGroupEmoji,
+    emojiPickerOpen,
+    moveSessionToNewGroup,
+    setCreateGroupModalOpen,
+    setNewGroupName,
+    setNewGroupEmoji,
+    setEmojiPickerOpen,
+    setMoveSessionToNewGroup,
+  } = groupModalState;
 
-      return changes;
-    } catch (error) {
-      console.error('File tree refresh error:', error);
-      const errorMsg = (error as Error)?.message || 'Unknown error';
-      setSessions(prev => prev.map(s =>
-        s.id === sessionId ? {
-          ...s,
-          fileTree: [],
-          fileTreeError: `Cannot access directory: ${session.cwd}\n${errorMsg}`
-        } : s
-      ));
-      return undefined;
-    }
-  }, []);
-
-  // Refresh both file tree and git state for a session
-  const refreshGitFileState = useCallback(async (sessionId: string) => {
-    const session = sessions.find(s => s.id === sessionId);
-    if (!session) return;
-
-    const cwd = session.inputMode === 'terminal' ? (session.shellCwd || session.cwd) : session.cwd;
-
-    try {
-      // Refresh file tree, git repo status, branches, and tags in parallel
-      const [tree, isGitRepo] = await Promise.all([
-        loadFileTree(cwd),
-        gitService.isRepo(cwd)
-      ]);
-
-      let gitBranches: string[] | undefined;
-      let gitTags: string[] | undefined;
-      let gitRefsCacheTime: number | undefined;
-
-      if (isGitRepo) {
-        [gitBranches, gitTags] = await Promise.all([
-          gitService.getBranches(cwd),
-          gitService.getTags(cwd)
-        ]);
-        gitRefsCacheTime = Date.now();
-      }
-
-      setSessions(prev => prev.map(s =>
-        s.id === sessionId ? {
-          ...s,
-          fileTree: tree,
-          fileTreeError: undefined,
-          isGitRepo,
-          gitBranches,
-          gitTags,
-          gitRefsCacheTime
-        } : s
-      ));
-
-      // Also refresh history panel (reload from disk first to bypass electron-store cache)
-      await window.maestro.history.reload();
-      rightPanelRef.current?.refreshHistoryPanel();
-    } catch (error) {
-      console.error('Git/file state refresh error:', error);
-      const errorMsg = (error as Error)?.message || 'Unknown error';
-      setSessions(prev => prev.map(s =>
-        s.id === sessionId ? {
-          ...s,
-          fileTree: [],
-          fileTreeError: `Cannot access directory: ${cwd}\n${errorMsg}`
-        } : s
-      ));
-    }
-  }, [sessions]);
-
-  // Load file tree when active session changes
-  useEffect(() => {
-    const session = sessions.find(s => s.id === activeSessionId);
-    if (!session) return;
-
-    // Only load if file tree is empty
-    if (!session.fileTree || session.fileTree.length === 0) {
-      loadFileTree(session.cwd).then(tree => {
-        setSessions(prev => prev.map(s =>
-          s.id === activeSessionId ? { ...s, fileTree: tree, fileTreeError: undefined } : s
-        ));
-      }).catch(error => {
-        console.error('File tree error:', error);
-        const errorMsg = error?.message || 'Unknown error';
-        setSessions(prev => prev.map(s =>
-          s.id === activeSessionId ? {
-            ...s,
-            fileTree: [],
-            fileTreeError: `Cannot access directory: ${session.cwd}\n${errorMsg}`
-          } : s
-        ));
-      });
-    }
-  }, [activeSessionId, sessions]);
-
-  // Filter file tree based on search query
-  const filteredFileTree = useMemo(() => {
-    if (!activeSession || !fileTreeFilter || !activeSession.fileTree) {
-      return activeSession?.fileTree || [];
-    }
-
-    const filterTree = (nodes: any[]): any[] => {
-      return nodes.reduce((acc: any[], node) => {
-        const matchesFilter = fuzzyMatch(node.name, fileTreeFilter);
-
-        if (node.type === 'folder' && node.children) {
-          const filteredChildren = filterTree(node.children);
-          // Include folder if it matches or has matching children
-          if (matchesFilter || filteredChildren.length > 0) {
-            acc.push({
-              ...node,
-              children: filteredChildren
-            });
-          }
-        } else if (node.type === 'file' && matchesFilter) {
-          acc.push(node);
-        }
-
-        return acc;
-      }, []);
-    };
-
-    return filterTree(activeSession.fileTree);
-  }, [activeSession?.fileTree, fileTreeFilter]);
+  // Update keyboardHandlerRef synchronously during render (before effects run)
+  // This must be placed after all handler functions and state are defined to avoid TDZ errors
+  // The ref is provided by useMainKeyboardHandler hook
+  keyboardHandlerRef.current = {
+    shortcuts, activeFocus, activeRightTab, sessions, selectedSidebarIndex, activeSessionId,
+    quickActionOpen, settingsModalOpen, shortcutsHelpOpen, newInstanceModalOpen, aboutModalOpen,
+    processMonitorOpen, logViewerOpen, createGroupModalOpen, confirmModalOpen, renameInstanceModalOpen,
+    renameGroupModalOpen, activeSession, previewFile, fileTreeFilter, fileTreeFilterOpen, gitDiffPreview,
+    gitLogOpen, lightboxImage, hasOpenLayers, hasOpenModal, visibleSessions, sortedSessions, groups,
+    bookmarksCollapsed, leftSidebarOpen, editingSessionId, editingGroupId, markdownEditMode, defaultSaveToHistory,
+    setLeftSidebarOpen, setRightPanelOpen, addNewSession, deleteSession, setQuickActionInitialMode,
+    setQuickActionOpen, cycleSession, toggleInputMode, setShortcutsHelpOpen, setSettingsModalOpen,
+    setSettingsTab, setActiveRightTab, handleSetActiveRightTab, setActiveFocus, setBookmarksCollapsed, setGroups,
+    setSelectedSidebarIndex, setActiveSessionId, handleViewGitDiff, setGitLogOpen, setActiveClaudeSessionId,
+    setAgentSessionsOpen, setLogViewerOpen, setProcessMonitorOpen, logsEndRef, inputRef, terminalOutputRef, sidebarContainerRef,
+    setSessions, createTab, closeTab, reopenClosedTab, getActiveTab, setRenameTabId, setRenameTabInitialName,
+    setRenameTabModalOpen, navigateToNextTab, navigateToPrevTab, navigateToTabByIndex, navigateToLastTab,
+    setFileTreeFilterOpen, isShortcut, isTabShortcut, handleNavBack, handleNavForward, toggleUnreadFilter,
+    setTabSwitcherOpen, showUnreadOnly, stagedImages, handleSetLightboxImage, setMarkdownEditMode,
+    toggleTabStar, setPromptComposerOpen, openWizardModal, rightPanelRef,
+    // Navigation handlers from useKeyboardNavigation hook
+    handleSidebarNavigation, handleTabNavigation, handleEnterToActivate, handleEscapeInMain
+  };
 
   // Update flat file list when active session's tree, expanded folders, or filter changes
   useEffect(() => {
@@ -6608,6 +4712,9 @@ export default function MaestroConsole() {
   // File Explorer keyboard navigation
   useEffect(() => {
     const handleFileExplorerKeys = (e: KeyboardEvent) => {
+      // Skip when a modal is open (let textarea/input in modal handle arrow keys)
+      if (hasOpenModal()) return;
+
       // Only handle when right panel is focused and on files tab
       if (activeFocus !== 'right' || activeRightTab !== 'files' || flatFileList.length === 0) return;
 
@@ -6682,7 +4789,7 @@ export default function MaestroConsole() {
 
     window.addEventListener('keydown', handleFileExplorerKeys);
     return () => window.removeEventListener('keydown', handleFileExplorerKeys);
-  }, [activeFocus, activeRightTab, flatFileList, selectedFileIndex, activeSession?.fileExplorerExpanded, activeSessionId, setSessions, toggleFolder, handleFileClick]);
+  }, [activeFocus, activeRightTab, flatFileList, selectedFileIndex, activeSession?.fileExplorerExpanded, activeSessionId, setSessions, toggleFolder, handleFileClick, hasOpenModal]);
 
   return (
       <div className={`flex h-screen w-full font-mono overflow-hidden transition-colors duration-300 ${isMobileLandscape ? 'pt-0' : 'pt-10'}`}
@@ -6899,6 +5006,9 @@ export default function MaestroConsole() {
           onClose={() => setLeaderboardRegistrationOpen(false)}
           onSave={(registration) => {
             setLeaderboardRegistration(registration);
+          }}
+          onOptOut={() => {
+            setLeaderboardRegistration(null);
           }}
         />
       )}
@@ -7149,6 +5259,7 @@ export default function MaestroConsole() {
               setTourFromWizard(false);
               setTourOpen(true);
             }}
+            sidebarContainerRef={sidebarContainerRef}
           />
         </ErrorBoundary>
       )}
@@ -7608,11 +5719,14 @@ export default function MaestroConsole() {
             setSessions={setSessions}
             onAutoRefreshChange={handleAutoRefreshChange}
             onShowFlash={showSuccessFlash}
+            showHiddenFiles={showHiddenFiles}
+            setShowHiddenFiles={setShowHiddenFiles}
             autoRunDocumentList={autoRunDocumentList}
             autoRunDocumentTree={autoRunDocumentTree}
-            autoRunContent={autoRunContent}
-            autoRunContentVersion={autoRunContentVersion}
+            autoRunContent={activeSession?.autoRunContent || ''}
+            autoRunContentVersion={activeSession?.autoRunContentVersion || 0}
             autoRunIsLoadingDocuments={autoRunIsLoadingDocuments}
+            autoRunDocumentTaskCounts={autoRunDocumentTaskCounts}
             onAutoRunContentChange={handleAutoRunContentChange}
             onAutoRunModeChange={handleAutoRunModeChange}
             onAutoRunStateChange={handleAutoRunStateChange}
@@ -7929,6 +6043,7 @@ export default function MaestroConsole() {
           theme={theme}
           isOpen={tourOpen}
           fromWizard={tourFromWizard}
+          shortcuts={shortcuts}
           onClose={() => {
             setTourOpen(false);
             setTourCompleted(true);

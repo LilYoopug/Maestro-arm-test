@@ -448,7 +448,6 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
   const loadHistory = useCallback(async (isRefresh = false) => {
     // Save current scroll position before loading
     const currentScrollTop = listRef.current?.scrollTop ?? 0;
-    const currentDisplayCount = displayCount;
 
     if (!isRefresh) {
       setIsLoading(true);
@@ -481,7 +480,8 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
         setIsLoading(false);
       }
     }
-  }, [session.cwd, session.id, displayCount]);
+  // Note: displayCount intentionally NOT in deps - we don't want to reload history when it changes
+  }, [session.cwd, session.id]);
 
   // Expose focus and refreshHistory methods to parent
   useImperativeHandle(ref, () => ({

@@ -7,16 +7,16 @@
 
 import React, { useEffect, useCallback, useState, useMemo, useRef } from 'react';
 import { useThemeColors } from '../components/ThemeProvider';
-import { useWebSocket, type WebSocketState, type CustomCommand, type AutoRunState, type AITabData } from '../hooks/useWebSocket';
+import { useWebSocket, type CustomCommand, type AutoRunState, type AITabData } from '../hooks/useWebSocket';
 // Command history is no longer used in the mobile UI
 import { useNotifications } from '../hooks/useNotifications';
 import { useUnreadBadge } from '../hooks/useUnreadBadge';
 import { useOfflineQueue } from '../hooks/useOfflineQueue';
+import { useMobileSessionManagement } from '../hooks/useMobileSessionManagement';
 import { useOfflineStatus, useMaestroMode, useDesktopTheme } from '../main';
 import { buildApiUrl } from '../utils/config';
 import { triggerHaptic, HAPTIC_PATTERNS } from './constants';
 import { webLogger } from '../utils/logger';
-import type { Theme } from '../../shared/theme-types';
 import { SessionPillBar } from './SessionPillBar';
 import { AllSessionsView } from './AllSessionsView';
 import { MobileHistoryPanel } from './MobileHistoryPanel';
@@ -30,14 +30,11 @@ import { AutoRunIndicator } from './AutoRunIndicator';
 import { TabBar } from './TabBar';
 import { TabSearchModal } from './TabSearchModal';
 import type { Session, LastResponsePreview } from '../hooks/useSessions';
-import {
-  loadViewState,
-  saveViewState,
-  debouncedSaveViewState,
-  loadScrollState,
-  debouncedSaveScrollPosition,
-  type ScrollState,
-} from '../utils/viewState';
+// View state utilities are now accessed through useMobileViewState hook
+// Keeping import for TypeScript types only if needed
+import { useMobileKeyboardHandler } from '../hooks/useMobileKeyboardHandler';
+import { useMobileViewState } from '../hooks/useMobileViewState';
+import { useMobileAutoReconnect } from '../hooks/useMobileAutoReconnect';
 
 
 /**
@@ -286,13 +283,17 @@ export default function MobileApp() {
   const isOffline = useOfflineStatus();
   const { setDesktopTheme } = useDesktopTheme();
 
-  // Load saved view state on initial render
-  const savedState = useMemo(() => loadViewState(), []);
-  const savedScrollState = useMemo(() => loadScrollState(), []);
+  // View state persistence and screen tracking (hook consolidates multiple effects)
+  const {
+    isSmallScreen,
+    savedState,
+    savedScrollState,
+    persistViewState,
+    persistHistoryState,
+    persistSessionSelection,
+  } = useMobileViewState();
 
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(savedState.activeSessionId);
-  const [activeTabId, setActiveTabId] = useState<string | null>(savedState.activeTabId);
+  // UI state (not part of session management)
   const [showAllSessions, setShowAllSessions] = useState(savedState.showAllSessions);
   const [showHistoryPanel, setShowHistoryPanel] = useState(savedState.showHistoryPanel);
   const [showTabSearch, setShowTabSearch] = useState(savedState.showTabSearch);
@@ -301,44 +302,16 @@ export default function MobileApp() {
   const [selectedResponse, setSelectedResponse] = useState<LastResponsePreview | null>(null);
   const [responseIndex, setResponseIndex] = useState(0);
 
-  // Ref for message history scroll container
-  const messageHistoryRef = useRef<HTMLDivElement>(null);
-
-  // Message history state (logs from active session)
-  const [sessionLogs, setSessionLogs] = useState<{ aiLogs: LogEntry[]; shellLogs: LogEntry[] }>({
-    aiLogs: [],
-    shellLogs: [],
-  });
-  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
-
   // Custom slash commands from desktop
   const [customCommands, setCustomCommands] = useState<CustomCommand[]>([]);
 
   // AutoRun state per session (batch processing on desktop)
   const [autoRunStates, setAutoRunStates] = useState<Record<string, AutoRunState | null>>({});
 
-  // Countdown timer for auto-reconnect (in seconds)
-  const [reconnectCountdown, setReconnectCountdown] = useState(30);
-
   // History panel state (persisted)
   const [historyFilter, setHistoryFilter] = useState<'all' | 'AUTO' | 'USER'>(savedState.historyFilter);
   const [historySearchQuery, setHistorySearchQuery] = useState(savedState.historySearchQuery);
   const [historySearchOpen, setHistorySearchOpen] = useState(savedState.historySearchOpen);
-
-  // Detect if on a small screen (phone vs tablet/iPad)
-  // Use 768px as breakpoint - below this is considered "small"
-  const [isSmallScreen, setIsSmallScreen] = useState(
-    typeof window !== 'undefined' ? window.innerHeight < 700 : false
-  );
-
-  // Track screen size changes
-  useEffect(() => {
-    const handleResize = () => {
-      setIsSmallScreen(window.innerHeight < 700);
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
 
   // Notification permission hook - requests permission on first visit
   const {
@@ -368,45 +341,18 @@ export default function MobileApp() {
     },
   });
 
-  // Track previous session states for detecting busy -> idle transitions
-  const previousSessionStatesRef = useRef<Map<string, string>>(new Map());
-
-  // Ref to track activeSessionId for use in callbacks (avoids stale closure issues)
-  const activeSessionIdRef = useRef<string | null>(null);
-
   // Reference to send function for offline queue (will be set after useWebSocket)
   const sendRef = useRef<((sessionId: string, command: string) => boolean) | null>(null);
 
-  // Keep activeSessionIdRef in sync with state
+  // Save view state when overlays change (using hook's persistence function)
   useEffect(() => {
-    activeSessionIdRef.current = activeSessionId;
-  }, [activeSessionId]);
+    persistViewState({ showAllSessions, showHistoryPanel, showTabSearch });
+  }, [showAllSessions, showHistoryPanel, showTabSearch, persistViewState]);
 
-  // Save view state when overlays change
+  // Save history panel state when it changes (using hook's persistence function)
   useEffect(() => {
-    debouncedSaveViewState({
-      showAllSessions,
-      showHistoryPanel,
-      showTabSearch,
-    });
-  }, [showAllSessions, showHistoryPanel, showTabSearch]);
-
-  // Save session selection when it changes
-  useEffect(() => {
-    debouncedSaveViewState({
-      activeSessionId,
-      activeTabId,
-    });
-  }, [activeSessionId, activeTabId]);
-
-  // Save history panel state when it changes
-  useEffect(() => {
-    debouncedSaveViewState({
-      historyFilter,
-      historySearchQuery,
-      historySearchOpen,
-    });
-  }, [historyFilter, historySearchQuery, historySearchOpen]);
+    persistHistoryState({ historyFilter, historySearchQuery, historySearchOpen });
+  }, [historyFilter, historySearchQuery, historySearchOpen, persistHistoryState]);
 
 
   /**
@@ -436,18 +382,20 @@ export default function MobileApp() {
     return 'Response completed';
   }, []);
 
-  /**
-   * Show notification when AI response completes (if app is backgrounded)
-   * Also increments the unread badge count
-   */
-  const showResponseNotification = useCallback((session: Session, response?: LastResponsePreview | null) => {
+  // Ref to WebSocket send function (updated after useWebSocket is initialized)
+  const wsSendRef = useRef<((message: Record<string, unknown>) => boolean) | null>(null);
+
+  // Callback when session response completes - shows notification
+  const handleResponseComplete = useCallback((session: Session, response?: unknown) => {
     // Only show if app is backgrounded
     if (document.visibilityState !== 'hidden') {
       return;
     }
 
+    const lastResponse = response as LastResponsePreview | undefined;
+
     // Generate a unique ID for this response using session ID and timestamp
-    const responseId = `${session.id}-${response?.timestamp || Date.now()}`;
+    const responseId = `${session.id}-${lastResponse?.timestamp || Date.now()}`;
 
     // Add to unread badge count (works even without notification permission)
     addUnreadResponse(responseId);
@@ -459,8 +407,8 @@ export default function MobileApp() {
     }
 
     const title = `${session.name} - Response Ready`;
-    const firstLine = response?.text
-      ? getFirstLineOfResponse(response.text)
+    const firstLine = lastResponse?.text
+      ? getFirstLineOfResponse(lastResponse.text)
       : 'AI response completed';
 
     const notification = showNotification(title, {
@@ -485,203 +433,54 @@ export default function MobileApp() {
     }
   }, [notificationPermission, showNotification, getFirstLineOfResponse, addUnreadResponse, markAllResponsesRead]);
 
-  // Memoize handlers to prevent unnecessary re-renders
-  const wsHandlers = useMemo(() => ({
-    onConnectionChange: (newState: WebSocketState) => {
-      webLogger.debug(`Connection state: ${newState}`, 'Mobile');
-    },
-    onError: (err: string) => {
-      webLogger.error(`WebSocket error: ${err}`, 'Mobile');
-    },
-    onSessionsUpdate: (newSessions: Session[]) => {
-      webLogger.debug(`Sessions updated: ${newSessions.length}`, 'Mobile');
-
-      // Update previous states map for all sessions
-      newSessions.forEach(s => {
-        previousSessionStatesRef.current.set(s.id, s.state);
-      });
-
-      setSessions(newSessions);
-      // Auto-select first session if none selected, and sync activeTabId
-      setActiveSessionId(prev => {
-        if (!prev && newSessions.length > 0) {
-          const firstSession = newSessions[0];
-          setActiveTabId(firstSession.activeTabId || null);
-          return firstSession.id;
-        }
-        // Sync activeTabId for current session
-        if (prev) {
-          const currentSession = newSessions.find(s => s.id === prev);
-          if (currentSession) {
-            setActiveTabId(currentSession.activeTabId || null);
-          }
-        }
-        return prev;
-      });
-    },
-    onSessionStateChange: (sessionId: string, state: string, additionalData?: Partial<Session>) => {
-      // Check if this is a busy -> idle transition (AI response completed)
-      const previousState = previousSessionStatesRef.current.get(sessionId);
-      const isResponseComplete = previousState === 'busy' && state === 'idle';
-
-      // Update the previous state
-      previousSessionStatesRef.current.set(sessionId, state);
-
-      setSessions(prev => {
-        const updatedSessions = prev.map(s =>
-          s.id === sessionId
-            ? { ...s, state, ...additionalData }
-            : s
-        );
-
-        // Show notification if response completed and app is backgrounded
-        if (isResponseComplete) {
-          const session = updatedSessions.find(s => s.id === sessionId);
-          if (session) {
-            // Get the response from additionalData or the updated session
-            const response = (additionalData as any)?.lastResponse || (session as any).lastResponse;
-            showResponseNotification(session, response);
-          }
-        }
-
-        return updatedSessions;
-      });
-    },
-    onSessionAdded: (session: Session) => {
-      // Track state for new session
-      previousSessionStatesRef.current.set(session.id, session.state);
-
-      setSessions(prev => {
-        if (prev.some(s => s.id === session.id)) return prev;
-        return [...prev, session];
-      });
-    },
-    onSessionRemoved: (sessionId: string) => {
-      // Clean up state tracking
-      previousSessionStatesRef.current.delete(sessionId);
-
-      setSessions(prev => prev.filter(s => s.id !== sessionId));
-      setActiveSessionId(prev => prev === sessionId ? null : prev);
-    },
-    onActiveSessionChanged: (sessionId: string) => {
-      // Desktop app switched to a different session - sync with web
-      webLogger.debug(`Desktop active session changed: ${sessionId}`, 'Mobile');
-      setActiveSessionId(sessionId);
-    },
-    onSessionOutput: (sessionId: string, data: string, source: 'ai' | 'terminal') => {
-      // Real-time output from AI or terminal - append to session logs
-      const currentActiveId = activeSessionIdRef.current;
-      console.log(`[MobileApp] onSessionOutput: session=${sessionId}, activeSession=${currentActiveId}, source=${source}, dataLen=${data?.length || 0}, match=${currentActiveId === sessionId}`);
-      webLogger.debug(`Session output: ${sessionId} (${source}) ${data.length} chars`, 'Mobile');
-
-      // Only update if this is the active session
-      if (currentActiveId !== sessionId) {
-        console.log(`[MobileApp] Skipping output - not active session`);
-        return;
-      }
-
-      setSessionLogs(prev => {
-        const logKey = source === 'ai' ? 'aiLogs' : 'shellLogs';
-        const existingLogs = prev[logKey] || [];
-
-        // Check if the last entry is a streaming entry we should append to
-        const lastLog = existingLogs[existingLogs.length - 1];
-        const isStreamingAppend = lastLog &&
-          lastLog.source === 'stdout' &&
-          Date.now() - lastLog.timestamp < 5000; // Within 5 seconds
-
-        if (isStreamingAppend) {
-          // Append to existing entry
-          const updatedLogs = [...existingLogs];
-          updatedLogs[updatedLogs.length - 1] = {
-            ...lastLog,
-            text: lastLog.text + data,
-          };
-          console.log(`[MobileApp] Appended to existing log entry, new length: ${updatedLogs[updatedLogs.length - 1].text.length}`);
-          return { ...prev, [logKey]: updatedLogs };
-        } else {
-          // Create new entry
-          const newEntry = {
-            id: `stream-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            timestamp: Date.now(),
-            source: 'stdout' as const,
-            text: data,
-          };
-          console.log(`[MobileApp] Created new log entry, text length: ${data.length}`);
-          return { ...prev, [logKey]: [...existingLogs, newEntry] };
-        }
-      });
-    },
-    onSessionExit: (sessionId: string, exitCode: number) => {
-      webLogger.debug(`Session exit: ${sessionId} code=${exitCode}`, 'Mobile');
-      // Update session state to idle when process exits
-      setSessions(prev => prev.map(s =>
-        s.id === sessionId ? { ...s, state: 'idle' } : s
-      ));
-    },
-    onUserInput: (sessionId: string, command: string, inputMode: 'ai' | 'terminal') => {
-      // User input from desktop app - add to session logs so web interface stays in sync
-      const currentActiveId = activeSessionIdRef.current;
-      console.log(`[MobileApp] onUserInput: session=${sessionId}, activeSession=${currentActiveId}, mode=${inputMode}, cmdLen=${command.length}, match=${currentActiveId === sessionId}`);
-      webLogger.debug(`User input from desktop: ${sessionId} (${inputMode}) ${command.substring(0, 50)}`, 'Mobile');
-
-      // Only add if this is the active session
-      if (currentActiveId !== sessionId) {
-        console.log(`[MobileApp] Skipping user input - not active session`);
-        return;
-      }
-
-      const userLogEntry: LogEntry = {
-        id: `user-desktop-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        timestamp: Date.now(),
-        text: command,
-        source: 'user',
-      };
-      setSessionLogs(prev => {
-        const logKey = inputMode === 'ai' ? 'aiLogs' : 'shellLogs';
-        console.log(`[MobileApp] Added user input to ${logKey}`);
-        return { ...prev, [logKey]: [...prev[logKey], userLogEntry] };
-      });
-    },
-    onThemeUpdate: (theme: Theme) => {
-      // Sync theme from desktop app by updating the React context
-      // This will update ThemeProvider which will re-render all themed components
-      webLogger.debug(`Theme update received: ${theme.name} (${theme.mode})`, 'Mobile');
-      setDesktopTheme(theme);
-    },
-    onCustomCommands: (commands: CustomCommand[]) => {
-      // Custom slash commands from desktop app
-      webLogger.debug(`Custom commands received: ${commands.length}`, 'Mobile');
-      setCustomCommands(commands);
-    },
-    onAutoRunStateChange: (sessionId: string, state: AutoRunState | null) => {
-      // AutoRun (batch processing) state from desktop app
-      webLogger.debug(`AutoRun state change: ${sessionId} - ${state ? `running (${state.completedTasks}/${state.totalTasks})` : 'stopped'}`, 'Mobile');
+  // Session management hook - handles session state, logs, and WebSocket handlers
+  const {
+    sessions,
+    setSessions,
+    activeSessionId,
+    setActiveSessionId,
+    activeTabId,
+    activeSession,
+    sessionLogs,
+    isLoadingLogs,
+    handleSelectSession,
+    handleSelectTab,
+    handleNewTab,
+    handleCloseTab,
+    addUserLogEntry,
+    sessionsHandlers,
+  } = useMobileSessionManagement({
+    savedActiveSessionId: savedState.activeSessionId,
+    savedActiveTabId: savedState.activeTabId,
+    isOffline,
+    sendRef: wsSendRef,
+    triggerHaptic,
+    hapticTapPattern: HAPTIC_PATTERNS.tap,
+    onResponseComplete: handleResponseComplete,
+    onThemeUpdate: setDesktopTheme,
+    onCustomCommands: setCustomCommands,
+    onAutoRunStateChange: (sessionId, state) => {
       setAutoRunStates(prev => ({
         ...prev,
         [sessionId]: state,
       }));
     },
-    onTabsChanged: (sessionId: string, aiTabs: AITabData[], newActiveTabId: string) => {
-      // Tab state changed on desktop - update session
-      webLogger.debug(`Tabs changed: ${sessionId} - ${aiTabs.length} tabs, active: ${newActiveTabId}`, 'Mobile');
-      setSessions(prev => prev.map(s =>
-        s.id === sessionId
-          ? { ...s, aiTabs, activeTabId: newActiveTabId }
-          : s
-      ));
-      // Also update activeTabId state if this is the current session
-      const currentSessionId = activeSessionIdRef.current;
-      if (currentSessionId === sessionId) {
-        setActiveTabId(newActiveTabId);
-      }
-    },
-  }), [showResponseNotification, setDesktopTheme]);
+  });
+
+  // Save session selection when it changes (using hook's persistence function)
+  useEffect(() => {
+    persistSessionSelection({ activeSessionId, activeTabId });
+  }, [activeSessionId, activeTabId, persistSessionSelection]);
 
   const { state: connectionState, connect, send, error, reconnectAttempts } = useWebSocket({
     autoReconnect: false, // Only retry manually via the retry button
-    handlers: wsHandlers,
+    handlers: sessionsHandlers,
   });
+
+  // Update wsSendRef after WebSocket is initialized (for session management hook)
+  useEffect(() => {
+    wsSendRef.current = send;
+  }, [send]);
 
   // Connect on mount - use empty dependency array to only connect once
   // The connect function is stable via useRef pattern in useWebSocket
@@ -690,45 +489,7 @@ export default function MobileApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Fetch session logs when active session or active tab changes
-  useEffect(() => {
-    if (!activeSessionId || isOffline) {
-      setSessionLogs({ aiLogs: [], shellLogs: [] });
-      return;
-    }
-
-    const fetchSessionLogs = async () => {
-      setIsLoadingLogs(true);
-      try {
-        // Pass tabId explicitly to avoid race conditions with activeTabId sync
-        const tabParam = activeTabId ? `?tabId=${activeTabId}` : '';
-        const apiUrl = buildApiUrl(`/session/${activeSessionId}${tabParam}`);
-        const response = await fetch(apiUrl);
-        if (response.ok) {
-          const data = await response.json();
-          const session = data.session;
-          setSessionLogs({
-            aiLogs: session?.aiLogs || [],
-            shellLogs: session?.shellLogs || [],
-          });
-          webLogger.debug('Fetched session logs:', 'Mobile', {
-            aiLogs: session?.aiLogs?.length || 0,
-            shellLogs: session?.shellLogs?.length || 0,
-            requestedTabId: activeTabId,
-            returnedTabId: session?.activeTabId,
-          });
-        }
-      } catch (err) {
-        webLogger.error('Failed to fetch session logs', 'Mobile', err);
-      } finally {
-        setIsLoadingLogs(false);
-      }
-    };
-
-    fetchSessionLogs();
-  }, [activeSessionId, activeTabId, isOffline]);
-
-  // Update sendRef after WebSocket is initialized
+  // Update sendRef after WebSocket is initialized (for offline queue)
   useEffect(() => {
     sendRef.current = (sessionId: string, command: string) => {
       return send({
@@ -783,76 +544,12 @@ export default function MobileApp() {
     connect();
   }, [connect]);
 
-  // Auto-reconnect every 30 seconds when disconnected with countdown
-  useEffect(() => {
-    // Only auto-reconnect if disconnected and not offline
-    if (connectionState !== 'disconnected' || isOffline) {
-      // Reset countdown when not disconnected
-      setReconnectCountdown(30);
-      return;
-    }
-
-    // Reset countdown to 30 when entering disconnected state
-    setReconnectCountdown(30);
-
-    // Countdown timer - decrements every second
-    const countdownId = setInterval(() => {
-      setReconnectCountdown((prev) => {
-        if (prev <= 1) {
-          // Time to reconnect
-          webLogger.info('Auto-reconnecting...', 'MobileApp');
-          connect();
-          return 30; // Reset for next cycle
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(countdownId);
-  }, [connectionState, isOffline, connect]);
-
-  // Handle session selection - also notifies desktop to switch
-  const handleSelectSession = useCallback((sessionId: string) => {
-    // Find the session to get its activeTabId
-    const session = sessions.find(s => s.id === sessionId);
-    setActiveSessionId(sessionId);
-    setActiveTabId(session?.activeTabId || null);
-    triggerHaptic(HAPTIC_PATTERNS.tap);
-    // Notify desktop to switch to this session (include activeTabId if available)
-    send({ type: 'select_session', sessionId, tabId: session?.activeTabId || undefined });
-  }, [sessions, send]);
-
-  // Handle selecting a tab within a session
-  const handleSelectTab = useCallback((tabId: string) => {
-    if (!activeSessionId) return;
-    triggerHaptic(HAPTIC_PATTERNS.tap);
-    // Notify desktop to switch to this tab
-    send({ type: 'select_tab', sessionId: activeSessionId, tabId });
-    // Update local activeTabId state directly (triggers log fetch)
-    setActiveTabId(tabId);
-    // Also update sessions state for UI consistency
-    setSessions(prev => prev.map(s =>
-      s.id === activeSessionId
-        ? { ...s, activeTabId: tabId }
-        : s
-    ));
-  }, [activeSessionId, send]);
-
-  // Handle creating a new tab
-  const handleNewTab = useCallback(() => {
-    if (!activeSessionId) return;
-    triggerHaptic(HAPTIC_PATTERNS.tap);
-    // Notify desktop to create a new tab
-    send({ type: 'new_tab', sessionId: activeSessionId });
-  }, [activeSessionId, send]);
-
-  // Handle closing a tab
-  const handleCloseTab = useCallback((tabId: string) => {
-    if (!activeSessionId) return;
-    triggerHaptic(HAPTIC_PATTERNS.tap);
-    // Notify desktop to close this tab
-    send({ type: 'close_tab', sessionId: activeSessionId, tabId });
-  }, [activeSessionId, send]);
+  // Auto-reconnect with countdown timer (extracted to hook)
+  const { reconnectCountdown } = useMobileAutoReconnect({
+    connectionState,
+    isOffline,
+    connect,
+  });
 
   // Handle opening All Sessions view
   const handleOpenAllSessions = useCallback(() => {
@@ -892,23 +589,13 @@ export default function MobileApp() {
     if (!activeSessionId) return;
 
     // Find the active session to get input mode
-    const session = sessions.find(s => s.id === activeSessionId);
-    const currentMode = (session?.inputMode as InputMode) || 'ai';
+    const currentMode = (activeSession?.inputMode as InputMode) || 'ai';
 
     // Provide haptic feedback on send
     triggerHaptic(HAPTIC_PATTERNS.send);
 
     // Add user message to session logs immediately for display
-    const userLogEntry: LogEntry = {
-      id: `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      timestamp: Date.now(),
-      text: command,
-      source: 'user',
-    };
-    setSessionLogs(prev => {
-      const logKey = currentMode === 'ai' ? 'aiLogs' : 'shellLogs';
-      return { ...prev, [logKey]: [...prev[logKey], userLogEntry] };
-    });
+    addUserLogEntry(command, currentMode);
 
     // If offline or not connected, queue the command for later
     if (isOffline || !isActuallyConnected) {
@@ -923,7 +610,6 @@ export default function MobileApp() {
     } else {
       // Send the command to the active session immediately
       // Include inputMode so the server uses the web's intended mode (not stale server state)
-      const currentMode = (session?.inputMode as InputMode) || 'ai';
       send({
         type: 'send_command',
         sessionId: activeSessionId,
@@ -935,7 +621,7 @@ export default function MobileApp() {
 
     // Clear the input
     setCommandInput('');
-  }, [activeSessionId, sessions, send, isOffline, isActuallyConnected, queueCommand]);
+  }, [activeSessionId, activeSession, send, isOffline, isActuallyConnected, queueCommand, addUserLogEntry]);
 
   // Handle command input change
   const handleCommandChange = useCallback((value: string) => {
@@ -1048,58 +734,13 @@ export default function MobileApp() {
     setTimeout(() => setSelectedResponse(null), 300);
   }, []);
 
-  // Get active session for input mode
-  const activeSession = sessions.find(s => s.id === activeSessionId);
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Check for Cmd+J (Mac) or Ctrl+J (Windows/Linux) to toggle AI/CLI mode
-      if ((e.metaKey || e.ctrlKey) && e.key === 'j') {
-        e.preventDefault();
-        if (!activeSessionId) return;
-
-        // Toggle mode
-        const currentMode = activeSession?.inputMode || 'ai';
-        const newMode = currentMode === 'ai' ? 'terminal' : 'ai';
-        handleModeToggle(newMode);
-        return;
-      }
-
-      // Cmd+[ or Ctrl+[ - Previous tab
-      if ((e.metaKey || e.ctrlKey) && e.key === '[') {
-        e.preventDefault();
-        if (!activeSession?.aiTabs || activeSession.aiTabs.length < 2) return;
-
-        const currentIndex = activeSession.aiTabs.findIndex(t => t.id === activeSession.activeTabId);
-        if (currentIndex === -1) return;
-
-        // Wrap around to last tab if at beginning
-        const prevIndex = (currentIndex - 1 + activeSession.aiTabs.length) % activeSession.aiTabs.length;
-        const prevTab = activeSession.aiTabs[prevIndex];
-        handleSelectTab(prevTab.id);
-        return;
-      }
-
-      // Cmd+] or Ctrl+] - Next tab
-      if ((e.metaKey || e.ctrlKey) && e.key === ']') {
-        e.preventDefault();
-        if (!activeSession?.aiTabs || activeSession.aiTabs.length < 2) return;
-
-        const currentIndex = activeSession.aiTabs.findIndex(t => t.id === activeSession.activeTabId);
-        if (currentIndex === -1) return;
-
-        // Wrap around to first tab if at end
-        const nextIndex = (currentIndex + 1) % activeSession.aiTabs.length;
-        const nextTab = activeSession.aiTabs[nextIndex];
-        handleSelectTab(nextTab.id);
-        return;
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [activeSessionId, activeSession, handleModeToggle, handleSelectTab]);
+  // Keyboard shortcuts (Cmd+J mode toggle, Cmd+[/] tab navigation)
+  useMobileKeyboardHandler({
+    activeSessionId,
+    activeSession,
+    handleModeToggle,
+    handleSelectTab,
+  });
 
   // Determine content based on connection state
   const renderContent = () => {

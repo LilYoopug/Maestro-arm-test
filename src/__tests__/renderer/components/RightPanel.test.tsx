@@ -618,7 +618,7 @@ describe('RightPanel', () => {
       const props = createDefaultProps({ currentSessionBatchState });
       render(<RightPanel {...props} />);
 
-      expect(screen.getByText('7 / 20 total tasks completed')).toBeInTheDocument();
+      expect(screen.getByText('7 of 20 tasks completed')).toBeInTheDocument();
     });
 
     it('should show single document task count when totalTasksAcrossAllDocs is 0', () => {
@@ -639,7 +639,7 @@ describe('RightPanel', () => {
       const props = createDefaultProps({ currentSessionBatchState });
       render(<RightPanel {...props} />);
 
-      expect(screen.getByText('5 / 10 tasks completed')).toBeInTheDocument();
+      expect(screen.getByText('5 of 10 tasks completed')).toBeInTheDocument();
     });
 
     it('should show loading spinner during batch run', () => {

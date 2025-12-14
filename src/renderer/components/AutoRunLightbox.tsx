@@ -1,0 +1,217 @@
+import React, { useState, useCallback, memo } from 'react';
+import { X, ChevronLeft, ChevronRight, Copy, Check, Trash2 } from 'lucide-react';
+import type { Theme } from '../types';
+
+// ============================================================================
+// AutoRunLightbox - Full-screen image viewer with navigation, copy, delete
+// ============================================================================
+
+interface AutoRunLightboxProps {
+  /** Theme for styling */
+  theme: Theme;
+  /** List of attachment relative paths (e.g., "images/{docName}-{timestamp}.{ext}") */
+  attachmentsList: string[];
+  /** Map of attachment paths to data URLs for display */
+  attachmentPreviews: Map<string, string>;
+  /** Currently displayed image filename/URL (null = lightbox closed) */
+  lightboxFilename: string | null;
+  /** External URL when viewing non-attachment images (http/https/data:) */
+  lightboxExternalUrl: string | null;
+  /** Callback to close the lightbox */
+  onClose: () => void;
+  /** Callback when navigating to a different image */
+  onNavigate: (filename: string | null) => void;
+  /** Callback to delete an attachment image (only for local attachments) */
+  onDelete?: (relativePath: string) => void;
+}
+
+/**
+ * AutoRunLightbox displays images in a full-screen overlay with:
+ * - Image carousel navigation (left/right arrows, keyboard)
+ * - Copy to clipboard functionality
+ * - Delete button for local attachments
+ * - Keyboard shortcuts: Escape (close), Arrow keys (navigate), Delete (remove)
+ */
+export const AutoRunLightbox = memo(({
+  theme,
+  attachmentsList,
+  attachmentPreviews,
+  lightboxFilename,
+  lightboxExternalUrl,
+  onClose,
+  onNavigate,
+  onDelete,
+}: AutoRunLightboxProps) => {
+  const [copied, setCopied] = useState(false);
+
+  // Calculate current index and navigation availability
+  const currentIndex = lightboxFilename ? attachmentsList.indexOf(lightboxFilename) : -1;
+  const canNavigate = attachmentsList.length > 1 && !lightboxExternalUrl;
+
+  // Navigate to previous image
+  const goToPrevImage = useCallback(() => {
+    if (!canNavigate) return;
+    const newIndex = currentIndex > 0 ? currentIndex - 1 : attachmentsList.length - 1;
+    onNavigate(attachmentsList[newIndex]);
+  }, [canNavigate, currentIndex, attachmentsList, onNavigate]);
+
+  // Navigate to next image
+  const goToNextImage = useCallback(() => {
+    if (!canNavigate) return;
+    const newIndex = currentIndex < attachmentsList.length - 1 ? currentIndex + 1 : 0;
+    onNavigate(attachmentsList[newIndex]);
+  }, [canNavigate, currentIndex, attachmentsList, onNavigate]);
+
+  // Copy image to clipboard
+  const copyToClipboard = useCallback(async () => {
+    if (!lightboxFilename) return;
+
+    const imageUrl = lightboxExternalUrl || attachmentPreviews.get(lightboxFilename);
+    if (!imageUrl) return;
+
+    try {
+      const response = await fetch(imageUrl);
+      const blob = await response.blob();
+      await navigator.clipboard.write([
+        new ClipboardItem({ [blob.type]: blob })
+      ]);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy image to clipboard:', err);
+    }
+  }, [lightboxFilename, lightboxExternalUrl, attachmentPreviews]);
+
+  // Delete the current image
+  const handleDelete = useCallback(() => {
+    if (!lightboxFilename || !onDelete || lightboxExternalUrl) return;
+
+    const totalImages = attachmentsList.length;
+
+    // Call the delete handler
+    onDelete(lightboxFilename);
+
+    // Navigate to next/prev image or close lightbox
+    if (totalImages <= 1) {
+      onClose();
+    } else if (currentIndex >= totalImages - 1) {
+      // Was last image, go to previous
+      const newList = attachmentsList.filter(f => f !== lightboxFilename);
+      onNavigate(newList[newList.length - 1] || null);
+    } else {
+      // Go to next image (same index in new list)
+      const newList = attachmentsList.filter(f => f !== lightboxFilename);
+      onNavigate(newList[currentIndex] || null);
+    }
+  }, [lightboxFilename, lightboxExternalUrl, attachmentsList, currentIndex, onDelete, onNavigate, onClose]);
+
+  // Handle keyboard events
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    e.stopPropagation();
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      onClose();
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      goToPrevImage();
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      goToNextImage();
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
+      e.preventDefault();
+      if (!lightboxExternalUrl && onDelete) {
+        handleDelete();
+      }
+    }
+  }, [onClose, goToPrevImage, goToNextImage, lightboxExternalUrl, onDelete, handleDelete]);
+
+  // Don't render if no image is selected
+  const imageUrl = lightboxExternalUrl || (lightboxFilename ? attachmentPreviews.get(lightboxFilename) : undefined);
+  if (!lightboxFilename || !imageUrl) {
+    return null;
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
+      onClick={onClose}
+      onKeyDown={handleKeyDown}
+      tabIndex={-1}
+      ref={(el) => el?.focus()}
+    >
+      {/* Previous button - only for attachments carousel */}
+      {canNavigate && (
+        <button
+          onClick={(e) => { e.stopPropagation(); goToPrevImage(); }}
+          className="absolute left-4 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/20 text-white rounded-full p-3 backdrop-blur-sm transition-colors"
+          title="Previous image (←)"
+        >
+          <ChevronLeft className="w-6 h-6" />
+        </button>
+      )}
+
+      {/* Image */}
+      <img
+        src={imageUrl}
+        alt={lightboxFilename}
+        className="max-w-[90%] max-h-[90%] rounded shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      />
+
+      {/* Top right buttons: Copy and Delete */}
+      <div className="absolute top-4 right-4 flex gap-2">
+        {/* Copy to clipboard */}
+        <button
+          onClick={(e) => { e.stopPropagation(); copyToClipboard(); }}
+          className="bg-white/10 hover:bg-white/20 text-white rounded-full p-3 backdrop-blur-sm transition-colors flex items-center gap-2"
+          title="Copy image to clipboard"
+        >
+          {copied ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
+          {copied && <span className="text-sm">Copied!</span>}
+        </button>
+
+        {/* Delete image - only for attachments, not external URLs */}
+        {!lightboxExternalUrl && onDelete && (
+          <button
+            onClick={(e) => { e.stopPropagation(); handleDelete(); }}
+            className="bg-red-500/80 hover:bg-red-500 text-white rounded-full p-3 backdrop-blur-sm transition-colors"
+            title="Delete image (Delete key)"
+          >
+            <Trash2 className="w-5 h-5" />
+          </button>
+        )}
+
+        {/* Close button */}
+        <button
+          onClick={(e) => { e.stopPropagation(); onClose(); }}
+          className="bg-white/10 hover:bg-white/20 text-white rounded-full p-3 backdrop-blur-sm transition-colors"
+          title="Close (ESC)"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* Next button - only for attachments carousel */}
+      {canNavigate && (
+        <button
+          onClick={(e) => { e.stopPropagation(); goToNextImage(); }}
+          className="absolute right-4 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/20 text-white rounded-full p-3 backdrop-blur-sm transition-colors"
+          title="Next image (→)"
+        >
+          <ChevronRight className="w-6 h-6" />
+        </button>
+      )}
+
+      {/* Bottom info */}
+      <div className="absolute bottom-10 text-white text-sm opacity-70 text-center max-w-[80%]">
+        <div className="truncate">{lightboxFilename}</div>
+        <div className="mt-1">
+          {canNavigate ? `Image ${currentIndex + 1} of ${attachmentsList.length} • ← → to navigate • ` : ''}
+          {!lightboxExternalUrl && onDelete ? 'Delete to remove • ' : ''}ESC to close
+        </div>
+      </div>
+    </div>
+  );
+});
+
+AutoRunLightbox.displayName = 'AutoRunLightbox';

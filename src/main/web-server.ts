@@ -3,33 +3,30 @@ import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
-import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { WebSocket } from 'ws';
+import { FastifyInstance, FastifyRequest } from 'fastify';
 import { randomUUID } from 'crypto';
 import path from 'path';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync } from 'fs';
 import type { Theme } from '../shared/theme-types';
 import { getLocalIpAddressSync } from './utils/networkUtils';
 import { logger } from './utils/logger';
+import {
+  WebSocketMessageHandler,
+  WebClient,
+  WebClientMessage,
+} from './web-server/handlers';
+import {
+  BroadcastService,
+  AITabData as BroadcastAITabData,
+  CustomAICommand as BroadcastCustomAICommand,
+  AutoRunState,
+  CliActivity,
+  SessionBroadcastData,
+} from './web-server/services';
+import { ApiRoutes, StaticRoutes, WsRoute } from './web-server/routes';
 
 // Logger context for all web server logs
 const LOG_CONTEXT = 'WebServer';
-
-const GITHUB_REDIRECT_URL = 'https://github.com/pedramamini/Maestro';
-
-// Types for web client messages
-interface WebClientMessage {
-  type: string;
-  [key: string]: unknown;
-}
-
-// Web client connection info
-interface WebClient {
-  socket: WebSocket;
-  id: string;
-  connectedAt: number;
-  subscribedSessionId?: string; // Which session this client is viewing (if any)
-}
 
 // Live session info
 interface LiveSessionInfo {
@@ -239,7 +236,6 @@ export class WebServer {
   private port: number;
   private isRunning: boolean = false;
   private webClients: Map<string, WebClient> = new Map();
-  private clientIdCounter: number = 0;
   private rateLimitConfig: RateLimitConfig = { ...DEFAULT_RATE_LIMIT_CONFIG };
   private getSessionsCallback: GetSessionsCallback | null = null;
   private getSessionDetailCallback: GetSessionDetailCallback | null = null;
@@ -265,6 +261,17 @@ export class WebServer {
   // Live sessions - only these appear in the web interface
   private liveSessions: Map<string, LiveSessionInfo> = new Map();
 
+  // WebSocket message handler instance
+  private messageHandler: WebSocketMessageHandler;
+
+  // Broadcast service instance
+  private broadcastService: BroadcastService;
+
+  // Route instances (extracted from web-server.ts)
+  private apiRoutes: ApiRoutes;
+  private staticRoutes: StaticRoutes;
+  private wsRoute: WsRoute;
+
   constructor(port: number = 0) {
     // Use port 0 to let OS assign a random available port
     this.port = port;
@@ -280,6 +287,18 @@ export class WebServer {
 
     // Determine web assets path (production vs development)
     this.webAssetsPath = this.resolveWebAssetsPath();
+
+    // Initialize the WebSocket message handler
+    this.messageHandler = new WebSocketMessageHandler();
+
+    // Initialize the broadcast service
+    this.broadcastService = new BroadcastService();
+    this.broadcastService.setGetWebClientsCallback(() => this.webClients);
+
+    // Initialize route handlers
+    this.apiRoutes = new ApiRoutes(this.securityToken, this.rateLimitConfig);
+    this.staticRoutes = new StaticRoutes(this.securityToken, this.webAssetsPath);
+    this.wsRoute = new WsRoute(this.securityToken);
 
     // Note: setupMiddleware and setupRoutes are called in start() to handle async properly
   }
@@ -311,59 +330,6 @@ export class WebServer {
     return null;
   }
 
-  /**
-   * Serve the index.html file for SPA routes
-   * Rewrites asset paths to include the security token
-   */
-  private serveIndexHtml(reply: FastifyReply, sessionId?: string): void {
-    if (!this.webAssetsPath) {
-      reply.code(503).send({
-        error: 'Service Unavailable',
-        message: 'Web interface not built. Run "npm run build:web" to build web assets.',
-      });
-      return;
-    }
-
-    const indexPath = path.join(this.webAssetsPath, 'index.html');
-    if (!existsSync(indexPath)) {
-      reply.code(404).send({
-        error: 'Not Found',
-        message: 'Web interface index.html not found.',
-      });
-      return;
-    }
-
-    try {
-      // Read and transform the HTML to fix asset paths
-      let html = readFileSync(indexPath, 'utf-8');
-
-      // Transform relative paths to use the token-prefixed absolute paths
-      html = html.replace(/\.\/assets\//g, `/${this.securityToken}/assets/`);
-      html = html.replace(/\.\/manifest\.json/g, `/${this.securityToken}/manifest.json`);
-      html = html.replace(/\.\/icons\//g, `/${this.securityToken}/icons/`);
-      html = html.replace(/\.\/sw\.js/g, `/${this.securityToken}/sw.js`);
-
-      // Inject config for the React app to know the token and session context
-      const configScript = `<script>
-        window.__MAESTRO_CONFIG__ = {
-          securityToken: "${this.securityToken}",
-          sessionId: ${sessionId ? `"${sessionId}"` : 'null'},
-          apiBase: "/${this.securityToken}/api",
-          wsUrl: "/${this.securityToken}/ws"
-        };
-      </script>`;
-      html = html.replace('</head>', `${configScript}</head>`);
-
-      reply.type('text/html').send(html);
-    } catch (err) {
-      logger.error('Error serving index.html', LOG_CONTEXT, err);
-      reply.code(500).send({
-        error: 'Internal Server Error',
-        message: 'Failed to serve web interface.',
-      });
-    }
-  }
-
   // ============ Live Session Management ============
 
   /**
@@ -378,12 +344,7 @@ export class WebServer {
     logger.info(`Session ${sessionId} marked as live (total: ${this.liveSessions.size})`, LOG_CONTEXT);
 
     // Broadcast to all connected clients
-    this.broadcastToWebClients({
-      type: 'session_live',
-      sessionId,
-      claudeSessionId,
-      timestamp: Date.now(),
-    });
+    this.broadcastService.broadcastSessionLive(sessionId, claudeSessionId);
   }
 
   /**
@@ -395,11 +356,7 @@ export class WebServer {
       logger.info(`Session ${sessionId} marked as offline (remaining: ${this.liveSessions.size})`, LOG_CONTEXT);
 
       // Broadcast to all connected clients
-      this.broadcastToWebClients({
-        type: 'session_offline',
-        sessionId,
-        timestamp: Date.now(),
-      });
+      this.broadcastService.broadcastSessionOffline(sessionId);
     }
   }
 
@@ -438,13 +395,6 @@ export class WebServer {
    */
   getSessionUrl(sessionId: string): string {
     return `http://${this.localIpAddress}:${this.port}/${this.securityToken}/session/${sessionId}`;
-  }
-
-  /**
-   * Validate the security token from a request
-   */
-  private validateToken(token: string): boolean {
-    return token === this.securityToken;
   }
 
   /**
@@ -626,841 +576,75 @@ export class WebServer {
     }
   }
 
+  /**
+   * Setup all routes by delegating to extracted route classes
+   */
   private setupRoutes() {
-    const token = this.securityToken;
+    // Setup static routes (dashboard, PWA files, health check)
+    this.staticRoutes.registerRoutes(this.server);
 
-    // Root path - redirect to GitHub (no access without token)
-    this.server.get('/', async (_request, reply) => {
-      return reply.redirect(302, GITHUB_REDIRECT_URL);
+    // Setup API routes callbacks and register routes
+    this.apiRoutes.setCallbacks({
+      getSessions: () => this.getSessionsCallback?.() ?? [],
+      getSessionDetail: (sessionId, tabId) => this.getSessionDetailCallback?.(sessionId, tabId) ?? null,
+      getTheme: () => this.getThemeCallback?.() ?? null,
+      writeToSession: (sessionId, data) => this.writeToSessionCallback?.(sessionId, data) ?? false,
+      interruptSession: async (sessionId) => this.interruptSessionCallback?.(sessionId) ?? false,
+      getHistory: (projectPath, sessionId) => this.getHistoryCallback?.(projectPath, sessionId) ?? [],
+      getLiveSessionInfo: (sessionId) => this.liveSessions.get(sessionId),
+      isSessionLive: (sessionId) => this.liveSessions.has(sessionId),
     });
+    this.apiRoutes.registerRoutes(this.server);
 
-    // Health check (no auth required)
-    this.server.get('/health', async () => {
-      return { status: 'ok', timestamp: Date.now() };
-    });
-
-    // PWA manifest.json
-    this.server.get(`/${token}/manifest.json`, async (_request, reply) => {
-      if (!this.webAssetsPath) {
-        return reply.code(404).send({ error: 'Not Found' });
-      }
-      const manifestPath = path.join(this.webAssetsPath, 'manifest.json');
-      if (!existsSync(manifestPath)) {
-        return reply.code(404).send({ error: 'Not Found' });
-      }
-      return reply.type('application/json').send(readFileSync(manifestPath, 'utf-8'));
-    });
-
-    // PWA service worker
-    this.server.get(`/${token}/sw.js`, async (_request, reply) => {
-      if (!this.webAssetsPath) {
-        return reply.code(404).send({ error: 'Not Found' });
-      }
-      const swPath = path.join(this.webAssetsPath, 'sw.js');
-      if (!existsSync(swPath)) {
-        return reply.code(404).send({ error: 'Not Found' });
-      }
-      return reply.type('application/javascript').send(readFileSync(swPath, 'utf-8'));
-    });
-
-    // Dashboard - list all live sessions
-    this.server.get(`/${token}`, async (_request, reply) => {
-      this.serveIndexHtml(reply);
-    });
-
-    // Dashboard with trailing slash
-    this.server.get(`/${token}/`, async (_request, reply) => {
-      this.serveIndexHtml(reply);
-    });
-
-    // Single session view - works for any valid session (security token protects access)
-    this.server.get(`/${token}/session/:sessionId`, async (request, reply) => {
-      const { sessionId } = request.params as { sessionId: string };
-      // Note: Session validation happens in the frontend via the sessions list
-      this.serveIndexHtml(reply, sessionId);
-    });
-
-    // Catch-all for invalid tokens - redirect to GitHub
-    this.server.get('/:token', async (request, reply) => {
-      const { token: reqToken } = request.params as { token: string };
-      if (!this.validateToken(reqToken)) {
-        return reply.redirect(302, GITHUB_REDIRECT_URL);
-      }
-      // Valid token but no specific route - serve dashboard
-      this.serveIndexHtml(reply);
-    });
-
-    // API Routes - all under /$TOKEN/api/*
-    this.setupApiRoutes();
-
-    // WebSocket route
-    this.setupWebSocketRoute();
-  }
-
-  /**
-   * Setup API routes under /$TOKEN/api/*
-   */
-  private setupApiRoutes() {
-    const token = this.securityToken;
-
-    // Get all sessions (not just "live" ones - security token protects access)
-    this.server.get(`/${token}/api/sessions`, {
-      config: {
-        rateLimit: {
-          max: this.rateLimitConfig.max,
-          timeWindow: this.rateLimitConfig.timeWindow,
-        },
+    // Setup WebSocket route callbacks and register route
+    this.wsRoute.setCallbacks({
+      getSessions: () => this.getSessionsCallback?.() ?? [],
+      getTheme: () => this.getThemeCallback?.() ?? null,
+      getCustomCommands: () => this.getCustomCommandsCallback?.() ?? [],
+      getLiveSessionInfo: (sessionId) => this.liveSessions.get(sessionId),
+      isSessionLive: (sessionId) => this.liveSessions.has(sessionId),
+      onClientConnect: (client) => {
+        this.webClients.set(client.id, client);
+        logger.info(`Client connected: ${client.id} (total: ${this.webClients.size})`, LOG_CONTEXT);
       },
-    }, async () => {
-      const sessions = this.getSessionsCallback ? this.getSessionsCallback() : [];
-
-      // Enrich all sessions with live info if available
-      const sessionData = sessions.map(s => {
-        const liveInfo = this.liveSessions.get(s.id);
-        return {
-          ...s,
-          claudeSessionId: liveInfo?.claudeSessionId || s.claudeSessionId,
-          liveEnabledAt: liveInfo?.enabledAt,
-          isLive: this.isSessionLive(s.id),
-        };
-      });
-
-      return {
-        sessions: sessionData,
-        count: sessionData.length,
-        timestamp: Date.now(),
-      };
-    });
-
-    // Session detail endpoint - works for any valid session (security token protects access)
-    // Optional ?tabId= query param to fetch logs for a specific tab (avoids race conditions)
-    this.server.get(`/${token}/api/session/:id`, {
-      config: {
-        rateLimit: {
-          max: this.rateLimitConfig.max,
-          timeWindow: this.rateLimitConfig.timeWindow,
-        },
-      },
-    }, async (request, reply) => {
-      const { id } = request.params as { id: string };
-      const { tabId } = request.query as { tabId?: string };
-
-      if (!this.getSessionDetailCallback) {
-        return reply.code(503).send({
-          error: 'Service Unavailable',
-          message: 'Session detail service not configured',
-          timestamp: Date.now(),
-        });
-      }
-
-      const session = this.getSessionDetailCallback(id, tabId);
-      if (!session) {
-        return reply.code(404).send({
-          error: 'Not Found',
-          message: `Session with id '${id}' not found`,
-          timestamp: Date.now(),
-        });
-      }
-
-      const liveInfo = this.liveSessions.get(id);
-      return {
-        session: {
-          ...session,
-          claudeSessionId: liveInfo?.claudeSessionId || session.claudeSessionId,
-          liveEnabledAt: liveInfo?.enabledAt,
-          isLive: this.isSessionLive(id),
-        },
-        timestamp: Date.now(),
-      };
-    });
-
-    // Send command to session - works for any valid session (security token protects access)
-    this.server.post(`/${token}/api/session/:id/send`, {
-      config: {
-        rateLimit: {
-          max: this.rateLimitConfig.maxPost,
-          timeWindow: this.rateLimitConfig.timeWindow,
-        },
-      },
-    }, async (request, reply) => {
-      const { id } = request.params as { id: string };
-      const body = request.body as { command?: string } | undefined;
-      const command = body?.command;
-
-      // Note: We don't check isSessionLive() here - the callback validates the session
-      // exists and the security token already protects access.
-
-      if (!command || typeof command !== 'string') {
-        return reply.code(400).send({
-          error: 'Bad Request',
-          message: 'Command is required and must be a string',
-          timestamp: Date.now(),
-        });
-      }
-
-      if (!this.writeToSessionCallback) {
-        return reply.code(503).send({
-          error: 'Service Unavailable',
-          message: 'Session write service not configured',
-          timestamp: Date.now(),
-        });
-      }
-
-      const success = this.writeToSessionCallback(id, command + '\n');
-      if (!success) {
-        return reply.code(500).send({
-          error: 'Internal Server Error',
-          message: 'Failed to send command to session',
-          timestamp: Date.now(),
-        });
-      }
-
-      return {
-        success: true,
-        message: 'Command sent successfully',
-        sessionId: id,
-        timestamp: Date.now(),
-      };
-    });
-
-    // Theme endpoint
-    this.server.get(`/${token}/api/theme`, {
-      config: {
-        rateLimit: {
-          max: this.rateLimitConfig.max,
-          timeWindow: this.rateLimitConfig.timeWindow,
-        },
-      },
-    }, async (_request, reply) => {
-      if (!this.getThemeCallback) {
-        return reply.code(503).send({
-          error: 'Service Unavailable',
-          message: 'Theme service not configured',
-          timestamp: Date.now(),
-        });
-      }
-
-      const theme = this.getThemeCallback();
-      if (!theme) {
-        return reply.code(404).send({
-          error: 'Not Found',
-          message: 'No theme currently configured',
-          timestamp: Date.now(),
-        });
-      }
-
-      return {
-        theme,
-        timestamp: Date.now(),
-      };
-    });
-
-    // Interrupt session - works for any valid session (security token protects access)
-    this.server.post(`/${token}/api/session/:id/interrupt`, {
-      config: {
-        rateLimit: {
-          max: this.rateLimitConfig.maxPost,
-          timeWindow: this.rateLimitConfig.timeWindow,
-        },
-      },
-    }, async (request, reply) => {
-      const { id } = request.params as { id: string };
-
-      // Note: We don't check isSessionLive() here - the callback validates the session
-      // exists and the security token already protects access.
-
-      if (!this.interruptSessionCallback) {
-        return reply.code(503).send({
-          error: 'Service Unavailable',
-          message: 'Session interrupt service not configured',
-          timestamp: Date.now(),
-        });
-      }
-
-      try {
-        // Forward to desktop's interrupt logic - handles state updates and broadcasts
-        const success = await this.interruptSessionCallback(id);
-        if (!success) {
-          return reply.code(500).send({
-            error: 'Internal Server Error',
-            message: 'Failed to interrupt session',
-            timestamp: Date.now(),
-          });
-        }
-
-        return {
-          success: true,
-          message: 'Interrupt signal sent successfully',
-          sessionId: id,
-          timestamp: Date.now(),
-        };
-      } catch (error: any) {
-        return reply.code(500).send({
-          error: 'Internal Server Error',
-          message: `Failed to interrupt session: ${error.message}`,
-          timestamp: Date.now(),
-        });
-      }
-    });
-
-    // History endpoint - returns history entries filtered by project/session
-    this.server.get(`/${token}/api/history`, {
-      config: {
-        rateLimit: {
-          max: this.rateLimitConfig.max,
-          timeWindow: this.rateLimitConfig.timeWindow,
-        },
-      },
-    }, async (request, reply) => {
-      if (!this.getHistoryCallback) {
-        return reply.code(503).send({
-          error: 'Service Unavailable',
-          message: 'History service not configured',
-          timestamp: Date.now(),
-        });
-      }
-
-      // Extract optional projectPath and sessionId from query params
-      const { projectPath, sessionId } = request.query as {
-        projectPath?: string;
-        sessionId?: string;
-      };
-
-      try {
-        const entries = this.getHistoryCallback(projectPath, sessionId);
-        return {
-          entries,
-          count: entries.length,
-          timestamp: Date.now(),
-        };
-      } catch (error: any) {
-        return reply.code(500).send({
-          error: 'Internal Server Error',
-          message: `Failed to fetch history: ${error.message}`,
-          timestamp: Date.now(),
-        });
-      }
-    });
-  }
-
-  /**
-   * Setup WebSocket route under /$TOKEN/ws
-   */
-  private setupWebSocketRoute() {
-    const token = this.securityToken;
-
-    this.server.get(`/${token}/ws`, { websocket: true }, (connection, request) => {
-      const clientId = `web-client-${++this.clientIdCounter}`;
-
-      // Extract sessionId from query string if provided (for session-specific subscriptions)
-      const url = new URL(request.url || '', `http://${request.headers.host || 'localhost'}`);
-      const sessionId = url.searchParams.get('sessionId') || undefined;
-
-      const client: WebClient = {
-        socket: connection.socket,
-        id: clientId,
-        connectedAt: Date.now(),
-        subscribedSessionId: sessionId,
-      };
-
-      this.webClients.set(clientId, client);
-      logger.info(`Client connected: ${clientId} (session: ${sessionId || 'dashboard'}, total: ${this.webClients.size})`, LOG_CONTEXT);
-
-      // Send connection confirmation
-      connection.socket.send(JSON.stringify({
-        type: 'connected',
-        clientId,
-        message: 'Connected to Maestro Web Interface',
-        subscribedSessionId: sessionId,
-        timestamp: Date.now(),
-      }));
-
-      // Send initial sessions list (all sessions, not just "live" ones)
-      if (this.getSessionsCallback) {
-        const allSessions = this.getSessionsCallback();
-        const sessionsWithLiveInfo = allSessions.map(s => {
-          const liveInfo = this.liveSessions.get(s.id);
-          return {
-            ...s,
-            claudeSessionId: liveInfo?.claudeSessionId || s.claudeSessionId,
-            liveEnabledAt: liveInfo?.enabledAt,
-            isLive: this.isSessionLive(s.id),
-          };
-        });
-        connection.socket.send(JSON.stringify({
-          type: 'sessions_list',
-          sessions: sessionsWithLiveInfo,
-          timestamp: Date.now(),
-        }));
-      }
-
-      // Send current theme
-      if (this.getThemeCallback) {
-        const theme = this.getThemeCallback();
-        if (theme) {
-          connection.socket.send(JSON.stringify({
-            type: 'theme',
-            theme,
-            timestamp: Date.now(),
-          }));
-        }
-      }
-
-      // Send custom AI commands
-      if (this.getCustomCommandsCallback) {
-        const customCommands = this.getCustomCommandsCallback();
-        connection.socket.send(JSON.stringify({
-          type: 'custom_commands',
-          commands: customCommands,
-          timestamp: Date.now(),
-        }));
-      }
-
-      // Handle incoming messages
-      connection.socket.on('message', (message) => {
-        try {
-          const data = JSON.parse(message.toString()) as WebClientMessage;
-          this.handleWebClientMessage(clientId, data);
-        } catch {
-          connection.socket.send(JSON.stringify({
-            type: 'error',
-            message: 'Invalid message format',
-          }));
-        }
-      });
-
-      // Handle disconnection
-      connection.socket.on('close', () => {
+      onClientDisconnect: (clientId) => {
         this.webClients.delete(clientId);
         logger.info(`Client disconnected: ${clientId} (total: ${this.webClients.size})`, LOG_CONTEXT);
-      });
-
-      // Handle errors
-      connection.socket.on('error', (error) => {
-        logger.error(`Client error (${clientId})`, LOG_CONTEXT, error);
+      },
+      onClientError: (clientId) => {
         this.webClients.delete(clientId);
-      });
+      },
+      handleMessage: (clientId, message) => {
+        this.handleWebClientMessage(clientId, message);
+      },
     });
+    this.wsRoute.registerRoute(this.server);
   }
 
   /**
    * Handle incoming messages from web clients
+   * Delegates to the WebSocketMessageHandler for all message processing
    */
   private handleWebClientMessage(clientId: string, message: WebClientMessage) {
     const client = this.webClients.get(clientId);
     if (!client) return;
 
-    // Log all incoming messages for debugging
-    logger.info(`[Web] handleWebClientMessage: type=${message.type}, clientId=${clientId}`, LOG_CONTEXT);
-
-    switch (message.type) {
-      case 'ping':
-        // Respond to ping with pong
-        client.socket.send(JSON.stringify({
-          type: 'pong',
-          timestamp: Date.now(),
-        }));
-        break;
-
-      case 'subscribe':
-        // Update client's session subscription
-        if (message.sessionId) {
-          client.subscribedSessionId = message.sessionId as string;
-        }
-        client.socket.send(JSON.stringify({
-          type: 'subscribed',
-          sessionId: message.sessionId,
-          timestamp: Date.now(),
-        }));
-        break;
-
-      case 'send_command': {
-        // Send a command to a session (AI or terminal)
-        const sessionId = message.sessionId as string;
-        const command = message.command as string;
-        // inputMode from web client - use this instead of server state to avoid sync issues
-        const clientInputMode = message.inputMode as 'ai' | 'terminal' | undefined;
-
-        if (!sessionId || !command) {
-          client.socket.send(JSON.stringify({
-            type: 'error',
-            message: 'Missing sessionId or command',
-            timestamp: Date.now(),
-          }));
-          return;
-        }
-
-        // Get session details to check state and determine how to handle
-        const sessionDetail = this.getSessionDetailCallback?.(sessionId);
-        if (!sessionDetail) {
-          client.socket.send(JSON.stringify({
-            type: 'error',
-            message: 'Session not found',
-            timestamp: Date.now(),
-          }));
-          return;
-        }
-
-        // Check if session is busy - prevent race conditions between desktop and web
-        if (sessionDetail.state === 'busy') {
-          client.socket.send(JSON.stringify({
-            type: 'error',
-            message: 'Session is busy - please wait for the current operation to complete',
-            sessionId,
-            timestamp: Date.now(),
-          }));
-          logger.debug(`Command rejected - session ${sessionId} is busy`, LOG_CONTEXT);
-          return;
-        }
-
-        // Use client's inputMode if provided, otherwise fall back to server state
-        const effectiveMode = clientInputMode || sessionDetail.inputMode;
-        const isAiMode = effectiveMode === 'ai';
-        const mode = isAiMode ? 'AI' : 'CLI';
-        const claudeId = sessionDetail.claudeSessionId || 'none';
-
-        // Log all web interface commands prominently
-        logger.info(`[Web Command] Mode: ${mode} | Session: ${sessionId}${isAiMode ? ` | Claude: ${claudeId}` : ''} | Message: ${command}`, LOG_CONTEXT);
-
-        // Route ALL commands through the renderer for consistent handling
-        // The renderer handles both AI and terminal modes, updating UI and state
-        // Pass clientInputMode so renderer uses the web's intended mode
-        if (this.executeCommandCallback) {
-          this.executeCommandCallback(sessionId, command, clientInputMode)
-            .then((success) => {
-              client.socket.send(JSON.stringify({
-                type: 'command_result',
-                success,
-                sessionId,
-                timestamp: Date.now(),
-              }));
-              if (!success) {
-                logger.warn(`[Web Command] ${mode} command rejected for session ${sessionId}`, LOG_CONTEXT);
-              }
-            })
-            .catch((error) => {
-              logger.error(`[Web Command] ${mode} command failed for session ${sessionId}: ${error.message}`, LOG_CONTEXT);
-              client.socket.send(JSON.stringify({
-                type: 'error',
-                message: `Failed to execute command: ${error.message}`,
-                timestamp: Date.now(),
-              }));
-            });
-        } else {
-          client.socket.send(JSON.stringify({
-            type: 'error',
-            message: 'Command execution not configured',
-            timestamp: Date.now(),
-          }));
-        }
-        break;
-      }
-
-      case 'switch_mode': {
-        // Switch session input mode between AI and terminal
-        const sessionId = message.sessionId as string;
-        const mode = message.mode as 'ai' | 'terminal';
-        logger.info(`[Web] Received switch_mode message: session=${sessionId}, mode=${mode}`, LOG_CONTEXT);
-
-        if (!sessionId || !mode) {
-          client.socket.send(JSON.stringify({
-            type: 'error',
-            message: 'Missing sessionId or mode',
-            timestamp: Date.now(),
-          }));
-          return;
-        }
-
-        if (!this.switchModeCallback) {
-          logger.warn(`[Web] switchModeCallback is not set!`, LOG_CONTEXT);
-          client.socket.send(JSON.stringify({
-            type: 'error',
-            message: 'Mode switching not configured',
-            timestamp: Date.now(),
-          }));
-          return;
-        }
-
-        // Forward to desktop's mode switching logic
-        // This ensures single source of truth - desktop handles state updates and broadcasts
-        logger.info(`[Web] Calling switchModeCallback for session ${sessionId}: ${mode}`, LOG_CONTEXT);
-        this.switchModeCallback(sessionId, mode)
-          .then((success) => {
-            client.socket.send(JSON.stringify({
-              type: 'mode_switch_result',
-              success,
-              sessionId,
-              mode,
-              timestamp: Date.now(),
-            }));
-            logger.debug(`Mode switch for session ${sessionId} to ${mode}: ${success ? 'success' : 'failed'}`, LOG_CONTEXT);
-          })
-          .catch((error) => {
-            client.socket.send(JSON.stringify({
-              type: 'error',
-              message: `Failed to switch mode: ${error.message}`,
-              timestamp: Date.now(),
-            }));
-          });
-        break;
-      }
-
-      case 'select_session': {
-        // Select/switch to a session in the desktop app
-        const sessionId = message.sessionId as string;
-        const tabId = message.tabId as string | undefined;
-        logger.info(`[Web] Received select_session message: session=${sessionId}, tab=${tabId || 'none'}`, LOG_CONTEXT);
-
-        if (!sessionId) {
-          client.socket.send(JSON.stringify({
-            type: 'error',
-            message: 'Missing sessionId',
-            timestamp: Date.now(),
-          }));
-          return;
-        }
-
-        if (!this.selectSessionCallback) {
-          logger.warn(`[Web] selectSessionCallback is not set!`, LOG_CONTEXT);
-          client.socket.send(JSON.stringify({
-            type: 'error',
-            message: 'Session selection not configured',
-            timestamp: Date.now(),
-          }));
-          return;
-        }
-
-        // Forward to desktop's session selection logic (include tabId if provided)
-        logger.info(`[Web] Calling selectSessionCallback for session ${sessionId}${tabId ? `, tab ${tabId}` : ''}`, LOG_CONTEXT);
-        this.selectSessionCallback(sessionId, tabId)
-          .then((success) => {
-            client.socket.send(JSON.stringify({
-              type: 'select_session_result',
-              success,
-              sessionId,
-              timestamp: Date.now(),
-            }));
-            if (success) {
-              logger.debug(`Session ${sessionId} selected in desktop`, LOG_CONTEXT);
-            } else {
-              logger.warn(`Failed to select session ${sessionId} in desktop`, LOG_CONTEXT);
-            }
-          })
-          .catch((error) => {
-            client.socket.send(JSON.stringify({
-              type: 'error',
-              message: `Failed to select session: ${error.message}`,
-              timestamp: Date.now(),
-            }));
-          });
-        break;
-      }
-
-      case 'get_sessions': {
-        // Request updated sessions list - returns all sessions (not just "live" ones)
-        // The security token already protects access to this endpoint
-        if (this.getSessionsCallback) {
-          const allSessions = this.getSessionsCallback();
-          // Enrich sessions with live info if available
-          const sessionsWithLiveInfo = allSessions.map(s => {
-            const liveInfo = this.liveSessions.get(s.id);
-            return {
-              ...s,
-              claudeSessionId: liveInfo?.claudeSessionId || s.claudeSessionId,
-              liveEnabledAt: liveInfo?.enabledAt,
-              isLive: this.isSessionLive(s.id),
-            };
-          });
-          client.socket.send(JSON.stringify({
-            type: 'sessions_list',
-            sessions: sessionsWithLiveInfo,
-            timestamp: Date.now(),
-          }));
-        }
-        break;
-      }
-
-      case 'select_tab': {
-        // Select a tab within a session
-        const sessionId = message.sessionId as string;
-        const tabId = message.tabId as string;
-        logger.info(`[Web] Received select_tab message: session=${sessionId}, tab=${tabId}`, LOG_CONTEXT);
-
-        if (!sessionId || !tabId) {
-          client.socket.send(JSON.stringify({
-            type: 'error',
-            message: 'Missing sessionId or tabId',
-            timestamp: Date.now(),
-          }));
-          return;
-        }
-
-        if (!this.selectTabCallback) {
-          client.socket.send(JSON.stringify({
-            type: 'error',
-            message: 'Tab selection not configured',
-            timestamp: Date.now(),
-          }));
-          return;
-        }
-
-        this.selectTabCallback(sessionId, tabId)
-          .then((success) => {
-            client.socket.send(JSON.stringify({
-              type: 'select_tab_result',
-              success,
-              sessionId,
-              tabId,
-              timestamp: Date.now(),
-            }));
-          })
-          .catch((error) => {
-            client.socket.send(JSON.stringify({
-              type: 'error',
-              message: `Failed to select tab: ${error.message}`,
-              timestamp: Date.now(),
-            }));
-          });
-        break;
-      }
-
-      case 'new_tab': {
-        // Create a new tab within a session
-        const sessionId = message.sessionId as string;
-        logger.info(`[Web] Received new_tab message: session=${sessionId}`, LOG_CONTEXT);
-
-        if (!sessionId) {
-          client.socket.send(JSON.stringify({
-            type: 'error',
-            message: 'Missing sessionId',
-            timestamp: Date.now(),
-          }));
-          return;
-        }
-
-        if (!this.newTabCallback) {
-          client.socket.send(JSON.stringify({
-            type: 'error',
-            message: 'Tab creation not configured',
-            timestamp: Date.now(),
-          }));
-          return;
-        }
-
-        this.newTabCallback(sessionId)
-          .then((result) => {
-            client.socket.send(JSON.stringify({
-              type: 'new_tab_result',
-              success: !!result,
-              sessionId,
-              tabId: result?.tabId,
-              timestamp: Date.now(),
-            }));
-          })
-          .catch((error) => {
-            client.socket.send(JSON.stringify({
-              type: 'error',
-              message: `Failed to create tab: ${error.message}`,
-              timestamp: Date.now(),
-            }));
-          });
-        break;
-      }
-
-      case 'close_tab': {
-        // Close a tab within a session
-        const sessionId = message.sessionId as string;
-        const tabId = message.tabId as string;
-        logger.info(`[Web] Received close_tab message: session=${sessionId}, tab=${tabId}`, LOG_CONTEXT);
-
-        if (!sessionId || !tabId) {
-          client.socket.send(JSON.stringify({
-            type: 'error',
-            message: 'Missing sessionId or tabId',
-            timestamp: Date.now(),
-          }));
-          return;
-        }
-
-        if (!this.closeTabCallback) {
-          client.socket.send(JSON.stringify({
-            type: 'error',
-            message: 'Tab closing not configured',
-            timestamp: Date.now(),
-          }));
-          return;
-        }
-
-        this.closeTabCallback(sessionId, tabId)
-          .then((success) => {
-            client.socket.send(JSON.stringify({
-              type: 'close_tab_result',
-              success,
-              sessionId,
-              tabId,
-              timestamp: Date.now(),
-            }));
-          })
-          .catch((error) => {
-            client.socket.send(JSON.stringify({
-              type: 'error',
-              message: `Failed to close tab: ${error.message}`,
-              timestamp: Date.now(),
-            }));
-          });
-        break;
-      }
-
-      default:
-        // Echo unknown message types for debugging
-        logger.debug(`Unknown message type: ${message.type}`, LOG_CONTEXT);
-        client.socket.send(JSON.stringify({
-          type: 'echo',
-          originalType: message.type,
-          data: message,
-        }));
-    }
+    // Delegate to the message handler
+    this.messageHandler.handleMessage(client, message);
   }
 
   /**
    * Broadcast a message to all connected web clients
    */
-  broadcastToWebClients(message: object) {
-    const data = JSON.stringify(message);
-    for (const client of this.webClients.values()) {
-      if (client.socket.readyState === WebSocket.OPEN) {
-        client.socket.send(data);
-      }
-    }
+  broadcastToWebClients(message: object): void {
+    this.broadcastService.broadcastToAll(message);
   }
 
   /**
    * Broadcast a message to clients subscribed to a specific session
    */
-  broadcastToSessionClients(sessionId: string, message: object) {
-    const data = JSON.stringify(message);
-    let sentCount = 0;
-    const msgType = (message as any).type || 'unknown';
-
-    for (const client of this.webClients.values()) {
-      const isOpen = client.socket.readyState === WebSocket.OPEN;
-      const matchesSession = client.subscribedSessionId === sessionId || !client.subscribedSessionId;
-      const shouldSend = isOpen && matchesSession;
-
-      if (msgType === 'session_output') {
-        console.log(`[WebBroadcast] Client ${client.id}: isOpen=${isOpen}, subscribedTo=${client.subscribedSessionId || 'none'}, matchesSession=${matchesSession}, shouldSend=${shouldSend}`);
-      }
-
-      if (shouldSend) {
-        client.socket.send(data);
-        sentCount++;
-      }
-    }
-
-    // Log summary for session_output
-    if (msgType === 'session_output') {
-      console.log(`[WebBroadcast] Sent session_output to ${sentCount}/${this.webClients.size} clients for session ${sessionId}`);
-    }
+  broadcastToSessionClients(sessionId: string, message: object): void {
+    this.broadcastService.broadcastToSession(sessionId, message);
   }
 
   /**
@@ -1472,156 +656,79 @@ export class WebServer {
     toolType?: string;
     inputMode?: string;
     cwd?: string;
-    cliActivity?: {
-      playbookId: string;
-      playbookName: string;
-      startedAt: number;
-    };
-  }) {
-    this.broadcastToWebClients({
-      type: 'session_state_change',
-      sessionId,
-      state,
-      ...additionalData,
-      timestamp: Date.now(),
-    });
+    cliActivity?: CliActivity;
+  }): void {
+    this.broadcastService.broadcastSessionStateChange(sessionId, state, additionalData);
   }
 
   /**
    * Broadcast when a session is added
    */
-  broadcastSessionAdded(session: {
-    id: string;
-    name: string;
-    toolType: string;
-    state: string;
-    inputMode: string;
-    cwd: string;
-    groupId?: string | null;
-    groupName?: string | null;
-    groupEmoji?: string | null;
-  }) {
-    this.broadcastToWebClients({
-      type: 'session_added',
-      session,
-      timestamp: Date.now(),
-    });
+  broadcastSessionAdded(session: SessionBroadcastData): void {
+    this.broadcastService.broadcastSessionAdded(session);
   }
 
   /**
    * Broadcast when a session is removed
    */
-  broadcastSessionRemoved(sessionId: string) {
-    this.broadcastToWebClients({
-      type: 'session_removed',
-      sessionId,
-      timestamp: Date.now(),
-    });
+  broadcastSessionRemoved(sessionId: string): void {
+    this.broadcastService.broadcastSessionRemoved(sessionId);
   }
 
   /**
    * Broadcast the full sessions list to all connected web clients
    * Used for initial sync or bulk updates
    */
-  broadcastSessionsList(sessions: Array<{
-    id: string;
-    name: string;
-    toolType: string;
-    state: string;
-    inputMode: string;
-    cwd: string;
-    groupId?: string | null;
-    groupName?: string | null;
-    groupEmoji?: string | null;
-  }>) {
-    this.broadcastToWebClients({
-      type: 'sessions_list',
-      sessions,
-      timestamp: Date.now(),
-    });
+  broadcastSessionsList(sessions: SessionBroadcastData[]): void {
+    this.broadcastService.broadcastSessionsList(sessions);
   }
 
   /**
    * Broadcast active session change to all connected web clients
    * Called when the user switches sessions in the desktop app
    */
-  broadcastActiveSessionChange(sessionId: string) {
-    this.broadcastToWebClients({
-      type: 'active_session_changed',
-      sessionId,
-      timestamp: Date.now(),
-    });
+  broadcastActiveSessionChange(sessionId: string): void {
+    this.broadcastService.broadcastActiveSessionChange(sessionId);
   }
 
   /**
    * Broadcast tab change to all connected web clients
    * Called when the tabs array or active tab changes in a session
    */
-  broadcastTabsChange(sessionId: string, aiTabs: AITabData[], activeTabId: string) {
-    this.broadcastToWebClients({
-      type: 'tabs_changed',
-      sessionId,
-      aiTabs,
-      activeTabId,
-      timestamp: Date.now(),
-    });
+  broadcastTabsChange(sessionId: string, aiTabs: BroadcastAITabData[], activeTabId: string): void {
+    this.broadcastService.broadcastTabsChange(sessionId, aiTabs, activeTabId);
   }
 
   /**
    * Broadcast theme change to all connected web clients
    * Called when the user changes the theme in the desktop app
    */
-  broadcastThemeChange(theme: Theme) {
-    this.broadcastToWebClients({
-      type: 'theme',
-      theme,
-      timestamp: Date.now(),
-    });
+  broadcastThemeChange(theme: Theme): void {
+    this.broadcastService.broadcastThemeChange(theme);
   }
 
   /**
    * Broadcast custom commands update to all connected web clients
    * Called when the user modifies custom AI commands in the desktop app
    */
-  broadcastCustomCommands(commands: CustomAICommand[]) {
-    this.broadcastToWebClients({
-      type: 'custom_commands',
-      commands,
-      timestamp: Date.now(),
-    });
+  broadcastCustomCommands(commands: BroadcastCustomAICommand[]): void {
+    this.broadcastService.broadcastCustomCommands(commands);
   }
 
   /**
    * Broadcast AutoRun state to all connected web clients
    * Called when batch processing starts, progresses, or stops
    */
-  broadcastAutoRunState(sessionId: string, state: {
-    isRunning: boolean;
-    totalTasks: number;
-    completedTasks: number;
-    currentTaskIndex: number;
-    isStopping?: boolean;
-  } | null) {
-    this.broadcastToWebClients({
-      type: 'autorun_state',
-      sessionId,
-      state,
-      timestamp: Date.now(),
-    });
+  broadcastAutoRunState(sessionId: string, state: AutoRunState | null): void {
+    this.broadcastService.broadcastAutoRunState(sessionId, state);
   }
 
   /**
    * Broadcast user input to web clients subscribed to a session
    * Called when a command is sent from the desktop app so web clients stay in sync
    */
-  broadcastUserInput(sessionId: string, command: string, inputMode: 'ai' | 'terminal') {
-    this.broadcastToSessionClients(sessionId, {
-      type: 'user_input',
-      sessionId,
-      command,
-      inputMode,
-      timestamp: Date.now(),
-    });
+  broadcastUserInput(sessionId: string, command: string, inputMode: 'ai' | 'terminal'): void {
+    this.broadcastService.broadcastUserInput(sessionId, command, inputMode);
   }
 
   /**
@@ -1629,6 +736,51 @@ export class WebServer {
    */
   getWebClientCount(): number {
     return this.webClients.size;
+  }
+
+  /**
+   * Wire up the message handler callbacks
+   * Called during start() to ensure all callbacks are set before accepting connections
+   */
+  private setupMessageHandlerCallbacks(): void {
+    this.messageHandler.setCallbacks({
+      getSessionDetail: (sessionId: string) => {
+        return this.getSessionDetailCallback?.(sessionId) ?? null;
+      },
+      executeCommand: async (sessionId: string, command: string, inputMode?: 'ai' | 'terminal') => {
+        if (!this.executeCommandCallback) return false;
+        return this.executeCommandCallback(sessionId, command, inputMode);
+      },
+      switchMode: async (sessionId: string, mode: 'ai' | 'terminal') => {
+        if (!this.switchModeCallback) return false;
+        return this.switchModeCallback(sessionId, mode);
+      },
+      selectSession: async (sessionId: string, tabId?: string) => {
+        if (!this.selectSessionCallback) return false;
+        return this.selectSessionCallback(sessionId, tabId);
+      },
+      selectTab: async (sessionId: string, tabId: string) => {
+        if (!this.selectTabCallback) return false;
+        return this.selectTabCallback(sessionId, tabId);
+      },
+      newTab: async (sessionId: string) => {
+        if (!this.newTabCallback) return null;
+        return this.newTabCallback(sessionId);
+      },
+      closeTab: async (sessionId: string, tabId: string) => {
+        if (!this.closeTabCallback) return false;
+        return this.closeTabCallback(sessionId, tabId);
+      },
+      getSessions: () => {
+        return this.getSessionsCallback?.() ?? [];
+      },
+      getLiveSessionInfo: (sessionId: string) => {
+        return this.liveSessions.get(sessionId);
+      },
+      isSessionLive: (sessionId: string) => {
+        return this.liveSessions.has(sessionId);
+      },
+    });
   }
 
   async start(): Promise<{ port: number; token: string; url: string }> {
@@ -1648,6 +800,9 @@ export class WebServer {
       // Setup middleware and routes (must be done before listen)
       await this.setupMiddleware();
       this.setupRoutes();
+
+      // Wire up message handler callbacks
+      this.setupMessageHandlerCallbacks();
 
       await this.server.listen({ port: this.port, host: '0.0.0.0' });
 

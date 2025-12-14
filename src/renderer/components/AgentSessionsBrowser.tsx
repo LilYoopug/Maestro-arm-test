@@ -4,6 +4,11 @@ import type { Theme, Session, LogEntry } from '../types';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { SessionActivityGraph, type ActivityEntry } from './SessionActivityGraph';
+import { SessionListItem } from './SessionListItem';
+import { formatSize, formatNumber, formatTokens, formatRelativeTime } from '../utils/formatters';
+import { useSessionViewer, type ClaudeSession } from '../hooks/useSessionViewer';
+import { useSessionPagination } from '../hooks/useSessionPagination';
+import { useFilteredAndSortedSessions } from '../hooks/useFilteredAndSortedSessions';
 
 type SearchMode = 'title' | 'user' | 'assistant' | 'all';
 
@@ -12,33 +17,6 @@ interface SearchResult {
   matchType: 'title' | 'user' | 'assistant';
   matchPreview: string;
   matchCount: number;
-}
-
-interface ClaudeSession {
-  sessionId: string;
-  projectPath: string;
-  timestamp: string;
-  modifiedAt: string;
-  firstMessage: string;
-  messageCount: number;
-  sizeBytes: number;
-  costUsd: number;
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadTokens: number;
-  cacheCreationTokens: number;
-  durationSeconds: number;
-  origin?: 'user' | 'auto'; // Maestro session origin, undefined for CLI sessions
-  sessionName?: string; // User-defined session name from Maestro
-}
-
-interface SessionMessage {
-  type: string;
-  role?: string;
-  content: string;
-  timestamp: string;
-  uuid: string;
-  toolUse?: any;
 }
 
 interface AgentSessionsBrowserProps {
@@ -60,8 +38,39 @@ export function AgentSessionsBrowser({
   onNewSession,
   onUpdateTab,
 }: AgentSessionsBrowserProps) {
-  const [sessions, setSessions] = useState<ClaudeSession[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Session viewer hook for detail view state and handlers
+  const {
+    viewingSession,
+    messages,
+    messagesLoading,
+    hasMoreMessages,
+    totalMessages,
+    messagesContainerRef,
+    handleViewSession,
+    handleLoadMore,
+    handleMessagesScroll,
+    clearViewingSession,
+    setViewingSession,
+  } = useSessionViewer({ cwd: activeSession?.cwd });
+
+  // Starred sessions state (needs to be before pagination hook for callback)
+  const [starredSessions, setStarredSessions] = useState<Set<string>>(new Set());
+
+  // Session pagination hook for paginated loading
+  const {
+    sessions,
+    loading,
+    hasMoreSessions,
+    isLoadingMoreSessions,
+    totalSessionCount,
+    handleSessionsScroll,
+    sessionsContainerRef,
+    updateSession,
+  } = useSessionPagination({
+    cwd: activeSession?.cwd,
+    onStarredSessionsLoaded: setStarredSessions,
+  });
+
   const [search, setSearch] = useState('');
   const [searchMode, setSearchMode] = useState<SearchMode>('all');
   const [showAllSessions, setShowAllSessions] = useState(false);
@@ -70,25 +79,12 @@ export function AgentSessionsBrowser({
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [viewingSession, setViewingSession] = useState<ClaudeSession | null>(null);
-  const [messages, setMessages] = useState<SessionMessage[]>([]);
-  const [messagesLoading, setMessagesLoading] = useState(false);
-  const [hasMoreMessages, setHasMoreMessages] = useState(false);
-  const [totalMessages, setTotalMessages] = useState(0);
-  const [messagesOffset, setMessagesOffset] = useState(0);
-  const [starredSessions, setStarredSessions] = useState<Set<string>>(new Set());
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
 
   // Activity graph vs search toggle state - default to search since graph needs data to load first
   const [showSearchPanel, setShowSearchPanel] = useState(true);
   const [graphLookbackHours, setGraphLookbackHours] = useState<number | null>(null); // null = all time (default)
-
-  // Pagination state for sessions list
-  const [hasMoreSessions, setHasMoreSessions] = useState(false);
-  const [isLoadingMoreSessions, setIsLoadingMoreSessions] = useState(false);
-  const [totalSessionCount, setTotalSessionCount] = useState(0);
-  const nextCursorRef = useRef<string | null>(null);
 
   // Aggregate stats for ALL sessions (calculated progressively)
   const [aggregateStats, setAggregateStats] = useState<{
@@ -104,8 +100,6 @@ export function AgentSessionsBrowser({
   const inputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const selectedItemRef = useRef<HTMLButtonElement>(null);
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const sessionsContainerRef = useRef<HTMLDivElement>(null);
   const searchModeDropdownRef = useRef<HTMLDivElement>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const layerIdRef = useRef<string>();
@@ -119,9 +113,8 @@ export function AgentSessionsBrowser({
 
   // Reset to list view on mount - ensures we always start with list view when opening
   useEffect(() => {
-    setViewingSession(null);
-    setMessages([]);
-  }, []);
+    clearViewingSession();
+  }, [clearViewingSession]);
 
   // Register layer on mount for Escape key handling
   useEffect(() => {
@@ -135,8 +128,7 @@ export function AgentSessionsBrowser({
       onEscape: () => {
         // If viewing a session detail, go back to list; otherwise close the panel
         if (viewingSessionRef.current) {
-          setViewingSession(null);
-          setMessages([]);
+          clearViewingSession();
         } else {
           onCloseRef.current();
         }
@@ -148,21 +140,20 @@ export function AgentSessionsBrowser({
         unregisterLayer(layerIdRef.current);
       }
     };
-  }, [registerLayer, unregisterLayer]);
+  }, [registerLayer, unregisterLayer, clearViewingSession]);
 
   // Update handler when viewingSession changes
   useEffect(() => {
     if (layerIdRef.current) {
       updateLayerHandler(layerIdRef.current, () => {
         if (viewingSessionRef.current) {
-          setViewingSession(null);
-          setMessages([]);
+          clearViewingSession();
         } else {
           onCloseRef.current();
         }
       });
     }
-  }, [viewingSession, updateLayerHandler]);
+  }, [viewingSession, updateLayerHandler, clearViewingSession]);
 
   // Restore focus and scroll position when returning from detail view to list view
   const prevViewingSessionRef = useRef<ClaudeSession | null>(null);
@@ -179,92 +170,9 @@ export function AgentSessionsBrowser({
     prevViewingSessionRef.current = viewingSession;
   }, [viewingSession]);
 
-  // Load messages when viewing a session (defined early for use in effects below)
-  const loadMessages = useCallback(async (session: ClaudeSession, offset: number = 0) => {
-    if (!activeSession?.cwd) return;
-
-    setMessagesLoading(true);
-    try {
-      const result = await window.maestro.claude.readSessionMessages(
-        activeSession.cwd,
-        session.sessionId,
-        { offset, limit: 20 }
-      );
-
-      if (offset === 0) {
-        setMessages(result.messages);
-        // Scroll to bottom after initial load and focus the container for keyboard nav
-        requestAnimationFrame(() => {
-          if (messagesContainerRef.current) {
-            messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
-            messagesContainerRef.current.focus();
-          }
-        });
-      } else {
-        // Prepend older messages
-        setMessages(prev => [...result.messages, ...prev]);
-      }
-      setTotalMessages(result.total);
-      setHasMoreMessages(result.hasMore);
-      setMessagesOffset(offset + result.messages.length);
-    } catch (error) {
-      console.error('Failed to load messages:', error);
-    } finally {
-      setMessagesLoading(false);
-    }
-  }, [activeSession?.cwd]);
-
-  // Handle viewing a session (defined early for use in effects below)
-  const handleViewSession = useCallback((session: ClaudeSession) => {
-    setViewingSession(session);
-    setMessages([]);
-    setMessagesOffset(0);
-    loadMessages(session, 0);
-  }, [loadMessages]);
-
-  // Load sessions on mount
+  // Reset aggregate stats when cwd changes (session loading is handled by useSessionPagination)
   useEffect(() => {
-    // Reset pagination state
-    setSessions([]);
-    setHasMoreSessions(false);
-    setTotalSessionCount(0);
-    nextCursorRef.current = null;
     setAggregateStats({ totalSessions: 0, totalMessages: 0, totalCostUsd: 0, totalSizeBytes: 0, totalTokens: 0, oldestTimestamp: null, isComplete: false });
-
-    const loadSessions = async () => {
-      if (!activeSession?.cwd) {
-        setLoading(false);
-        return;
-      }
-
-      try {
-        // Load session metadata (starred status) from Claude session origins
-        const origins = await window.maestro.claude.getSessionOrigins(activeSession.cwd);
-        const starredFromOrigins = new Set<string>();
-        for (const [sessionId, originData] of Object.entries(origins)) {
-          if (typeof originData === 'object' && originData?.starred) {
-            starredFromOrigins.add(sessionId);
-          }
-        }
-        setStarredSessions(starredFromOrigins);
-
-        // Use paginated API for better performance with many sessions
-        const result = await window.maestro.claude.listSessionsPaginated(activeSession.cwd, { limit: 100 });
-        setSessions(result.sessions);
-        setHasMoreSessions(result.hasMore);
-        setTotalSessionCount(result.totalCount);
-        nextCursorRef.current = result.nextCursor;
-
-        // Start fetching aggregate stats for ALL sessions (runs in background with progressive updates)
-        window.maestro.claude.getProjectStats(activeSession.cwd);
-      } catch (error) {
-        console.error('Failed to load sessions:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadSessions();
   }, [activeSession?.cwd]);
 
   // Listen for progressive stats updates
@@ -288,46 +196,6 @@ export function AgentSessionsBrowser({
 
     return unsubscribe;
   }, [activeSession?.cwd]);
-
-  // Load more sessions when scrolling near bottom
-  const loadMoreSessions = useCallback(async () => {
-    if (!activeSession?.cwd || !hasMoreSessions || isLoadingMoreSessions || !nextCursorRef.current) return;
-
-    setIsLoadingMoreSessions(true);
-    try {
-      const result = await window.maestro.claude.listSessionsPaginated(activeSession.cwd, {
-        cursor: nextCursorRef.current,
-        limit: 100,
-      });
-
-      // Append new sessions, avoiding duplicates
-      setSessions(prev => {
-        const existingIds = new Set(prev.map(s => s.sessionId));
-        const newSessions = result.sessions.filter(s => !existingIds.has(s.sessionId));
-        return [...prev, ...newSessions];
-      });
-      setHasMoreSessions(result.hasMore);
-      nextCursorRef.current = result.nextCursor;
-    } catch (error) {
-      console.error('Failed to load more sessions:', error);
-    } finally {
-      setIsLoadingMoreSessions(false);
-    }
-  }, [activeSession?.cwd, hasMoreSessions, isLoadingMoreSessions]);
-
-  // Handle scroll for sessions list pagination - load more at 70% scroll
-  const handleSessionsScroll = useCallback(() => {
-    const container = sessionsContainerRef.current;
-    if (!container) return;
-
-    const { scrollTop, scrollHeight, clientHeight } = container;
-    const scrollPercentage = (scrollTop + clientHeight) / scrollHeight;
-    const atSeventyPercent = scrollPercentage >= 0.7;
-
-    if (atSeventyPercent && hasMoreSessions && !isLoadingMoreSessions) {
-      loadMoreSessions();
-    }
-  }, [hasMoreSessions, isLoadingMoreSessions, loadMoreSessions]);
 
   // Toggle star status for a session
   const toggleStar = useCallback(async (sessionId: string, e: React.MouseEvent) => {
@@ -383,12 +251,8 @@ export function AgentSessionsBrowser({
         trimmedName
       );
 
-      // Update local state
-      setSessions(prev => prev.map(s =>
-        s.sessionId === sessionId
-          ? { ...s, sessionName: trimmedName || undefined }
-          : s
-      ));
+      // Update local state using the hook's updateSession function
+      updateSession(sessionId, { sessionName: trimmedName || undefined });
 
       // Also update viewingSession if we're renaming the currently viewed session
       if (viewingSession?.sessionId === sessionId) {
@@ -402,7 +266,7 @@ export function AgentSessionsBrowser({
     }
 
     cancelRename();
-  }, [activeSession?.cwd, renameValue, viewingSession?.sessionId, cancelRename, onUpdateTab]);
+  }, [activeSession?.cwd, renameValue, viewingSession?.sessionId, cancelRename, onUpdateTab, updateSession]);
 
   // Auto-view session when activeClaudeSessionId is provided (e.g., from history panel click)
   useEffect(() => {
@@ -482,54 +346,20 @@ export function AgentSessionsBrowser({
     };
   }, [search, searchMode, activeSession?.cwd]);
 
-  // Handle loading more messages (scroll to top)
-  const handleLoadMore = useCallback(() => {
-    if (viewingSession && hasMoreMessages && !messagesLoading) {
-      loadMessages(viewingSession, messagesOffset);
-    }
-  }, [viewingSession, hasMoreMessages, messagesLoading, messagesOffset, loadMessages]);
-
-  // Handle scroll for lazy loading
-  const handleMessagesScroll = useCallback(() => {
-    const container = messagesContainerRef.current;
-    if (!container) return;
-
-    // Load more when scrolled near top
-    if (container.scrollTop < 100 && hasMoreMessages && !messagesLoading) {
-      const prevScrollHeight = container.scrollHeight;
-      handleLoadMore();
-
-      // Maintain scroll position after loading
-      requestAnimationFrame(() => {
-        if (container) {
-          container.scrollTop = container.scrollHeight - prevScrollHeight;
-        }
-      });
-    }
-  }, [hasMoreMessages, messagesLoading, handleLoadMore]);
-
-  // Helper to check if a session should be visible based on filters
-  const isSessionVisible = useCallback((session: ClaudeSession) => {
-    // Named only filter - if enabled, only show sessions with a custom name
-    if (namedOnly && !session.sessionName) {
-      return false;
-    }
-    if (showAllSessions) return true;
-    // Hide sessions that start with "agent-" (only show UUID-style sessions by default)
-    return !session.sessionId.startsWith('agent-');
-  }, [showAllSessions, namedOnly]);
-
-  // Auto-load ALL remaining sessions in background after initial load
-  // This ensures full search capability and accurate stats
-  useEffect(() => {
-    if (!loading && !isLoadingMoreSessions && hasMoreSessions && sessions.length > 0) {
-      // Small delay to let UI render first, then continue loading
-      const timer = setTimeout(() => {
-        loadMoreSessions();
-      }, 50);
-      return () => clearTimeout(timer);
-    }
-  }, [loading, isLoadingMoreSessions, hasMoreSessions, sessions.length, loadMoreSessions]);
+  // Use hook for filtering and sorting sessions
+  const {
+    filteredSessions,
+    getSearchResultInfo,
+  } = useFilteredAndSortedSessions({
+    sessions,
+    search,
+    searchMode,
+    searchResults,
+    isSearching,
+    starredSessions,
+    showAllSessions,
+    namedOnly,
+  });
 
   // Stats always show totals for ALL sessions (fetched progressively from backend)
   const stats = useMemo(() => {
@@ -546,87 +376,6 @@ export function AgentSessionsBrowser({
     };
   }, [aggregateStats]);
 
-  // Format token count with K/M/B suffix (approximate)
-  const formatTokens = (tokens: number): string => {
-    if (tokens >= 1_000_000_000) return `~${Math.round(tokens / 1_000_000_000)}B`;
-    if (tokens >= 1_000_000) return `~${Math.round(tokens / 1_000_000)}M`;
-    if (tokens >= 1_000) return `~${Math.round(tokens / 1_000)}K`;
-    return tokens.toString();
-  };
-
-  // Filter sessions by search - use different strategies based on search mode
-  const filteredSessions = useMemo(() => {
-    // First filter by showAllSessions
-    const visibleSessions = sessions.filter(isSessionVisible);
-
-    // Sort starred sessions to the top, then by modified date
-    const sortWithStarred = (sessionList: ClaudeSession[]) => {
-      return [...sessionList].sort((a, b) => {
-        const aStarred = starredSessions.has(a.sessionId);
-        const bStarred = starredSessions.has(b.sessionId);
-        if (aStarred && !bStarred) return -1;
-        if (!aStarred && bStarred) return 1;
-        // Within same starred status, sort by most recent
-        return new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime();
-      });
-    };
-
-    if (!search.trim()) {
-      return sortWithStarred(visibleSessions);
-    }
-
-    // For title search, filter locally (fast) - include sessionName, sessionId (UUID), and first octet
-    if (searchMode === 'title') {
-      const searchLower = search.toLowerCase();
-      const searchUpper = search.toUpperCase();
-      const filtered = visibleSessions.filter(s => {
-        // Check firstMessage
-        if (s.firstMessage.toLowerCase().includes(searchLower)) return true;
-        // Check full sessionId (UUID)
-        if (s.sessionId.toLowerCase().includes(searchLower)) return true;
-        // Check first octet (displayed format) - e.g., "D02D0BD6"
-        const firstOctet = s.sessionId.split('-')[0].toUpperCase();
-        if (firstOctet.includes(searchUpper)) return true;
-        // Check sessionName
-        if (s.sessionName && s.sessionName.toLowerCase().includes(searchLower)) return true;
-        return false;
-      });
-      return sortWithStarred(filtered);
-    }
-
-    // For content searches, use backend results to filter sessions
-    // Also include sessions that match by sessionName, sessionId (UUID), or first octet
-    const searchLower = search.toLowerCase();
-    const searchUpper = search.toUpperCase();
-    const matchingIds = new Set(searchResults.map(r => r.sessionId));
-
-    // Add sessions that match by sessionName, sessionId (UUID), or first octet to the results
-    const filtered = visibleSessions.filter(s => {
-      // Check if matched by backend content search
-      if (matchingIds.has(s.sessionId)) return true;
-      // Check sessionName match
-      if (s.sessionName && s.sessionName.toLowerCase().includes(searchLower)) return true;
-      // Check full sessionId (UUID) match
-      if (s.sessionId.toLowerCase().includes(searchLower)) return true;
-      // Check first octet (displayed format) match - e.g., "D02D0BD6"
-      const firstOctet = s.sessionId.split('-')[0].toUpperCase();
-      if (firstOctet.includes(searchUpper)) return true;
-      return false;
-    });
-
-    if (filtered.length > 0) {
-      return sortWithStarred(filtered);
-    }
-
-    // If searching but no results yet, return empty (or all if still loading)
-    return isSearching ? sortWithStarred(visibleSessions) : [];
-  }, [sessions, search, searchMode, searchResults, isSearching, isSessionVisible, starredSessions]);
-
-  // Get search result info for a session (for display purposes)
-  const getSearchResultInfo = useCallback((sessionId: string): SearchResult | undefined => {
-    return searchResults.find(r => r.sessionId === sessionId);
-  }, [searchResults]);
-
   // Reset selected index when search changes
   useEffect(() => {
     setSelectedIndex(0);
@@ -637,8 +386,7 @@ export function AgentSessionsBrowser({
     if (viewingSession) {
       if (e.key === 'Escape') {
         e.preventDefault();
-        setViewingSession(null);
-        setMessages([]);
+        clearViewingSession();
       } else if (e.key === 'Enter') {
         // Enter in session details view resumes the session
         e.preventDefault();
@@ -690,39 +438,6 @@ export function AgentSessionsBrowser({
     onResumeSession(session.sessionId, [], session.sessionName, isStarred);
     onClose();
   }, [starredSessions, onResumeSession, onClose]);
-
-  // Format file size with proper KB/MB/GB/TB scaling
-  const formatSize = (bytes: number) => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-    if (bytes < 1024 * 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-    return `${(bytes / (1024 * 1024 * 1024 * 1024)).toFixed(1)} TB`;
-  };
-
-  // Format large numbers with k/M/B suffixes
-  const formatNumber = (num: number): string => {
-    if (num < 1000) return num.toFixed(1);
-    if (num < 1000000) return `${(num / 1000).toFixed(1)}k`;
-    if (num < 1000000000) return `${(num / 1000000).toFixed(1)}M`;
-    return `${(num / 1000000000).toFixed(1)}B`;
-  };
-
-  // Format relative time
-  const formatRelativeTime = (dateStr: string) => {
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHours / 24);
-
-    if (diffMins < 1) return 'just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-    return date.toLocaleDateString();
-  };
 
   // Activity entries for the graph - cached in state to prevent re-renders during pagination
   // Only updates when: switching TO graph view, or filters change while graph is visible
@@ -800,10 +515,7 @@ export function AgentSessionsBrowser({
           {viewingSession ? (
             <>
               <button
-                onClick={() => {
-                  setViewingSession(null);
-                  setMessages([]);
-                }}
+                onClick={clearViewingSession}
                 className="p-1.5 rounded hover:bg-white/10 transition-colors"
                 style={{ color: theme.colors.textDim }}
               >
@@ -1398,204 +1110,30 @@ export function AgentSessionsBrowser({
               </div>
             ) : (
               <div className="py-2">
-                {filteredSessions.map((session, i) => {
-                  const searchResultInfo = getSearchResultInfo(session.sessionId);
-                  const isStarred = starredSessions.has(session.sessionId);
-                  return (
-                    <div
-                      key={session.sessionId}
-                      ref={i === selectedIndex ? selectedItemRef : null}
-                      onClick={() => handleViewSession(session)}
-                      className="w-full text-left px-6 py-4 flex items-start gap-4 hover:bg-white/5 transition-colors border-b group cursor-pointer"
-                      style={{
-                        backgroundColor: i === selectedIndex ? theme.colors.accent + '15' : 'transparent',
-                        borderColor: theme.colors.border + '50',
-                      }}
-                    >
-                      {/* Star button */}
-                      <button
-                        onClick={(e) => toggleStar(session.sessionId, e)}
-                        className="p-1 -ml-1 rounded hover:bg-white/10 transition-colors shrink-0"
-                        title={isStarred ? 'Remove from favorites' : 'Add to favorites'}
-                      >
-                        <Star
-                          className="w-4 h-4"
-                          style={{
-                            color: isStarred ? theme.colors.warning : theme.colors.textDim,
-                            fill: isStarred ? theme.colors.warning : 'transparent',
-                          }}
-                        />
-                      </button>
-                      {/* Quick Resume button */}
-                      <button
-                        onClick={(e) => handleQuickResume(session, e)}
-                        className="p-1 rounded hover:bg-white/10 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
-                        title="Resume session in new tab"
-                      >
-                        <Play
-                          className="w-4 h-4"
-                          style={{ color: theme.colors.success }}
-                        />
-                      </button>
-                      <div className="flex-1 min-w-0">
-                        {/* Line 1: Session name (if available) - or inline rename input */}
-                        {renamingSessionId === session.sessionId ? (
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <input
-                              ref={renameInputRef}
-                              type="text"
-                              value={renameValue}
-                              onChange={(e) => setRenameValue(e.target.value)}
-                              onKeyDown={(e) => {
-                                e.stopPropagation();
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  submitRename(session.sessionId);
-                                } else if (e.key === 'Escape') {
-                                  e.preventDefault();
-                                  cancelRename();
-                                }
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                              onBlur={() => submitRename(session.sessionId)}
-                              placeholder="Enter session name..."
-                              className="flex-1 bg-transparent outline-none text-sm font-semibold px-2 py-0.5 rounded border min-w-0"
-                              style={{
-                                color: theme.colors.accent,
-                                borderColor: theme.colors.accent,
-                                backgroundColor: theme.colors.bgActivity,
-                              }}
-                            />
-                          </div>
-                        ) : session.sessionName ? (
-                          <div className="flex items-center gap-1.5 mb-1 group/name">
-                            <span
-                              className="font-semibold text-sm truncate"
-                              style={{ color: theme.colors.accent }}
-                            >
-                              {session.sessionName}
-                            </span>
-                            <button
-                              onClick={(e) => startRename(session, e)}
-                              className="p-0.5 rounded opacity-0 group-hover/name:opacity-100 hover:bg-white/10 transition-all"
-                              title="Rename session"
-                            >
-                              <Edit3 className="w-3 h-3" style={{ color: theme.colors.accent }} />
-                            </button>
-                          </div>
-                        ) : null}
-                        {/* Line 2: First message / title with optional rename button */}
-                        <div
-                          className={`flex items-center gap-1.5 ${session.sessionName ? 'mb-1' : 'mb-1.5'} group/title`}
-                        >
-                          <span
-                            className="font-medium truncate text-sm flex-1 min-w-0"
-                            style={{ color: session.sessionName ? theme.colors.textDim : theme.colors.textMain }}
-                          >
-                            {session.firstMessage || `Session ${session.sessionId.slice(0, 8)}...`}
-                          </span>
-                          {/* Rename button for sessions without a name (shows on hover) */}
-                          {!session.sessionName && renamingSessionId !== session.sessionId && (
-                            <button
-                              onClick={(e) => startRename(session, e)}
-                              className="p-0.5 rounded opacity-0 group-hover/title:opacity-100 hover:bg-white/10 transition-all shrink-0"
-                              title="Add session name"
-                            >
-                              <Edit3 className="w-3 h-3" style={{ color: theme.colors.textDim }} />
-                            </button>
-                          )}
-                        </div>
-                        {/* Line 2: Session origin pill + Session ID + stats + match info */}
-                        <div className="flex items-center gap-3 text-xs" style={{ color: theme.colors.textDim }}>
-                          {/* Session origin pill - shows source of session */}
-                          {session.origin === 'user' && (
-                            <span
-                              className="text-[10px] font-bold px-1.5 py-0.5 rounded"
-                              style={{ backgroundColor: theme.colors.accent + '30', color: theme.colors.accent }}
-                              title="User-initiated through Maestro"
-                            >
-                              MAESTRO
-                            </span>
-                          )}
-                          {session.origin === 'auto' && (
-                            <span
-                              className="text-[10px] font-bold px-1.5 py-0.5 rounded"
-                              style={{ backgroundColor: theme.colors.warning + '30', color: theme.colors.warning }}
-                              title="Auto-batch session through Maestro"
-                            >
-                              AUTO
-                            </span>
-                          )}
-                          {!session.origin && (
-                            <span
-                              className="text-[10px] font-bold px-1.5 py-0.5 rounded"
-                              style={{ backgroundColor: theme.colors.border, color: theme.colors.textDim }}
-                              title="Claude Code CLI session"
-                            >
-                              CLI
-                            </span>
-                          )}
-                          {/* Session ID pill */}
-                          <span
-                            className="text-[10px] font-mono px-1.5 py-0.5 rounded"
-                            style={{ backgroundColor: theme.colors.border + '60', color: theme.colors.textDim }}
-                          >
-                            {session.sessionId.startsWith('agent-')
-                              ? `AGENT-${session.sessionId.split('-')[1]?.toUpperCase() || ''}`
-                              : session.sessionId.split('-')[0].toUpperCase()}
-                          </span>
-                          {/* Stats */}
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-3 h-3" />
-                            {formatRelativeTime(session.modifiedAt)}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <MessageSquare className="w-3 h-3" />
-                            {session.messageCount}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <HardDrive className="w-3 h-3" />
-                            {formatSize(session.sizeBytes)}
-                          </span>
-                          {/* Cost per session */}
-                          {session.costUsd > 0 && (
-                            <span className="flex items-center gap-1 font-mono" style={{ color: theme.colors.success }}>
-                              <DollarSign className="w-3 h-3" />
-                              {session.costUsd.toFixed(2)}
-                            </span>
-                          )}
-                          {/* Show match count for content searches */}
-                          {searchResultInfo && searchResultInfo.matchCount > 0 && searchMode !== 'title' && (
-                            <span
-                              className="flex items-center gap-1 px-1.5 py-0.5 rounded"
-                              style={{ backgroundColor: theme.colors.accent + '20', color: theme.colors.accent }}
-                            >
-                              <Search className="w-3 h-3" />
-                              {searchResultInfo.matchCount}
-                            </span>
-                          )}
-                          {/* Show match preview for content searches */}
-                          {searchResultInfo && searchResultInfo.matchPreview && searchMode !== 'title' && (
-                            <span
-                              className="truncate italic max-w-[400px]"
-                              style={{ color: theme.colors.accent }}
-                            >
-                              "{searchResultInfo.matchPreview}"
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      {activeClaudeSessionId === session.sessionId && (
-                        <span
-                          className="text-[10px] px-2 py-0.5 rounded-full shrink-0"
-                          style={{ backgroundColor: theme.colors.success + '20', color: theme.colors.success }}
-                        >
-                          ACTIVE
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
+                {filteredSessions.map((session, i) => (
+                  <SessionListItem
+                    key={session.sessionId}
+                    session={session}
+                    index={i}
+                    selectedIndex={selectedIndex}
+                    isStarred={starredSessions.has(session.sessionId)}
+                    activeClaudeSessionId={activeClaudeSessionId}
+                    renamingSessionId={renamingSessionId}
+                    renameValue={renameValue}
+                    searchMode={searchMode}
+                    searchResultInfo={getSearchResultInfo(session.sessionId)}
+                    theme={theme}
+                    selectedItemRef={selectedItemRef}
+                    renameInputRef={renameInputRef}
+                    onSessionClick={handleViewSession}
+                    onToggleStar={toggleStar}
+                    onQuickResume={handleQuickResume}
+                    onStartRename={startRename}
+                    onRenameChange={setRenameValue}
+                    onSubmitRename={submitRename}
+                    onCancelRename={cancelRename}
+                  />
+                ))}
                 {/* Pagination indicator */}
                 {(isLoadingMoreSessions || hasMoreSessions) && !search && (
                   <div className="py-4 flex justify-center items-center">

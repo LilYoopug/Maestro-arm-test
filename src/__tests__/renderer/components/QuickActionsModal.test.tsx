@@ -1042,7 +1042,7 @@ describe('QuickActionsModal', () => {
   });
 
   describe('Markdown toggle (AI mode)', () => {
-    it('shows Show Formatted Markdown when raw mode is on', () => {
+    it('shows edit mode subtext when in edit mode', () => {
       const onToggleMarkdownEditMode = vi.fn();
       const props = createDefaultProps({
         isAiMode: true,
@@ -1051,11 +1051,11 @@ describe('QuickActionsModal', () => {
       });
       render(<QuickActionsModal {...props} />);
 
-      expect(screen.getByText('Show Formatted Markdown')).toBeInTheDocument();
-      expect(screen.getByText('Currently showing plain text')).toBeInTheDocument();
+      expect(screen.getByText('Toggle Edit/Preview')).toBeInTheDocument();
+      expect(screen.getByText('Currently in edit mode')).toBeInTheDocument();
     });
 
-    it('shows Show Raw Markdown when formatted mode is on', () => {
+    it('shows preview mode subtext when in preview mode', () => {
       const onToggleMarkdownEditMode = vi.fn();
       const props = createDefaultProps({
         isAiMode: true,
@@ -1064,8 +1064,8 @@ describe('QuickActionsModal', () => {
       });
       render(<QuickActionsModal {...props} />);
 
-      expect(screen.getByText('Show Raw Markdown')).toBeInTheDocument();
-      expect(screen.getByText('Currently showing formatted')).toBeInTheDocument();
+      expect(screen.getByText('Toggle Edit/Preview')).toBeInTheDocument();
+      expect(screen.getByText('Currently in preview mode')).toBeInTheDocument();
     });
 
     it('handles markdown toggle action', () => {
@@ -1076,7 +1076,7 @@ describe('QuickActionsModal', () => {
       });
       render(<QuickActionsModal {...props} />);
 
-      fireEvent.click(screen.getByText('Show Raw Markdown'));
+      fireEvent.click(screen.getByText('Toggle Edit/Preview'));
 
       expect(onToggleMarkdownEditMode).toHaveBeenCalled();
       expect(props.setQuickActionOpen).toHaveBeenCalledWith(false);

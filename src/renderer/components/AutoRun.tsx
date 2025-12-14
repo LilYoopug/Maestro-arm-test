@@ -1,15 +1,19 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, memo, useMemo, forwardRef, useImperativeHandle } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { Eye, Edit, Play, Square, HelpCircle, Loader2, Image, X, Search, ChevronUp, ChevronDown, ChevronRight, ChevronLeft, Copy, Check, Trash2, FolderOpen, FileText, RefreshCw, Maximize2 } from 'lucide-react';
-import type { BatchRunState, SessionState, Theme } from '../types';
+import { Eye, Edit, Play, Square, HelpCircle, Loader2, Image, X, Search, ChevronDown, ChevronRight, FolderOpen, FileText, RefreshCw, Maximize2 } from 'lucide-react';
+import type { BatchRunState, SessionState, Theme, Shortcut } from '../types';
 import { AutoRunnerHelpModal } from './AutoRunnerHelpModal';
 import { MermaidRenderer } from './MermaidRenderer';
-import { AutoRunDocumentSelector } from './AutoRunDocumentSelector';
+import { AutoRunDocumentSelector, DocumentTaskCount } from './AutoRunDocumentSelector';
+import { AutoRunLightbox } from './AutoRunLightbox';
+import { AutoRunSearchBar } from './AutoRunSearchBar';
 import { useTemplateAutocomplete } from '../hooks/useTemplateAutocomplete';
+import { useAutoRunUndo } from '../hooks/useAutoRunUndo';
+import { useAutoRunImageHandling, imageCache } from '../hooks/useAutoRunImageHandling';
 import { TemplateAutocompleteDropdown } from './TemplateAutocompleteDropdown';
+import { generateAutoRunProseStyles, createMarkdownComponents } from '../utils/markdownConfig';
+import { formatShortcutKeys } from '../utils/shortcutFormatter';
 
 // Memoize remarkPlugins array - it never changes
 const REMARK_PLUGINS = [remarkGfm];
@@ -50,6 +54,7 @@ interface AutoRunProps {
   onSelectDocument: (filename: string) => void;
   onCreateDocument: (filename: string) => Promise<boolean>;
   isLoadingDocuments?: boolean;
+  documentTaskCounts?: Map<string, DocumentTaskCount>;  // Task counts per document path
 
   // Batch processing props
   batchRunState?: BatchRunState;
@@ -62,6 +67,9 @@ interface AutoRunProps {
   // Expand to modal callback
   onExpand?: () => void;
 
+  // Shortcuts for displaying hotkey hints
+  shortcuts?: Record<string, Shortcut>;
+
   // Hide top controls (when rendered in expanded modal with controls in header)
   hideTopControls?: boolean;
 
@@ -71,19 +79,11 @@ interface AutoRunProps {
 
 export interface AutoRunHandle {
   focus: () => void;
+  switchMode: (mode: 'edit' | 'preview') => void;
+  isDirty: () => boolean;
+  save: () => Promise<void>;
+  revert: () => void;
 }
-
-// Cache for loaded images to avoid repeated IPC calls
-const imageCache = new Map<string, string>();
-
-// Undo/Redo state interface
-interface UndoState {
-  content: string;
-  cursorPosition: number;
-}
-
-// Maximum undo history entries per document
-const MAX_UNDO_HISTORY = 50;
 
 // Custom image component that loads images from the Auto Run folder or external URLs
 function AttachmentImage({
@@ -388,11 +388,13 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
   onSelectDocument,
   onCreateDocument,
   isLoadingDocuments = false,
+  documentTaskCounts,
   batchRunState,
   onOpenBatchRunner,
   onStopBatchRun,
   sessionState,
   onExpand,
+  shortcuts,
   hideTopControls = false,
   onChange,  // Legacy prop for backwards compatibility
 }, ref) {
@@ -414,249 +416,60 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
   // Use onContentChange if provided, otherwise fall back to legacy onChange
   const handleContentChange = onContentChange || onChange || (() => {});
 
-  // Local content state for responsive typing - syncs to parent on blur
+  // Local content state for responsive typing
   const [localContent, setLocalContent] = useState(content);
+
+  // Track the saved content to detect dirty state (unsaved changes)
+  const [savedContent, setSavedContent] = useState(content);
+
+  // Dirty state: true when localContent differs from savedContent
+  const isDirty = localContent !== savedContent;
+
+  // Track previous session/document to detect switches
   const prevSessionIdRef = useRef(sessionId);
-  // Track if user is actively editing (to avoid overwriting their changes)
-  const isEditingRef = useRef(false);
-
-  // Auto-save timer ref for 5-second debounce
-  const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Track the last saved content to avoid unnecessary saves
-  const lastSavedContentRef = useRef<string>(content);
-
-  // Undo/Redo history maps - keyed by document filename (selectedFile)
-  // Using refs so history persists across re-renders without triggering re-renders
-  const undoHistoryRef = useRef<Map<string, UndoState[]>>(new Map());
-  const redoHistoryRef = useRef<Map<string, UndoState[]>>(new Map());
-  // Track last content that was snapshotted for undo
-  const lastUndoSnapshotRef = useRef<string>(content);
-  // Timer ref for debounced undo snapshots
-  const undoSnapshotTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Push current state to undo history (call BEFORE making changes)
-  const pushUndoState = useCallback((contentToSnapshot?: string, cursorPos?: number) => {
-    if (!selectedFile) return;
-
-    const snapshotContent = contentToSnapshot ?? localContent;
-    const snapshotCursor = cursorPos ?? textareaRef.current?.selectionStart ?? 0;
-
-    // Only push if content actually differs from last snapshot
-    if (snapshotContent === lastUndoSnapshotRef.current) return;
-
-    const currentState: UndoState = {
-      content: snapshotContent,
-      cursorPosition: snapshotCursor,
-    };
-
-    // Get or create history array for this document
-    const history = undoHistoryRef.current.get(selectedFile) || [];
-    history.push(currentState);
-
-    // Limit to MAX_UNDO_HISTORY entries
-    if (history.length > MAX_UNDO_HISTORY) {
-      history.shift();
-    }
-
-    undoHistoryRef.current.set(selectedFile, history);
-
-    // Update last snapshot reference
-    lastUndoSnapshotRef.current = snapshotContent;
-
-    // Clear redo stack on new edit action
-    redoHistoryRef.current.set(selectedFile, []);
-  }, [selectedFile, localContent]);
-
-  // Schedule a debounced undo snapshot (called on each content change)
-  const scheduleUndoSnapshot = useCallback((previousContent: string, previousCursor: number) => {
-    // Clear any pending snapshot
-    if (undoSnapshotTimeoutRef.current) {
-      clearTimeout(undoSnapshotTimeoutRef.current);
-    }
-
-    // Schedule snapshot after 1 second of inactivity
-    undoSnapshotTimeoutRef.current = setTimeout(() => {
-      pushUndoState(previousContent, previousCursor);
-    }, 1000);
-  }, [pushUndoState]);
-
-  // Handle undo (Cmd+Z)
-  const handleUndo = useCallback(() => {
-    if (!selectedFile) return;
-
-    const undoStack = undoHistoryRef.current.get(selectedFile) || [];
-    if (undoStack.length === 0) return;
-
-    // Save current state to redo stack before undoing
-    const redoStack = redoHistoryRef.current.get(selectedFile) || [];
-    redoStack.push({
-      content: localContent,
-      cursorPosition: textareaRef.current?.selectionStart || 0,
-    });
-    redoHistoryRef.current.set(selectedFile, redoStack);
-
-    // Pop and apply the undo state
-    const prevState = undoStack.pop()!;
-    undoHistoryRef.current.set(selectedFile, undoStack);
-
-    // Update content without pushing to undo stack
-    setLocalContent(prevState.content);
-    lastUndoSnapshotRef.current = prevState.content;
-
-    // Restore cursor position after React re-renders
-    requestAnimationFrame(() => {
-      if (textareaRef.current) {
-        textareaRef.current.setSelectionRange(prevState.cursorPosition, prevState.cursorPosition);
-        textareaRef.current.focus();
-      }
-    });
-  }, [selectedFile, localContent]);
-
-  // Handle redo (Cmd+Shift+Z)
-  const handleRedo = useCallback(() => {
-    if (!selectedFile) return;
-
-    const redoStack = redoHistoryRef.current.get(selectedFile) || [];
-    if (redoStack.length === 0) return;
-
-    // Save current state to undo stack before redoing
-    const undoStack = undoHistoryRef.current.get(selectedFile) || [];
-    undoStack.push({
-      content: localContent,
-      cursorPosition: textareaRef.current?.selectionStart || 0,
-    });
-    undoHistoryRef.current.set(selectedFile, undoStack);
-
-    // Pop and apply the redo state
-    const nextState = redoStack.pop()!;
-    redoHistoryRef.current.set(selectedFile, redoStack);
-
-    // Update content without pushing to undo stack
-    setLocalContent(nextState.content);
-    lastUndoSnapshotRef.current = nextState.content;
-
-    // Restore cursor position after React re-renders
-    requestAnimationFrame(() => {
-      if (textareaRef.current) {
-        textareaRef.current.setSelectionRange(nextState.cursorPosition, nextState.cursorPosition);
-        textareaRef.current.focus();
-      }
-    });
-  }, [selectedFile, localContent]);
-
-  // Track content prop to detect external changes (for session switch sync)
-  const prevContentForSyncRef = useRef(content);
-  // Track contentVersion to detect external file changes (from disk watcher)
+  const prevSelectedFileRef = useRef(selectedFile);
   const prevContentVersionRef = useRef(contentVersion);
 
-  // Sync local content from prop when session changes (switching sessions)
-  // or when content changes externally (e.g., switching documents, batch run modifying tasks)
-  // or when file changes on disk (contentVersion increments)
+  // Sync local content when session/document changes or external file changes
   useEffect(() => {
     const sessionChanged = sessionId !== prevSessionIdRef.current;
-    const contentChanged = content !== prevContentForSyncRef.current;
+    const documentChanged = selectedFile !== prevSelectedFileRef.current;
     const versionChanged = contentVersion !== prevContentVersionRef.current;
 
-    if (sessionChanged) {
-      // Reset editing flag so content can sync properly when returning to this session
-      isEditingRef.current = false;
+    if (sessionChanged || documentChanged || versionChanged) {
+      // Reset to the new content from props (discard any unsaved changes)
       setLocalContent(content);
+      setSavedContent(content);
       prevSessionIdRef.current = sessionId;
-      prevContentForSyncRef.current = content;
+      prevSelectedFileRef.current = selectedFile;
       prevContentVersionRef.current = contentVersion;
-    } else if (versionChanged) {
-      // External file change detected (disk watcher) - force sync regardless of editing state
-      // This is authoritative - the file on disk is the source of truth
-      isEditingRef.current = false;
-      setLocalContent(content);
-      prevContentForSyncRef.current = content;
-      prevContentVersionRef.current = contentVersion;
-      // Also update lastSavedContentRef to prevent auto-save from overwriting
-      lastSavedContentRef.current = content;
-    } else if (contentChanged && !isEditingRef.current) {
-      // Content changed externally (document switch, batch run, etc.) - sync if not editing
-      setLocalContent(content);
-      prevContentForSyncRef.current = content;
     }
-  }, [sessionId, content, contentVersion]);
+  }, [sessionId, selectedFile, contentVersion, content]);
 
-  // Sync local content to parent on blur
-  const syncContentToParent = useCallback(() => {
-    isEditingRef.current = false;
-    if (localContent !== content) {
-      handleContentChange(localContent);
+  // Save function - writes to disk
+  // Note: We do NOT call handleContentChange here because it would update the
+  // activeSession's content, which may be a different session than the one we're
+  // editing (during rapid session switches). The file watcher will pick up the
+  // change and update the correct session's content.
+  const handleSave = useCallback(async () => {
+    if (!folderPath || !selectedFile || !isDirty) return;
+
+    try {
+      await window.maestro.autorun.writeDoc(folderPath, selectedFile + '.md', localContent);
+      setSavedContent(localContent);
+    } catch (err) {
+      console.error('Failed to save:', err);
     }
-  }, [localContent, content, handleContentChange]);
+  }, [folderPath, selectedFile, localContent, isDirty]);
 
-  // Auto-save to disk with 5-second debounce
-  useEffect(() => {
-    // Only save if we have a folder and selected file
-    if (!folderPath || !selectedFile) return;
-
-    // Never auto-save empty content - this prevents wiping files during load
-    if (!localContent) return;
-
-    // Only save if content has actually changed from last saved
-    if (localContent === lastSavedContentRef.current) return;
-
-    // Clear any existing timeout
-    if (autoSaveTimeoutRef.current) {
-      clearTimeout(autoSaveTimeoutRef.current);
-    }
-
-    // Schedule save after 5 seconds of inactivity
-    autoSaveTimeoutRef.current = setTimeout(async () => {
-      // Double-check content hasn't been externally synced
-      if (localContent !== lastSavedContentRef.current) {
-        try {
-          await window.maestro.autorun.writeDoc(folderPath, selectedFile + '.md', localContent);
-          lastSavedContentRef.current = localContent;
-          // Also sync to parent state so UI stays consistent
-          handleContentChange(localContent);
-        } catch (err) {
-          console.error('Auto-save failed:', err);
-        }
-      }
-    }, 5000);
-
-    // Cleanup on unmount or when dependencies change
-    return () => {
-      if (autoSaveTimeoutRef.current) {
-        clearTimeout(autoSaveTimeoutRef.current);
-      }
-    };
-  }, [localContent, folderPath, selectedFile, handleContentChange]);
-
-  // Clear auto-save timer and update lastSavedContent when document changes (session or file change)
-  useEffect(() => {
-    // Clear pending auto-save when document changes
-    if (autoSaveTimeoutRef.current) {
-      clearTimeout(autoSaveTimeoutRef.current);
-      autoSaveTimeoutRef.current = null;
-    }
-    // Clear pending undo snapshot when document changes
-    if (undoSnapshotTimeoutRef.current) {
-      clearTimeout(undoSnapshotTimeoutRef.current);
-      undoSnapshotTimeoutRef.current = null;
-    }
-    // Reset lastSavedContent to the new content
-    lastSavedContentRef.current = content;
-    // Reset lastUndoSnapshot to the new content (so first edit creates a proper undo point)
-    lastUndoSnapshotRef.current = content;
-  }, [selectedFile, sessionId, content]);
+  // Revert function - discard changes
+  const handleRevert = useCallback(() => {
+    setLocalContent(savedContent);
+  }, [savedContent]);
 
   // Track mode before auto-run to restore when it ends
   const modeBeforeAutoRunRef = useRef<'edit' | 'preview' | null>(null);
   const [helpModalOpen, setHelpModalOpen] = useState(false);
-  // Lightbox state: stores the filename/URL of the currently viewed image (null = closed)
-  const [lightboxFilename, setLightboxFilename] = useState<string | null>(null);
-  // For external URLs, store the direct URL separately (attachments use attachmentPreviews)
-  const [lightboxExternalUrl, setLightboxExternalUrl] = useState<string | null>(null);
-  const [lightboxCopied, setLightboxCopied] = useState(false);
-  const [attachmentsList, setAttachmentsList] = useState<string[]>([]);
-  const [attachmentPreviews, setAttachmentPreviews] = useState<Map<string, string>>(new Map());
-  const [attachmentsExpanded, setAttachmentsExpanded] = useState(true);
   // Search state
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -665,11 +478,9 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
   const matchElementsRef = useRef<HTMLElement[]>([]);
   // Refresh animation state for empty state button
   const [isRefreshingEmpty, setIsRefreshingEmpty] = useState(false);
-  const searchInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   // Track scroll positions in refs to preserve across re-renders
   const previewScrollPosRef = useRef(initialPreviewScrollPos);
   const editScrollPosRef = useRef(initialEditScrollPos);
@@ -688,7 +499,106 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
     onChange: setLocalContent,
   });
 
-  // Expose focus method to parent via ref
+  // Undo/Redo functionality hook
+  const {
+    pushUndoState,
+    scheduleUndoSnapshot,
+    handleUndo,
+    handleRedo,
+    resetUndoHistory,
+    lastUndoSnapshotRef,
+  } = useAutoRunUndo({
+    selectedFile,
+    localContent,
+    setLocalContent,
+    textareaRef,
+  });
+
+  // Reset undo history when document changes (session or file change)
+  useEffect(() => {
+    // Reset undo history snapshot to the new content (so first edit creates a proper undo point)
+    resetUndoHistory(content);
+  }, [selectedFile, sessionId, content, resetUndoHistory]);
+
+  // Image handling hook (attachments, paste, upload, lightbox)
+  const {
+    attachmentsList,
+    attachmentPreviews,
+    attachmentsExpanded,
+    setAttachmentsExpanded,
+    lightboxFilename,
+    lightboxExternalUrl,
+    fileInputRef,
+    handlePaste,
+    handleFileSelect,
+    handleRemoveAttachment,
+    openLightboxByFilename,
+    closeLightbox,
+    handleLightboxNavigate,
+    handleLightboxDelete,
+  } = useAutoRunImageHandling({
+    folderPath,
+    selectedFile,
+    localContent,
+    setLocalContent,
+    handleContentChange,
+    isLocked,
+    textareaRef,
+    pushUndoState,
+    lastUndoSnapshotRef,
+  });
+
+  // Switch mode with scroll position synchronization
+  const switchMode = useCallback((newMode: 'edit' | 'preview') => {
+    if (newMode === mode) return;
+
+    // Calculate scroll percentage from current mode to apply to new mode
+    let scrollPercent = 0;
+    if (mode === 'edit' && textareaRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = textareaRef.current;
+      const maxScroll = scrollHeight - clientHeight;
+      scrollPercent = maxScroll > 0 ? scrollTop / maxScroll : 0;
+    } else if (mode === 'preview' && previewRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = previewRef.current;
+      const maxScroll = scrollHeight - clientHeight;
+      scrollPercent = maxScroll > 0 ? scrollTop / maxScroll : 0;
+    }
+
+    setMode(newMode);
+
+    // Apply scroll percentage to the new mode after it renders
+    requestAnimationFrame(() => {
+      if (newMode === 'preview' && previewRef.current) {
+        const { scrollHeight, clientHeight } = previewRef.current;
+        const maxScroll = scrollHeight - clientHeight;
+        const newScrollTop = Math.round(scrollPercent * maxScroll);
+        previewRef.current.scrollTop = newScrollTop;
+        previewScrollPosRef.current = newScrollTop;
+      } else if (newMode === 'edit' && textareaRef.current) {
+        const { scrollHeight, clientHeight } = textareaRef.current;
+        const maxScroll = scrollHeight - clientHeight;
+        const newScrollTop = Math.round(scrollPercent * maxScroll);
+        textareaRef.current.scrollTop = newScrollTop;
+        editScrollPosRef.current = newScrollTop;
+      }
+    });
+
+    if (onStateChange) {
+      onStateChange({
+        mode: newMode,
+        cursorPosition: textareaRef.current?.selectionStart || 0,
+        editScrollPos: textareaRef.current?.scrollTop || 0,
+        previewScrollPos: previewRef.current?.scrollTop || 0
+      });
+    }
+  }, [mode, onStateChange]);
+
+  // Toggle between edit and preview modes
+  const toggleMode = useCallback(() => {
+    switchMode(mode === 'edit' ? 'preview' : 'edit');
+  }, [mode, switchMode]);
+
+  // Expose methods to parent via ref
   useImperativeHandle(ref, () => ({
     focus: () => {
       // Focus the appropriate element based on current mode
@@ -697,36 +607,12 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
       } else if (mode === 'preview' && previewRef.current) {
         previewRef.current.focus();
       }
-    }
-  }), [mode]);
-
-  // Load existing images for the current document from the Auto Run folder
-  useEffect(() => {
-    if (folderPath && selectedFile) {
-      window.maestro.autorun.listImages(folderPath, selectedFile).then((result: { success: boolean; images?: { filename: string; relativePath: string }[]; error?: string }) => {
-        if (result.success && result.images) {
-          // Store relative paths (e.g., "images/{docName}-{timestamp}.{ext}")
-          const relativePaths = result.images.map((img: { filename: string; relativePath: string }) => img.relativePath);
-          setAttachmentsList(relativePaths);
-          // Load previews for existing images
-          result.images.forEach((img: { filename: string; relativePath: string }) => {
-            const absolutePath = `${folderPath}/${img.relativePath}`;
-            window.maestro.fs.readFile(absolutePath).then(dataUrl => {
-              if (dataUrl.startsWith('data:')) {
-                setAttachmentPreviews(prev => new Map(prev).set(img.relativePath, dataUrl));
-              }
-            }).catch(() => {
-              // Image file might be missing, ignore
-            });
-          });
-        }
-      });
-    } else {
-      // Clear attachments when no document is selected
-      setAttachmentsList([]);
-      setAttachmentPreviews(new Map());
-    }
-  }, [folderPath, selectedFile]);
+    },
+    switchMode,
+    isDirty: () => isDirty,
+    save: handleSave,
+    revert: handleRevert,
+  }), [mode, switchMode, isDirty, handleSave, handleRevert]);
 
   // Auto-switch to preview mode when auto-run starts, restore when it ends
   useEffect(() => {
@@ -767,21 +653,6 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
     }
   }, [localContent, mode, searchOpen, searchQuery]);
 
-  // Notify parent when mode changes
-  const toggleMode = () => {
-    const newMode = mode === 'edit' ? 'preview' : 'edit';
-    setMode(newMode);
-
-    if (onStateChange) {
-      onStateChange({
-        mode: newMode,
-        cursorPosition: textareaRef.current?.selectionStart || 0,
-        editScrollPos: textareaRef.current?.scrollTop || 0,
-        previewScrollPos: previewRef.current?.scrollTop || 0
-      });
-    }
-  };
-
   // Auto-focus the active element after mode change
   useEffect(() => {
     if (mode === 'edit' && textareaRef.current) {
@@ -791,23 +662,17 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
     }
   }, [mode]);
 
-  // Track previous selectedFile to detect document changes
-  const prevSelectedFileRef = useRef(selectedFile);
-  // Track previous content to detect when content prop actually changes
-  const prevContentRef = useRef(content);
-
-  // Handle document selection change - focus and reset editing state
+  // Handle document selection change - focus the appropriate element
+  // Note: Content syncing and editing state reset is handled by the main sync effect above
+  // This effect ONLY handles focusing on document change
+  const prevFocusSelectedFileRef = useRef(selectedFile);
   useEffect(() => {
     if (!selectedFile) return;
 
-    const isNewDocument = selectedFile !== prevSelectedFileRef.current;
-    prevSelectedFileRef.current = selectedFile;
+    const isNewDocument = selectedFile !== prevFocusSelectedFileRef.current;
+    prevFocusSelectedFileRef.current = selectedFile;
 
     if (isNewDocument) {
-      // Reset editing flag so content syncs properly for new document
-      isEditingRef.current = false;
-      // Reset lastSavedContent to prevent auto-save from firing with stale comparison
-      lastSavedContentRef.current = content;
       // Focus on document change
       requestAnimationFrame(() => {
         if (mode === 'edit' && textareaRef.current) {
@@ -817,27 +682,7 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
         }
       });
     }
-  }, [selectedFile, content, mode]);
-
-  // Sync content from prop - only when content prop actually changes
-  useEffect(() => {
-    // Skip if no document selected
-    if (!selectedFile) return;
-
-    // Only sync when the content PROP actually changed (not just a re-render)
-    const contentPropChanged = content !== prevContentRef.current;
-    prevContentRef.current = content;
-
-    if (!contentPropChanged) return;
-
-    // Skip if user is actively editing - don't overwrite their changes
-    if (isEditingRef.current) return;
-
-    // Content prop changed - sync to local state
-    setLocalContent(content);
-    // Update lastSavedContent so auto-save knows this is the baseline
-    lastSavedContentRef.current = content;
-  }, [selectedFile, content]);
+  }, [selectedFile, mode]);
 
   // Save cursor position and scroll position when they change
   const handleCursorOrScrollChange = () => {
@@ -884,7 +729,6 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
   // Open search function
   const openSearch = useCallback(() => {
     setSearchOpen(true);
-    setTimeout(() => searchInputRef.current?.focus(), 0);
   }, []);
 
   // Close search function
@@ -990,277 +834,6 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
     }
   }, [currentMatchIndex, searchOpen, searchQuery, totalMatches, mode, localContent]);
 
-  // Handle image paste
-  const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
-    if (isLocked || !folderPath || !selectedFile) {
-      console.log('[AutoRun] Paste blocked:', { isLocked, folderPath, selectedFile });
-      return;
-    }
-
-    const items = e.clipboardData?.items;
-    if (!items) {
-      console.log('[AutoRun] No clipboard items');
-      return;
-    }
-
-    console.log('[AutoRun] Clipboard items:', items.length);
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      console.log('[AutoRun] Item', i, ':', item.type);
-      if (item.type.startsWith('image/')) {
-        e.preventDefault();
-
-        const file = item.getAsFile();
-        if (!file) {
-          console.log('[AutoRun] Could not get file from item');
-          continue;
-        }
-
-        console.log('[AutoRun] Processing image:', file.name, file.type, file.size);
-
-        // Read as base64
-        const reader = new FileReader();
-        reader.onload = async (event) => {
-          const base64Data = event.target?.result as string;
-          if (!base64Data) {
-            console.log('[AutoRun] No base64 data');
-            return;
-          }
-
-          // Extract the base64 content without the data URL prefix
-          const base64Content = base64Data.replace(/^data:image\/\w+;base64,/, '');
-          const extension = item.type.split('/')[1] || 'png';
-
-          console.log('[AutoRun] Saving image to:', folderPath, 'doc:', selectedFile, 'ext:', extension);
-
-          // Save to Auto Run folder using the new API
-          const result = await window.maestro.autorun.saveImage(folderPath, selectedFile, base64Content, extension);
-          console.log('[AutoRun] Save result:', result);
-          if (result.success && result.relativePath) {
-            // Update attachments list with the relative path
-            const filename = result.relativePath.split('/').pop() || result.relativePath;
-            setAttachmentsList(prev => [...prev, result.relativePath!]);
-            setAttachmentPreviews(prev => new Map(prev).set(result.relativePath!, base64Data));
-
-            // Insert markdown reference at cursor position using relative path
-            const textarea = textareaRef.current;
-            if (textarea) {
-              const cursorPos = textarea.selectionStart;
-              const textBefore = localContent.substring(0, cursorPos);
-              const textAfter = localContent.substring(cursorPos);
-              const imageMarkdown = `![${filename}](${result.relativePath})`;
-
-              // Push undo state before modifying content
-              pushUndoState();
-
-              // Add newlines if not at start of line
-              let prefix = '';
-              let suffix = '';
-              if (textBefore.length > 0 && !textBefore.endsWith('\n')) {
-                prefix = '\n';
-              }
-              if (textAfter.length > 0 && !textAfter.startsWith('\n')) {
-                suffix = '\n';
-              }
-
-              const newContent = textBefore + prefix + imageMarkdown + suffix + textAfter;
-              // Update local state and sync to parent immediately for explicit user action
-              setLocalContent(newContent);
-              handleContentChange(newContent);
-              lastUndoSnapshotRef.current = newContent;
-
-              // Move cursor after the inserted markdown
-              const newCursorPos = cursorPos + prefix.length + imageMarkdown.length + suffix.length;
-              setTimeout(() => {
-                textarea.setSelectionRange(newCursorPos, newCursorPos);
-                textarea.focus();
-              }, 0);
-            }
-          }
-        };
-        reader.readAsDataURL(file);
-        break; // Only handle first image
-      }
-    }
-  }, [localContent, isLocked, handleContentChange, folderPath, selectedFile, pushUndoState]);
-
-  // Handle file input for manual image upload
-  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !folderPath || !selectedFile) return;
-
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const base64Data = event.target?.result as string;
-      if (!base64Data) return;
-
-      // Extract the base64 content without the data URL prefix
-      const base64Content = base64Data.replace(/^data:image\/\w+;base64,/, '');
-      const extension = file.name.split('.').pop() || 'png';
-
-      // Save to Auto Run folder using the new API
-      const result = await window.maestro.autorun.saveImage(folderPath, selectedFile, base64Content, extension);
-      if (result.success && result.relativePath) {
-        const filename = result.relativePath.split('/').pop() || result.relativePath;
-        setAttachmentsList(prev => [...prev, result.relativePath!]);
-        setAttachmentPreviews(prev => new Map(prev).set(result.relativePath!, base64Data));
-
-        // Push undo state before modifying content
-        pushUndoState();
-
-        // Insert at end of content - update local and sync to parent immediately
-        const imageMarkdown = `\n![${filename}](${result.relativePath})\n`;
-        const newContent = localContent + imageMarkdown;
-        setLocalContent(newContent);
-        handleContentChange(newContent);
-        lastUndoSnapshotRef.current = newContent;
-      }
-    };
-    reader.readAsDataURL(file);
-
-    // Reset input so same file can be selected again
-    e.target.value = '';
-  }, [localContent, handleContentChange, folderPath, selectedFile, pushUndoState]);
-
-  // Handle removing an attachment (relativePath is like "images/{docName}-{timestamp}.{ext}")
-  const handleRemoveAttachment = useCallback(async (relativePath: string) => {
-    if (!folderPath) return;
-
-    // Delete the image file
-    await window.maestro.autorun.deleteImage(folderPath, relativePath);
-    setAttachmentsList(prev => prev.filter(f => f !== relativePath));
-    setAttachmentPreviews(prev => {
-      const newMap = new Map(prev);
-      newMap.delete(relativePath);
-      return newMap;
-    });
-
-    // Push undo state before modifying content
-    pushUndoState();
-
-    // Extract just the filename for the alt text pattern
-    const filename = relativePath.split('/').pop() || relativePath;
-    // Remove the markdown reference from content - update local and sync to parent immediately
-    // Match both the full relative path and just filename in the alt text
-    const escapedPath = relativePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const escapedFilename = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(`!\\[${escapedFilename}\\]\\(${escapedPath}\\)\\n?`, 'g');
-    const newContent = localContent.replace(regex, '');
-    setLocalContent(newContent);
-    handleContentChange(newContent);
-    lastUndoSnapshotRef.current = newContent;
-
-    // Clear from cache
-    imageCache.delete(`${folderPath}:${relativePath}`);
-  }, [localContent, handleContentChange, folderPath, pushUndoState]);
-
-  // Lightbox helpers - handles both attachment filenames and external URLs
-  const openLightboxByFilename = useCallback((filenameOrUrl: string) => {
-    // Check if it's an external URL (http/https/data:)
-    if (filenameOrUrl.startsWith('http://') || filenameOrUrl.startsWith('https://') || filenameOrUrl.startsWith('data:')) {
-      setLightboxExternalUrl(filenameOrUrl);
-      setLightboxFilename(filenameOrUrl); // Use URL as display name
-    } else {
-      // It's an attachment filename
-      setLightboxExternalUrl(null);
-      setLightboxFilename(filenameOrUrl);
-    }
-    setLightboxCopied(false);
-  }, []);
-
-  const closeLightbox = useCallback(() => {
-    setLightboxFilename(null);
-    setLightboxExternalUrl(null);
-    setLightboxCopied(false);
-  }, []);
-
-  const lightboxCurrentIndex = lightboxFilename ? attachmentsList.indexOf(lightboxFilename) : -1;
-  const canNavigateLightbox = attachmentsList.length > 1;
-
-  const goToPrevImage = useCallback(() => {
-    if (canNavigateLightbox) {
-      const newIndex = lightboxCurrentIndex > 0 ? lightboxCurrentIndex - 1 : attachmentsList.length - 1;
-      setLightboxFilename(attachmentsList[newIndex]);
-      setLightboxCopied(false);
-    }
-  }, [canNavigateLightbox, lightboxCurrentIndex, attachmentsList]);
-
-  const goToNextImage = useCallback(() => {
-    if (canNavigateLightbox) {
-      const newIndex = lightboxCurrentIndex < attachmentsList.length - 1 ? lightboxCurrentIndex + 1 : 0;
-      setLightboxFilename(attachmentsList[newIndex]);
-      setLightboxCopied(false);
-    }
-  }, [canNavigateLightbox, lightboxCurrentIndex, attachmentsList]);
-
-  const copyLightboxImageToClipboard = useCallback(async () => {
-    if (!lightboxFilename) return;
-
-    // Get image URL from external URL or attachment previews
-    const imageUrl = lightboxExternalUrl || attachmentPreviews.get(lightboxFilename);
-    if (!imageUrl) return;
-
-    try {
-      const response = await fetch(imageUrl);
-      const blob = await response.blob();
-      await navigator.clipboard.write([
-        new ClipboardItem({ [blob.type]: blob })
-      ]);
-      setLightboxCopied(true);
-      setTimeout(() => setLightboxCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy image to clipboard:', err);
-    }
-  }, [lightboxFilename, lightboxExternalUrl, attachmentPreviews]);
-
-  const deleteLightboxImage = useCallback(async () => {
-    if (!lightboxFilename || !folderPath) return;
-
-    // Store the current index before deletion
-    const currentIndex = lightboxCurrentIndex;
-    const totalImages = attachmentsList.length;
-
-    // Delete the image file using autorun API
-    await window.maestro.autorun.deleteImage(folderPath, lightboxFilename);
-    setAttachmentsList(prev => prev.filter(f => f !== lightboxFilename));
-    setAttachmentPreviews(prev => {
-      const newMap = new Map(prev);
-      newMap.delete(lightboxFilename);
-      return newMap;
-    });
-
-    // Push undo state before modifying content
-    pushUndoState();
-
-    // Extract just the filename for the alt text pattern
-    const filename = lightboxFilename.split('/').pop() || lightboxFilename;
-    // Remove the markdown reference from content - update local and sync to parent immediately
-    const escapedPath = lightboxFilename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const escapedFilename = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(`!\\[${escapedFilename}\\]\\(${escapedPath}\\)\\n?`, 'g');
-    const newContent = localContent.replace(regex, '');
-    setLocalContent(newContent);
-    handleContentChange(newContent);
-    lastUndoSnapshotRef.current = newContent;
-
-    // Clear from cache
-    imageCache.delete(`${folderPath}:${lightboxFilename}`);
-
-    // Navigate to next/prev image or close lightbox
-    if (totalImages <= 1) {
-      // No more images, close lightbox
-      closeLightbox();
-    } else if (currentIndex >= totalImages - 1) {
-      // Was last image, go to previous
-      const newList = attachmentsList.filter(f => f !== lightboxFilename);
-      setLightboxFilename(newList[newList.length - 1] || null);
-    } else {
-      // Go to next image (same index in new list)
-      const newList = attachmentsList.filter(f => f !== lightboxFilename);
-      setLightboxFilename(newList[currentIndex] || null);
-    }
-  }, [lightboxFilename, lightboxCurrentIndex, attachmentsList, folderPath, localContent, handleContentChange, closeLightbox, pushUndoState]);
-
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Let template autocomplete handle keys first
     if (handleAutocompleteKeyDown(e)) {
@@ -1301,8 +874,19 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
       return;
     }
 
-    // Command-E to toggle between edit and preview
-    if ((e.metaKey || e.ctrlKey) && e.key === 'e') {
+    // Cmd+S to save
+    if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+      e.preventDefault();
+      e.stopPropagation();
+      if (isDirty) {
+        handleSave();
+      }
+      return;
+    }
+
+    // Command-E to toggle between edit and preview (without Shift)
+    // Cmd+Shift+E is allowed to propagate to global handler for "Toggle Auto Run Expanded"
+    if ((e.metaKey || e.ctrlKey) && e.key === 'e' && !e.shiftKey) {
       e.preventDefault();
       e.stopPropagation();
       toggleMode();
@@ -1424,113 +1008,46 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
   };
 
   // Memoize prose CSS styles - only regenerate when theme changes
-  const proseStyles = useMemo(() => `
-    .prose h1 { color: ${theme.colors.textMain}; font-size: 2em; font-weight: bold; margin: 0.67em 0; }
-    .prose h2 { color: ${theme.colors.textMain}; font-size: 1.5em; font-weight: bold; margin: 0.75em 0; }
-    .prose h3 { color: ${theme.colors.textMain}; font-size: 1.17em; font-weight: bold; margin: 0.83em 0; }
-    .prose h4 { color: ${theme.colors.textMain}; font-size: 1em; font-weight: bold; margin: 1em 0; }
-    .prose h5 { color: ${theme.colors.textMain}; font-size: 0.83em; font-weight: bold; margin: 1.17em 0; }
-    .prose h6 { color: ${theme.colors.textMain}; font-size: 0.67em; font-weight: bold; margin: 1.33em 0; }
-    .prose p { color: ${theme.colors.textMain}; margin: 0.5em 0; }
-    .prose ul, .prose ol { color: ${theme.colors.textMain}; margin: 0.5em 0; padding-left: 1.5em; }
-    .prose ul { list-style-type: disc; }
-    .prose ol { list-style-type: decimal; }
-    .prose li { margin: 0.25em 0; display: list-item; }
-    .prose li::marker { color: ${theme.colors.textMain}; }
-    .prose li:has(> input[type="checkbox"]) { list-style: none; margin-left: -1.5em; }
-    .prose code { background-color: ${theme.colors.bgActivity}; color: ${theme.colors.textMain}; padding: 0.2em 0.4em; border-radius: 3px; font-size: 0.9em; }
-    .prose pre { background-color: ${theme.colors.bgActivity}; color: ${theme.colors.textMain}; padding: 1em; border-radius: 6px; overflow-x: auto; }
-    .prose pre code { background: none; padding: 0; }
-    .prose blockquote { border-left: 4px solid ${theme.colors.border}; padding-left: 1em; margin: 0.5em 0; color: ${theme.colors.textDim}; }
-    .prose a { color: ${theme.colors.accent}; text-decoration: underline; }
-    .prose hr { border: none; border-top: 2px solid ${theme.colors.border}; margin: 1em 0; }
-    .prose table { border-collapse: collapse; width: 100%; margin: 0.5em 0; }
-    .prose th, .prose td { border: 1px solid ${theme.colors.border}; padding: 0.5em; text-align: left; }
-    .prose th { background-color: ${theme.colors.bgActivity}; font-weight: bold; }
-    .prose strong { font-weight: bold; }
-    .prose em { font-style: italic; }
-    .prose input[type="checkbox"] {
-      appearance: none;
-      -webkit-appearance: none;
-      width: 16px;
-      height: 16px;
-      border: 2px solid ${theme.colors.accent};
-      border-radius: 3px;
-      background-color: transparent;
-      cursor: pointer;
-      vertical-align: middle;
-      margin-right: 8px;
-      position: relative;
-    }
-    .prose input[type="checkbox"]:checked {
-      background-color: ${theme.colors.accent};
-      border-color: ${theme.colors.accent};
-    }
-    .prose input[type="checkbox"]:checked::after {
-      content: '';
-      position: absolute;
-      left: 4px;
-      top: 1px;
-      width: 5px;
-      height: 9px;
-      border: solid ${theme.colors.bgMain};
-      border-width: 0 2px 2px 0;
-      transform: rotate(45deg);
-    }
-    .prose input[type="checkbox"]:hover {
-      border-color: ${theme.colors.highlight};
-      box-shadow: 0 0 4px ${theme.colors.accent}40;
-    }
-    .prose li:has(> input[type="checkbox"]) {
-      list-style-type: none;
-      margin-left: -1.5em;
-    }
-  `, [theme]);
+  // Uses shared utility from markdownConfig.ts
+  const proseStyles = useMemo(() => generateAutoRunProseStyles(theme), [theme]);
+
+  // Parse task counts from markdown content
+  const taskCounts = useMemo(() => {
+    const completedRegex = /^[\s]*[-*]\s*\[x\]/gim;
+    const uncheckedRegex = /^[\s]*[-*]\s*\[\s\]/gim;
+    const completedMatches = localContent.match(completedRegex) || [];
+    const uncheckedMatches = localContent.match(uncheckedRegex) || [];
+    const completed = completedMatches.length;
+    const total = completed + uncheckedMatches.length;
+    return { completed, total };
+  }, [localContent]);
 
   // Memoize ReactMarkdown components - only regenerate when dependencies change
-  const markdownComponents = useMemo(() => ({
-    code: ({ node, inline, className, children, ...props }: any) => {
-      const match = (className || '').match(/language-(\w+)/);
-      const language = match ? match[1] : 'text';
-      const codeContent = String(children).replace(/\n$/, '');
+  // Uses shared utility from markdownConfig.ts with custom image renderer
+  const markdownComponents = useMemo(() => {
+    // Create base components with mermaid support
+    const baseComponents = createMarkdownComponents({
+      theme,
+      customLanguageRenderers: {
+        mermaid: ({ code, theme: t }) => <MermaidRenderer chart={code} theme={t} />,
+      },
+    });
 
-      // Handle mermaid code blocks
-      if (!inline && language === 'mermaid') {
-        return <MermaidRenderer chart={codeContent} theme={theme} />;
-      }
-
-      return !inline && match ? (
-        <SyntaxHighlighter
-          language={language}
-          style={vscDarkPlus}
-          customStyle={{
-            margin: '0.5em 0',
-            padding: '1em',
-            background: theme.colors.bgActivity,
-            fontSize: '0.9em',
-            borderRadius: '6px',
-          }}
-          PreTag="div"
-        >
-          {codeContent}
-        </SyntaxHighlighter>
-      ) : (
-        <code className={className} {...props}>
-          {children}
-        </code>
-      );
-    },
-    img: ({ src, alt, ...props }: any) => (
-      <AttachmentImage
-        src={src}
-        alt={alt}
-        folderPath={folderPath}
-        theme={theme}
-        onImageClick={openLightboxByFilename}
-        {...props}
-      />
-    )
-  }), [theme, folderPath, openLightboxByFilename]);
+    // Add custom image renderer for AttachmentImage
+    return {
+      ...baseComponents,
+      img: ({ src, alt, ...props }: any) => (
+        <AttachmentImage
+          src={src}
+          alt={alt}
+          folderPath={folderPath}
+          theme={theme}
+          onImageClick={openLightboxByFilename}
+          {...props}
+        />
+      ),
+    };
+  }, [theme, folderPath, openLightboxByFilename]);
 
   return (
     <div
@@ -1538,7 +1055,9 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
       className="h-full flex flex-col outline-none relative"
       tabIndex={-1}
       onKeyDown={(e) => {
-        if ((e.metaKey || e.ctrlKey) && e.key === 'e') {
+        // CMD+E to toggle edit/preview (without Shift)
+        // Cmd+Shift+E is allowed to propagate to global handler for "Toggle Auto Run Expanded"
+        if ((e.metaKey || e.ctrlKey) && e.key === 'e' && !e.shiftKey) {
           e.preventDefault();
           e.stopPropagation();
           toggleMode();
@@ -1552,9 +1071,9 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
         }
       }}
     >
-      {/* Select Folder Button - shown when no folder is configured */}
-      {!folderPath && !hideTopControls && (
-        <div className="pt-2 flex justify-center">
+      {/* No folder selected - show centered button only */}
+      {!folderPath && (
+        <div className="flex-1 flex items-center justify-center">
           <button
             onClick={onOpenSetup}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors hover:opacity-90"
@@ -1569,8 +1088,8 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
         </div>
       )}
 
-      {/* Mode Toggle - hidden when controls are in modal header */}
-      {!hideTopControls && (
+      {/* All controls and content - only shown when folder is selected */}
+      {folderPath && !hideTopControls && (
       <div className="flex gap-2 mb-3 justify-center pt-2">
         {/* Expand button */}
         {onExpand && (
@@ -1581,13 +1100,29 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
               color: theme.colors.textDim,
               border: `1px solid ${theme.colors.border}`
             }}
-            title="Expand to full screen"
+            title={`Expand to full screen${shortcuts?.toggleAutoRunExpanded ? ` (${formatShortcutKeys(shortcuts.toggleAutoRunExpanded.keys)})` : ''}`}
           >
             <Maximize2 className="w-3.5 h-3.5" />
           </button>
         )}
+        {/* Image upload button - always visible, ghosted in preview mode */}
         <button
-          onClick={() => !isLocked && setMode('edit')}
+          onClick={() => mode === 'edit' && !isLocked && fileInputRef.current?.click()}
+          disabled={mode !== 'edit' || isLocked}
+          className={`flex items-center justify-center w-8 h-8 rounded text-xs transition-colors ${
+            mode === 'edit' && !isLocked ? 'hover:opacity-80' : 'opacity-30 cursor-not-allowed'
+          }`}
+          style={{
+            backgroundColor: 'transparent',
+            color: theme.colors.textDim,
+            border: `1px solid ${theme.colors.border}`
+          }}
+          title={mode === 'edit' && !isLocked ? 'Add image (or paste from clipboard)' : 'Switch to Edit mode to add images'}
+        >
+          <Image className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={() => !isLocked && switchMode('edit')}
           disabled={isLocked}
           className={`flex items-center gap-2 px-3 py-1.5 rounded text-xs transition-colors ${
             mode === 'edit' && !isLocked ? 'font-semibold' : ''
@@ -1603,7 +1138,7 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
           Edit
         </button>
         <button
-          onClick={() => setMode('preview')}
+          onClick={() => switchMode('preview')}
           className={`flex items-center gap-2 px-3 py-1.5 rounded text-xs transition-colors ${
             mode === 'preview' || isLocked ? 'font-semibold' : ''
           }`}
@@ -1617,21 +1152,6 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
           <Eye className="w-3.5 h-3.5" />
           Preview
         </button>
-        {/* Image upload button (edit mode only) */}
-        {mode === 'edit' && !isLocked && (
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-2 px-3 py-1.5 rounded text-xs transition-colors hover:opacity-80"
-            style={{
-              backgroundColor: 'transparent',
-              color: theme.colors.textDim,
-              border: `1px solid ${theme.colors.border}`
-            }}
-            title="Add image (or paste from clipboard)"
-          >
-            <Image className="w-3.5 h-3.5" />
-          </button>
-        )}
         <input
           ref={fileInputRef}
           type="file"
@@ -1662,9 +1182,10 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
         ) : (
           <button
             onClick={() => {
-              // Sync local content to parent before opening batch runner
-              // This ensures Run uses the latest edits, not stale content
-              syncContentToParent();
+              // Save before opening batch runner if dirty
+              if (isDirty) {
+                handleSave();
+              }
               onOpenBatchRunner?.();
             }}
             disabled={isAgentBusy}
@@ -1708,12 +1229,13 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
             onChangeFolder={onOpenSetup}
             onCreateDocument={onCreateDocument}
             isLoading={isLoadingDocuments}
+            documentTaskCounts={documentTaskCounts}
           />
         </div>
       )}
 
-      {/* Attached Images Preview (edit mode) */}
-      {mode === 'edit' && attachmentsList.length > 0 && (
+      {/* Attached Images Preview (edit mode) - only when folder selected */}
+      {folderPath && mode === 'edit' && attachmentsList.length > 0 && (
         <div
           className="px-2 py-2 mx-2 mb-2 rounded"
           style={{ backgroundColor: theme.colors.bgActivity }}
@@ -1749,74 +1271,23 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
 
       {/* Search Bar */}
       {searchOpen && (
-        <div
-          className="mx-2 mb-2 flex items-center gap-2 px-3 py-2 rounded"
-          style={{ backgroundColor: theme.colors.bgActivity, border: `1px solid ${theme.colors.accent}` }}
-        >
-          <Search className="w-4 h-4 shrink-0" style={{ color: theme.colors.accent }} />
-          <input
-            ref={searchInputRef}
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                e.preventDefault();
-                e.stopPropagation();
-                closeSearch();
-              } else if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                goToNextMatch();
-              } else if (e.key === 'Enter' && e.shiftKey) {
-                e.preventDefault();
-                goToPrevMatch();
-              }
-            }}
-            placeholder="Search... (⌘F to open, Enter: next, Shift+Enter: prev)"
-            className="flex-1 bg-transparent outline-none text-sm"
-            style={{ color: theme.colors.textMain }}
-            autoFocus
-          />
-          {searchQuery.trim() && (
-            <>
-              <span className="text-xs whitespace-nowrap" style={{ color: theme.colors.textDim }}>
-                {totalMatches > 0 ? `${currentMatchIndex + 1}/${totalMatches}` : 'No matches'}
-              </span>
-              <button
-                onClick={goToPrevMatch}
-                disabled={totalMatches === 0}
-                className="p-1 rounded hover:bg-white/10 transition-colors disabled:opacity-30"
-                style={{ color: theme.colors.textDim }}
-                title="Previous match (Shift+Enter)"
-              >
-                <ChevronUp className="w-4 h-4" />
-              </button>
-              <button
-                onClick={goToNextMatch}
-                disabled={totalMatches === 0}
-                className="p-1 rounded hover:bg-white/10 transition-colors disabled:opacity-30"
-                style={{ color: theme.colors.textDim }}
-                title="Next match (Enter)"
-              >
-                <ChevronDown className="w-4 h-4" />
-              </button>
-            </>
-          )}
-          <button
-            onClick={closeSearch}
-            className="p-1 rounded hover:bg-white/10 transition-colors"
-            style={{ color: theme.colors.textDim }}
-            title="Close search (Esc)"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+        <AutoRunSearchBar
+          theme={theme}
+          searchQuery={searchQuery}
+          onSearchQueryChange={setSearchQuery}
+          currentMatchIndex={currentMatchIndex}
+          totalMatches={totalMatches}
+          onNextMatch={goToNextMatch}
+          onPrevMatch={goToPrevMatch}
+          onClose={closeSearch}
+        />
       )}
 
-      {/* Content Area */}
+      {/* Content Area - only shown when folder is selected */}
+      {folderPath && (
       <div className="flex-1 min-h-0 overflow-y-auto">
         {/* Empty folder state - show when folder is configured but has no documents */}
-        {folderPath && documentList.length === 0 && !isLoadingDocuments ? (
+        {documentList.length === 0 && !isLoadingDocuments ? (
           <div
             className="h-full flex flex-col items-center justify-center text-center px-6"
             style={{ color: theme.colors.textDim }}
@@ -1872,7 +1343,6 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
               value={localContent}
               onChange={(e) => {
                 if (!isLocked) {
-                  isEditingRef.current = true;
                   // Schedule undo snapshot with current content before the change
                   const previousContent = localContent;
                   const previousCursor = textareaRef.current?.selectionStart || 0;
@@ -1881,8 +1351,7 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
                   scheduleUndoSnapshot(previousContent, previousCursor);
                 }
               }}
-              onFocus={() => { isEditingRef.current = true; }}
-              onBlur={syncContentToParent}
+              onFocus={() => { /* no-op, manual save only */ }}
               onKeyDown={!isLocked ? handleKeyDown : undefined}
               onPaste={handlePaste}
               placeholder="Capture notes, images, and tasks in Markdown. (type {{ for variables)"
@@ -1908,13 +1377,16 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
             className="border rounded p-4 prose prose-sm max-w-none outline-none"
             tabIndex={0}
             onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === 'e') {
+              // CMD+E to toggle edit/preview (without Shift)
+              // Cmd+Shift+E is allowed to propagate to global handler for "Toggle Auto Run Expanded"
+              if ((e.metaKey || e.ctrlKey) && e.key === 'e' && !e.shiftKey) {
                 e.preventDefault();
                 e.stopPropagation();
                 toggleMode();
               }
-              // Cmd+F to open search in preview mode (same as edit mode)
-              if (e.key === 'f' && (e.metaKey || e.ctrlKey)) {
+              // Cmd+F to open search in preview mode (without Shift)
+              // Cmd+Shift+F is allowed to propagate to global handler for "Go to Files"
+              if (e.key === 'f' && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
                 e.preventDefault();
                 e.stopPropagation();
                 openSearch();
@@ -1948,6 +1420,74 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
           </div>
         )}
       </div>
+      )}
+
+      {/* Bottom Panel - shown when folder selected AND (there are tasks OR unsaved changes) */}
+      {folderPath && (taskCounts.total > 0 || (isDirty && mode === 'edit' && !isLocked)) && (
+        <div
+          className="flex-shrink-0 px-3 py-1.5 text-xs border-t flex items-center justify-between"
+          style={{
+            backgroundColor: theme.colors.bgActivity,
+            borderColor: theme.colors.border,
+          }}
+        >
+          {/* Revert button - left side */}
+          {isDirty && mode === 'edit' && !isLocked ? (
+            <button
+              onClick={handleRevert}
+              className="px-2 py-0.5 rounded text-xs transition-colors hover:opacity-80"
+              style={{
+                backgroundColor: 'transparent',
+                color: theme.colors.textDim,
+                border: `1px solid ${theme.colors.border}`
+              }}
+              title="Discard changes"
+            >
+              Revert
+            </button>
+          ) : (
+            <div />
+          )}
+
+          {/* Task count - center */}
+          {taskCounts.total > 0 ? (
+            <span style={{ color: taskCounts.completed === taskCounts.total ? theme.colors.success : theme.colors.textDim }}>
+              {taskCounts.completed} of {taskCounts.total} task{taskCounts.total !== 1 ? 's' : ''} completed
+            </span>
+          ) : (
+            <span style={{ color: theme.colors.textDim }}>Unsaved changes</span>
+          )}
+
+          {/* Save button - right side */}
+          {isDirty && mode === 'edit' && !isLocked ? (
+            <button
+              onClick={handleSave}
+              className="group relative px-2 py-0.5 rounded text-xs transition-colors hover:opacity-80"
+              style={{
+                backgroundColor: theme.colors.accent,
+                color: theme.colors.accentForeground,
+                border: `1px solid ${theme.colors.accent}`
+              }}
+              title="Save changes"
+            >
+              Save
+              {/* Keyboard shortcut overlay on hover */}
+              <span
+                className="absolute -top-7 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded text-[10px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+                style={{
+                  backgroundColor: theme.colors.bgMain,
+                  color: theme.colors.textDim,
+                  border: `1px solid ${theme.colors.border}`,
+                }}
+              >
+                ⌘S
+              </span>
+            </button>
+          ) : (
+            <div />
+          )}
+        </div>
+      )}
 
       {/* Help Modal */}
       {helpModalOpen && (
@@ -1958,97 +1498,16 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
       )}
 
       {/* Lightbox for viewing images with navigation, copy, and delete */}
-      {lightboxFilename && (lightboxExternalUrl || attachmentPreviews.get(lightboxFilename)) && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
-          onClick={closeLightbox}
-          onKeyDown={(e) => {
-            e.stopPropagation();
-            if (e.key === 'Escape') { e.preventDefault(); closeLightbox(); }
-            else if (e.key === 'ArrowLeft') { e.preventDefault(); goToPrevImage(); }
-            else if (e.key === 'ArrowRight') { e.preventDefault(); goToNextImage(); }
-            else if (e.key === 'Delete' || e.key === 'Backspace') {
-              e.preventDefault();
-              // Only allow delete for attachments, not external URLs
-              if (!lightboxExternalUrl) deleteLightboxImage();
-            }
-          }}
-          tabIndex={-1}
-          ref={(el) => el?.focus()}
-        >
-          {/* Previous button - only for attachments carousel */}
-          {!lightboxExternalUrl && canNavigateLightbox && (
-            <button
-              onClick={(e) => { e.stopPropagation(); goToPrevImage(); }}
-              className="absolute left-4 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/20 text-white rounded-full p-3 backdrop-blur-sm transition-colors"
-              title="Previous image (←)"
-            >
-              <ChevronLeft className="w-6 h-6" />
-            </button>
-          )}
-
-          {/* Image */}
-          <img
-            src={lightboxExternalUrl || attachmentPreviews.get(lightboxFilename)}
-            alt={lightboxFilename}
-            className="max-w-[90%] max-h-[90%] rounded shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          />
-
-          {/* Top right buttons: Copy and Delete */}
-          <div className="absolute top-4 right-4 flex gap-2">
-            {/* Copy to clipboard */}
-            <button
-              onClick={(e) => { e.stopPropagation(); copyLightboxImageToClipboard(); }}
-              className="bg-white/10 hover:bg-white/20 text-white rounded-full p-3 backdrop-blur-sm transition-colors flex items-center gap-2"
-              title="Copy image to clipboard"
-            >
-              {lightboxCopied ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
-              {lightboxCopied && <span className="text-sm">Copied!</span>}
-            </button>
-
-            {/* Delete image - only for attachments, not external URLs */}
-            {!lightboxExternalUrl && (
-              <button
-                onClick={(e) => { e.stopPropagation(); deleteLightboxImage(); }}
-                className="bg-red-500/80 hover:bg-red-500 text-white rounded-full p-3 backdrop-blur-sm transition-colors"
-                title="Delete image (Delete key)"
-              >
-                <Trash2 className="w-5 h-5" />
-              </button>
-            )}
-
-            {/* Close button */}
-            <button
-              onClick={(e) => { e.stopPropagation(); closeLightbox(); }}
-              className="bg-white/10 hover:bg-white/20 text-white rounded-full p-3 backdrop-blur-sm transition-colors"
-              title="Close (ESC)"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* Next button - only for attachments carousel */}
-          {!lightboxExternalUrl && canNavigateLightbox && (
-            <button
-              onClick={(e) => { e.stopPropagation(); goToNextImage(); }}
-              className="absolute right-4 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/20 text-white rounded-full p-3 backdrop-blur-sm transition-colors"
-              title="Next image (→)"
-            >
-              <ChevronRight className="w-6 h-6" />
-            </button>
-          )}
-
-          {/* Bottom info */}
-          <div className="absolute bottom-10 text-white text-sm opacity-70 text-center max-w-[80%]">
-            <div className="truncate">{lightboxFilename}</div>
-            <div className="mt-1">
-              {!lightboxExternalUrl && canNavigateLightbox ? `Image ${lightboxCurrentIndex + 1} of ${attachmentsList.length} • ← → to navigate • ` : ''}
-              {!lightboxExternalUrl ? 'Delete to remove • ' : ''}ESC to close
-            </div>
-          </div>
-        </div>
-      )}
+      <AutoRunLightbox
+        theme={theme}
+        attachmentsList={attachmentsList}
+        attachmentPreviews={attachmentPreviews}
+        lightboxFilename={lightboxFilename}
+        lightboxExternalUrl={lightboxExternalUrl}
+        onClose={closeLightbox}
+        onNavigate={handleLightboxNavigate}
+        onDelete={handleLightboxDelete}
+      />
     </div>
   );
 });

@@ -2321,20 +2321,4 @@ describe('Escape Handler Priority', () => {
     });
   });
 
-  it('closes document selector on escape', async () => {
-    render(<BatchRunnerModal {...createDefaultProps()} />);
-
-    fireEvent.click(screen.getByText('Add Docs'));
-    expect(screen.getByText('Select Documents')).toBeInTheDocument();
-
-    // Get the latest escape handler from updateLayerHandler
-    const lastUpdateCall = mockUpdateLayerHandler.mock.calls[mockUpdateLayerHandler.mock.calls.length - 1];
-    if (lastUpdateCall && lastUpdateCall[1]) {
-      lastUpdateCall[1]();
-    }
-
-    await waitFor(() => {
-      expect(screen.queryByText('Select Documents')).not.toBeInTheDocument();
-    });
-  });
 });

@@ -1,0 +1,347 @@
+import { useEffect, useRef } from 'react';
+import type { Session, SessionState } from '../types';
+import { createTab, closeTab } from '../utils/tabHelpers';
+
+/**
+ * Dependencies for the useRemoteIntegration hook.
+ * Uses refs for values that change frequently to avoid re-attaching listeners.
+ */
+export interface UseRemoteIntegrationDeps {
+  /** Current active session ID */
+  activeSessionId: string;
+  /** Whether live mode is enabled (web interface) */
+  isLiveMode: boolean;
+  /** Ref to current sessions array (avoids stale closures) */
+  sessionsRef: React.MutableRefObject<Session[]>;
+  /** Ref to current active session ID (avoids stale closures) */
+  activeSessionIdRef: React.MutableRefObject<string>;
+  /** Session state setter */
+  setSessions: React.Dispatch<React.SetStateAction<Session[]>>;
+  /** Active session ID setter */
+  setActiveSessionId: (id: string) => void;
+  /** Default value for saveToHistory on new tabs */
+  defaultSaveToHistory: boolean;
+}
+
+/**
+ * Return type for useRemoteIntegration hook.
+ * Currently empty as all functionality is side effects.
+ */
+export interface UseRemoteIntegrationReturn {
+  // No return values - all functionality is via side effects
+}
+
+/**
+ * Hook for handling web interface communication.
+ *
+ * Sets up listeners for remote commands from the web interface:
+ * - Active session broadcast to web clients
+ * - Remote command listener (dispatches event for App.tsx to handle)
+ * - Remote mode switching
+ * - Remote interrupt handling
+ * - Remote session/tab selection
+ * - Remote tab creation and closing
+ * - Tab change broadcasting to web clients
+ *
+ * All effects have explicit cleanup functions to prevent memory leaks.
+ *
+ * @param deps - Hook dependencies
+ * @returns Empty object (all functionality via side effects)
+ */
+export function useRemoteIntegration(deps: UseRemoteIntegrationDeps): UseRemoteIntegrationReturn {
+  const {
+    activeSessionId,
+    isLiveMode,
+    sessionsRef,
+    activeSessionIdRef,
+    setSessions,
+    setActiveSessionId,
+    defaultSaveToHistory,
+  } = deps;
+
+  // Broadcast active session change to web clients
+  useEffect(() => {
+    if (activeSessionId && isLiveMode) {
+      window.maestro.live.broadcastActiveSession(activeSessionId);
+    }
+  }, [activeSessionId, isLiveMode]);
+
+  // Handle remote commands from web interface
+  // This allows web commands to go through the exact same code path as desktop commands
+  useEffect(() => {
+    console.log('[Remote] Setting up onRemoteCommand listener...');
+    const unsubscribeRemote = window.maestro.process.onRemoteCommand((sessionId: string, command: string, inputMode?: 'ai' | 'terminal') => {
+      // Verify the session exists
+      const targetSession = sessionsRef.current.find(s => s.id === sessionId);
+
+      console.log('[Remote] Received command from web interface:', {
+        maestroSessionId: sessionId,
+        claudeSessionId: targetSession?.claudeSessionId || 'none',
+        state: targetSession?.state || 'NOT_FOUND',
+        sessionInputMode: targetSession?.inputMode || 'unknown',
+        webInputMode: inputMode || 'not provided',
+        command: command.substring(0, 100)
+      });
+
+      if (!targetSession) {
+        console.log('[Remote] ERROR: Session not found:', sessionId);
+        return;
+      }
+
+      // Check if session is busy (should have been checked by web server, but double-check)
+      if (targetSession.state === 'busy') {
+        console.log('[Remote] REJECTED: Session is busy:', sessionId);
+        return;
+      }
+
+      // If web provided an inputMode, sync the session state before executing
+      // This ensures the renderer uses the same mode the web intended
+      if (inputMode && targetSession.inputMode !== inputMode) {
+        console.log('[Remote] Syncing inputMode from web:', inputMode, '(was:', targetSession.inputMode, ')');
+        setSessions(prev => prev.map(s =>
+          s.id === sessionId ? { ...s, inputMode } : s
+        ));
+      }
+
+      // Switch to the target session (for visual feedback)
+      console.log('[Remote] Switching to target session...');
+      setActiveSessionId(sessionId);
+
+      // Dispatch event directly - handleRemoteCommand handles all the logic
+      // Don't set inputValue - we don't want command text to appear in the input bar
+      // Pass the inputMode from web so handleRemoteCommand uses it
+      console.log('[Remote] Dispatching maestro:remoteCommand event');
+      window.dispatchEvent(new CustomEvent('maestro:remoteCommand', {
+        detail: { sessionId, command, inputMode }
+      }));
+    });
+
+    return () => {
+      unsubscribeRemote();
+    };
+  }, [sessionsRef, setSessions, setActiveSessionId]);
+
+  // Handle remote mode switches from web interface
+  // This allows web mode switches to go through the same code path as desktop
+  useEffect(() => {
+    const unsubscribeSwitchMode = window.maestro.process.onRemoteSwitchMode((sessionId: string, mode: 'ai' | 'terminal') => {
+      console.log('[Remote] Received mode switch from web interface:', { sessionId, mode });
+
+      // Find the session and update its mode
+      setSessions(prev => {
+        const session = prev.find(s => s.id === sessionId);
+        if (!session) {
+          console.log('[Remote] Session not found for mode switch:', sessionId);
+          return prev;
+        }
+
+        // Only switch if mode is different
+        if (session.inputMode === mode) {
+          console.log('[Remote] Session already in mode:', mode);
+          return prev;
+        }
+
+        console.log('[Remote] Switching session mode:', sessionId, 'to', mode);
+        return prev.map(s => {
+          if (s.id !== sessionId) return s;
+          return { ...s, inputMode: mode };
+        });
+      });
+    });
+
+    return () => {
+      unsubscribeSwitchMode();
+    };
+  }, [setSessions]);
+
+  // Handle remote interrupts from web interface
+  // This allows web interrupts to go through the same code path as desktop (handleInterrupt)
+  useEffect(() => {
+    const unsubscribeInterrupt = window.maestro.process.onRemoteInterrupt(async (sessionId: string) => {
+      console.log('[Remote] Received interrupt from web interface:', { sessionId });
+
+      // Find the session
+      const session = sessionsRef.current.find(s => s.id === sessionId);
+      if (!session) {
+        console.log('[Remote] Session not found for interrupt:', sessionId);
+        return;
+      }
+
+      // Use the same logic as handleInterrupt
+      const currentMode = session.inputMode;
+      const targetSessionId = currentMode === 'ai' ? `${session.id}-ai` : `${session.id}-terminal`;
+
+      try {
+        // Send interrupt signal (Ctrl+C)
+        await window.maestro.process.interrupt(targetSessionId);
+
+        // Set state to idle (same as handleInterrupt)
+        setSessions(prev => prev.map(s => {
+          if (s.id !== session.id) return s;
+          return {
+            ...s,
+            state: 'idle' as SessionState,
+            busySource: undefined,
+            thinkingStartTime: undefined
+          };
+        }));
+
+        console.log('[Remote] Interrupt successful for session:', sessionId);
+      } catch (error) {
+        console.error('[Remote] Failed to interrupt session:', error);
+      }
+    });
+
+    return () => {
+      unsubscribeInterrupt();
+    };
+  }, [sessionsRef, setSessions]);
+
+  // Handle remote session selection from web interface
+  // This allows web clients to switch the active session in the desktop app
+  // If tabId is provided, also switches to that tab within the session
+  useEffect(() => {
+    const unsubscribeSelectSession = window.maestro.process.onRemoteSelectSession((sessionId: string, tabId?: string) => {
+      console.log('[Remote] Received session selection from web interface:', { sessionId, tabId });
+
+      // Check if session exists
+      const session = sessionsRef.current.find(s => s.id === sessionId);
+      if (!session) {
+        console.log('[Remote] Session not found for selection:', sessionId);
+        return;
+      }
+
+      // Switch to the session (same as clicking in SessionList)
+      setActiveSessionId(sessionId);
+      console.log('[Remote] Switched to session:', sessionId);
+
+      // If tabId provided, also switch to that tab
+      if (tabId) {
+        setSessions(prev => prev.map(s => {
+          if (s.id !== sessionId) return s;
+          // Check if tab exists
+          if (!s.aiTabs.some(t => t.id === tabId)) {
+            console.log('[Remote] Tab not found for selection:', tabId);
+            return s;
+          }
+          console.log('[Remote] Switched to tab:', tabId);
+          return { ...s, activeTabId: tabId };
+        }));
+      }
+    });
+
+    // Handle remote tab selection from web interface
+    // This also switches to the session if not already active
+    const unsubscribeSelectTab = window.maestro.process.onRemoteSelectTab((sessionId: string, tabId: string) => {
+      console.log('[Remote] Received tab selection from web interface:', { sessionId, tabId });
+
+      // First, switch to the session if not already active
+      const currentActiveId = activeSessionIdRef.current;
+      if (currentActiveId !== sessionId) {
+        console.log('[Remote] Switching to session:', sessionId);
+        setActiveSessionId(sessionId);
+      }
+
+      // Then update the active tab within the session
+      setSessions(prev => prev.map(s => {
+        if (s.id !== sessionId) return s;
+        // Check if tab exists
+        if (!s.aiTabs.some(t => t.id === tabId)) {
+          console.log('[Remote] Tab not found for selection:', tabId);
+          return s;
+        }
+        return { ...s, activeTabId: tabId };
+      }));
+    });
+
+    // Handle remote new tab from web interface
+    const unsubscribeNewTab = window.maestro.process.onRemoteNewTab((sessionId: string, responseChannel: string) => {
+      console.log('[Remote] Received new tab request from web interface:', { sessionId, responseChannel });
+
+      let newTabId: string | null = null;
+
+      setSessions(prev => prev.map(s => {
+        if (s.id !== sessionId) return s;
+
+        // Use createTab helper
+        const result = createTab(s, { saveToHistory: defaultSaveToHistory });
+        newTabId = result.tab.id;
+        return result.session;
+      }));
+
+      // Send response back with the new tab ID
+      if (newTabId) {
+        window.maestro.process.sendRemoteNewTabResponse(responseChannel, { tabId: newTabId });
+      } else {
+        window.maestro.process.sendRemoteNewTabResponse(responseChannel, null);
+      }
+    });
+
+    // Handle remote close tab from web interface
+    const unsubscribeCloseTab = window.maestro.process.onRemoteCloseTab((sessionId: string, tabId: string) => {
+      console.log('[Remote] Received close tab request from web interface:', { sessionId, tabId });
+
+      setSessions(prev => prev.map(s => {
+        if (s.id !== sessionId) return s;
+
+        // Use closeTab helper (handles last tab by creating a fresh one)
+        const result = closeTab(s, tabId);
+        return result?.session ?? s;
+      }));
+    });
+
+    return () => {
+      unsubscribeSelectSession();
+      unsubscribeSelectTab();
+      unsubscribeNewTab();
+      unsubscribeCloseTab();
+    };
+  }, [sessionsRef, activeSessionIdRef, setSessions, setActiveSessionId, defaultSaveToHistory]);
+
+  // Broadcast tab changes to web clients when tabs or activeTabId changes
+  // Use a ref to track previous values and only broadcast on actual changes
+  const prevTabsRef = useRef<Map<string, { tabCount: number; activeTabId: string }>>(new Map());
+
+  useEffect(() => {
+    // Get current sessions from ref to ensure we have latest state
+    const sessions = sessionsRef.current;
+
+    // Broadcast tab changes for all sessions that have changed
+    sessions.forEach(session => {
+      if (!session.aiTabs || session.aiTabs.length === 0) return;
+
+      const prev = prevTabsRef.current.get(session.id);
+      const current = {
+        tabCount: session.aiTabs.length,
+        activeTabId: session.activeTabId || session.aiTabs[0]?.id || '',
+      };
+
+      // Check if anything changed
+      if (!prev || prev.tabCount !== current.tabCount || prev.activeTabId !== current.activeTabId) {
+        // Broadcast to web clients
+        const tabsForBroadcast = session.aiTabs.map(tab => ({
+          id: tab.id,
+          claudeSessionId: tab.claudeSessionId,
+          name: tab.name,
+          starred: tab.starred,
+          inputValue: tab.inputValue,
+          usageStats: tab.usageStats,
+          createdAt: tab.createdAt,
+          state: tab.state,
+          thinkingStartTime: tab.thinkingStartTime,
+        }));
+
+        window.maestro.web.broadcastTabsChange(
+          session.id,
+          tabsForBroadcast,
+          current.activeTabId
+        );
+
+        // Update ref
+        prevTabsRef.current.set(session.id, current);
+      }
+    });
+  });
+
+  return {};
+}

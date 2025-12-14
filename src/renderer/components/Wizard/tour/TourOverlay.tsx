@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useRef, useCallback } from 'react';
-import type { Theme } from '../../../types';
+import type { Theme, Shortcut } from '../../../types';
 import { useLayerStack } from '../../../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../../../constants/modalPriorities';
 import { TourStep } from './TourStep';
@@ -26,6 +26,8 @@ interface TourOverlayProps {
   startStep?: number;
   /** Whether tour was launched from the wizard (affects step descriptions) */
   fromWizard?: boolean;
+  /** User's keyboard shortcuts for dynamic placeholder replacement */
+  shortcuts?: Record<string, Shortcut>;
   /** Analytics callback: Called when tour starts */
   onTourStart?: () => void;
   /** Analytics callback: Called when tour completes all steps */
@@ -88,6 +90,7 @@ export function TourOverlay({
   onClose,
   startStep = 0,
   fromWizard = false,
+  shortcuts,
   onTourStart,
   onTourComplete,
   onTourSkip,
@@ -272,6 +275,7 @@ export function TourOverlay({
         isTransitioning={isTransitioning}
         isPositionReady={isPositionReady}
         fromWizard={fromWizard}
+        shortcuts={shortcuts}
       />
 
       {/* Animation styles */}

@@ -1,10 +1,15 @@
-import React, { useState, useEffect, useMemo, useRef, memo } from 'react';
-import { X, Key, Moon, Sun, Keyboard, Check, Terminal, Bell, Volume2, Square, Cpu, Clock, Settings, Palette, Sparkles, History, Download } from 'lucide-react';
+import React, { useState, useEffect, useRef, memo } from 'react';
+import { X, Key, Moon, Sun, Keyboard, Check, Terminal, Bell, Cpu, Settings, Palette, Sparkles, History, Download } from 'lucide-react';
 import type { AgentConfig, Theme, Shortcut, ShellInfo, CustomAICommand } from '../types';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { AICommandsPanel } from './AICommandsPanel';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
+import { ToggleButtonGroup, ToggleButtonOption } from './ToggleButtonGroup';
+import { SettingCheckbox } from './SettingCheckbox';
+import { AgentSelectionPanel } from './AgentSelectionPanel';
+import { FontConfigurationPanel } from './FontConfigurationPanel';
+import { NotificationsPanel } from './NotificationsPanel';
 
 // Feature flags - set to true to enable dormant features
 const FEATURE_FLAGS = {
@@ -70,7 +75,6 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
   const { isOpen, onClose, theme, themes, initialTab } = props;
   const [activeTab, setActiveTab] = useState<'general' | 'llm' | 'shortcuts' | 'theme' | 'notifications' | 'aicommands'>('general');
   const [systemFonts, setSystemFonts] = useState<string[]>([]);
-  const [customFontInput, setCustomFontInput] = useState('');
   const [customFonts, setCustomFonts] = useState<string[]>([]);
   const [fontLoading, setFontLoading] = useState(false);
   const [fontsLoaded, setFontsLoaded] = useState(false);
@@ -85,9 +89,6 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
   const [shellsLoading, setShellsLoading] = useState(false);
   const [shellsLoaded, setShellsLoaded] = useState(false);
   const [customAgentPaths, setCustomAgentPaths] = useState<Record<string, string>>({});
-
-  // TTS test state
-  const [testTtsId, setTestTtsId] = useState<number | null>(null);
 
   // Layer stack integration
   const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
@@ -264,12 +265,11 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
     }
   };
 
-  const addCustomFont = () => {
-    if (customFontInput.trim() && !customFonts.includes(customFontInput.trim())) {
-      const newCustomFonts = [...customFonts, customFontInput.trim()];
+  const addCustomFont = (font: string) => {
+    if (font && !customFonts.includes(font)) {
+      const newCustomFonts = [...customFonts, font];
       setCustomFonts(newCustomFonts);
       window.maestro.settings.set('customFonts', newCustomFonts);
-      setCustomFontInput('');
     }
   };
 
@@ -388,36 +388,6 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
     } finally {
       setTestingLLM(false);
     }
-  };
-
-  // Check if a font is available on the system
-  // Memoize normalized font set for O(1) lookup instead of O(n) array search
-  const normalizedFontsSet = useMemo(() => {
-    const normalize = (str: string) => str.toLowerCase().replace(/[\s-]/g, '');
-    const fontSet = new Set<string>();
-    systemFonts.forEach(font => {
-      fontSet.add(normalize(font));
-      // Also add the original name for exact matches
-      fontSet.add(font.toLowerCase());
-    });
-    return fontSet;
-  }, [systemFonts]);
-
-  const isFontAvailable = (fontName: string) => {
-    const normalize = (str: string) => str.toLowerCase().replace(/[\s-]/g, '');
-    const normalizedSearch = normalize(fontName);
-
-    // Fast O(1) lookup
-    if (normalizedFontsSet.has(normalizedSearch)) return true;
-    if (normalizedFontsSet.has(fontName.toLowerCase())) return true;
-
-    // Fallback to substring search (slower but comprehensive)
-    for (const font of normalizedFontsSet) {
-      if (font.includes(normalizedSearch) || normalizedSearch.includes(font)) {
-        return true;
-      }
-    }
-    return false;
   };
 
   const handleRecord = (e: React.KeyboardEvent, actionId: string) => {
@@ -583,403 +553,74 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
         <div className="flex-1 p-6 overflow-y-auto scrollbar-thin">
           {activeTab === 'general' && (
             <div className="space-y-5">
-              <div>
-                <label className="block text-xs font-bold opacity-70 uppercase mb-2">Default AI Agent</label>
-                {loading ? (
-                  <div className="text-sm opacity-50">Loading agents...</div>
-                ) : (
-                  <div className="space-y-2">
-                    {agents.filter((agent) => !agent.hidden).map((agent) => (
-                      <div
-                        key={agent.id}
-                        className={`rounded border transition-all ${
-                          props.defaultAgent === agent.id ? 'ring-2' : ''
-                        }`}
-                        style={{
-                          borderColor: theme.colors.border,
-                          backgroundColor: props.defaultAgent === agent.id ? theme.colors.accentDim : theme.colors.bgMain,
-                          ringColor: theme.colors.accent,
-                        }}
-                      >
-                        <button
-                          disabled={agent.id !== 'claude-code' || !agent.available}
-                          onClick={() => props.setDefaultAgent(agent.id)}
-                          className={`w-full text-left p-3 ${(agent.id !== 'claude-code' || !agent.available) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-opacity-10'}`}
-                          style={{ color: theme.colors.textMain }}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <div className="font-medium">{agent.name}</div>
-                              {agent.path && (
-                                <div className="text-xs opacity-50 font-mono mt-1">{agent.path}</div>
-                              )}
-                            </div>
-                            {agent.id === 'claude-code' ? (
-                              agent.available ? (
-                                <span className="text-xs px-2 py-0.5 rounded" style={{ backgroundColor: theme.colors.success + '20', color: theme.colors.success }}>
-                                  Available
-                                </span>
-                              ) : (
-                                <span className="text-xs px-2 py-0.5 rounded" style={{ backgroundColor: theme.colors.error + '20', color: theme.colors.error }}>
-                                  Not Found
-                                </span>
-                              )
-                            ) : (
-                              <span className="text-xs px-2 py-0.5 rounded" style={{ backgroundColor: theme.colors.warning + '20', color: theme.colors.warning }}>
-                                Coming Soon
-                              </span>
-                            )}
-                          </div>
-                        </button>
-                        {/* Custom path input for Claude Code */}
-                        {agent.id === 'claude-code' && (
-                          <div className="px-3 pb-3 pt-1 border-t" style={{ borderColor: theme.colors.border }}>
-                            <label className="block text-xs opacity-60 mb-1">Custom Path (optional)</label>
-                            <div className="flex gap-2">
-                              <input
-                                type="text"
-                                value={customAgentPaths[agent.id] || ''}
-                                onChange={(e) => {
-                                  const newPaths = { ...customAgentPaths, [agent.id]: e.target.value };
-                                  setCustomAgentPaths(newPaths);
-                                }}
-                                onBlur={async () => {
-                                  const path = customAgentPaths[agent.id]?.trim() || null;
-                                  await window.maestro.agents.setCustomPath(agent.id, path);
-                                  // Refresh agents to pick up the new path
-                                  loadAgents();
-                                }}
-                                placeholder="/path/to/claude"
-                                className="flex-1 p-1.5 rounded border bg-transparent outline-none text-xs font-mono"
-                                style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
-                              />
-                              {customAgentPaths[agent.id] && (
-                                <button
-                                  onClick={async () => {
-                                    const newPaths = { ...customAgentPaths };
-                                    delete newPaths[agent.id];
-                                    setCustomAgentPaths(newPaths);
-                                    await window.maestro.agents.setCustomPath(agent.id, null);
-                                    loadAgents();
-                                  }}
-                                  className="px-2 py-1 rounded text-xs"
-                                  style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textDim }}
-                                >
-                                  Clear
-                                </button>
-                              )}
-                            </div>
-                            <p className="text-xs opacity-40 mt-1">
-                              Specify a custom path if the agent is not in your PATH
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Agent-Specific Configuration */}
-              {!loading && agents.length > 0 && (() => {
-                const selectedAgent = agents.find(a => a.id === props.defaultAgent);
-                if (!selectedAgent || !selectedAgent.configOptions || selectedAgent.configOptions.length === 0) {
-                  return null;
-                }
-
-                return (
-                  <div>
-                    <label className="block text-xs font-bold opacity-70 uppercase mb-2">
-                      {selectedAgent.name} Configuration
-                    </label>
-                    <div className="space-y-3">
-                      {selectedAgent.configOptions.map((option: any) => (
-                        <div key={option.key}>
-                          {option.type === 'checkbox' && (
-                            <label className="flex items-center gap-3 p-3 rounded border cursor-pointer hover:bg-opacity-10"
-                                   style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain }}>
-                              <input
-                                type="checkbox"
-                                checked={agentConfigs[selectedAgent.id]?.[option.key] ?? option.default}
-                                onChange={(e) => {
-                                  const newConfig = {
-                                    ...agentConfigs[selectedAgent.id],
-                                    [option.key]: e.target.checked
-                                  };
-                                  setAgentConfigs(prev => ({
-                                    ...prev,
-                                    [selectedAgent.id]: newConfig
-                                  }));
-                                  window.maestro.agents.setConfig(selectedAgent.id, newConfig);
-                                }}
-                                className="w-4 h-4"
-                                style={{ accentColor: theme.colors.accent }}
-                              />
-                              <div className="flex-1">
-                                <div className="font-medium" style={{ color: theme.colors.textMain }}>
-                                  {option.label}
-                                </div>
-                                <div className="text-xs opacity-50 mt-0.5" style={{ color: theme.colors.textDim }}>
-                                  {option.description}
-                                </div>
-                              </div>
-                            </label>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })()}
+              <AgentSelectionPanel
+                agents={agents}
+                loading={loading}
+                defaultAgent={props.defaultAgent}
+                setDefaultAgent={props.setDefaultAgent}
+                agentConfigs={agentConfigs}
+                setAgentConfigs={setAgentConfigs}
+                customAgentPaths={customAgentPaths}
+                setCustomAgentPaths={setCustomAgentPaths}
+                loadAgents={loadAgents}
+                theme={theme}
+              />
 
               {/* Font Family */}
-              <div>
-                <label className="block text-xs font-bold opacity-70 uppercase mb-2">Interface Font</label>
-                {fontLoading ? (
-                  <div className="text-sm opacity-50 p-2">Loading fonts...</div>
-                ) : (
-                  <>
-                    <select
-                      value={props.fontFamily}
-                      onChange={(e) => props.setFontFamily(e.target.value)}
-                      onFocus={handleFontInteraction}
-                      onClick={handleFontInteraction}
-                      className="w-full p-2 rounded border bg-transparent outline-none mb-3"
-                      style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
-                    >
-                      <optgroup label="Common Monospace Fonts">
-                        {['Roboto Mono', 'JetBrains Mono', 'Fira Code', 'Monaco', 'Menlo', 'Consolas', 'Courier New', 'SF Mono', 'Cascadia Code', 'Source Code Pro'].map(font => {
-                          const available = fontsLoaded ? isFontAvailable(font) : true;
-                          return (
-                            <option
-                              key={font}
-                              value={font}
-                              style={{ opacity: available ? 1 : 0.4 }}
-                            >
-                              {font} {fontsLoaded && !available && '(Not Found)'}
-                            </option>
-                          );
-                        })}
-                      </optgroup>
-                      {customFonts.length > 0 && (
-                        <optgroup label="Custom Fonts">
-                          {customFonts.map(font => (
-                            <option key={font} value={font}>
-                              {font}
-                            </option>
-                          ))}
-                        </optgroup>
-                      )}
-                    </select>
-
-                    <div className="space-y-2">
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={customFontInput}
-                          onChange={(e) => setCustomFontInput(e.target.value)}
-                          onKeyDown={(e) => e.key === 'Enter' && addCustomFont()}
-                          placeholder="Add custom font name..."
-                          className="flex-1 p-2 rounded border bg-transparent outline-none text-sm"
-                          style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
-                        />
-                        <button
-                          onClick={addCustomFont}
-                          className="px-3 py-2 rounded text-xs font-bold"
-                          style={{ backgroundColor: theme.colors.accent, color: theme.colors.accentForeground }}
-                        >
-                          Add
-                        </button>
-                      </div>
-
-                      {customFonts.length > 0 && (
-                        <div className="flex flex-wrap gap-2">
-                          {customFonts.map(font => (
-                            <div
-                              key={font}
-                              className="flex items-center gap-2 px-2 py-1 rounded text-xs"
-                              style={{ backgroundColor: theme.colors.bgActivity, borderColor: theme.colors.border }}
-                            >
-                              <span style={{ color: theme.colors.textMain }}>{font}</span>
-                              <button
-                                onClick={() => removeCustomFont(font)}
-                                className="hover:opacity-70"
-                                style={{ color: theme.colors.error }}
-                              >
-                                ×
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
+              <FontConfigurationPanel
+                fontFamily={props.fontFamily}
+                setFontFamily={props.setFontFamily}
+                systemFonts={systemFonts}
+                fontsLoaded={fontsLoaded}
+                fontLoading={fontLoading}
+                customFonts={customFonts}
+                onAddCustomFont={addCustomFont}
+                onRemoveCustomFont={removeCustomFont}
+                onFontInteraction={handleFontInteraction}
+                theme={theme}
+              />
 
               {/* Font Size */}
               <div>
                 <label className="block text-xs font-bold opacity-70 uppercase mb-2">Font Size</label>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => props.setFontSize(12)}
-                    className={`flex-1 py-2 px-3 rounded border transition-all ${props.fontSize === 12 ? 'ring-2' : ''}`}
-                    style={{
-                      borderColor: theme.colors.border,
-                      backgroundColor: props.fontSize === 12 ? theme.colors.accentDim : 'transparent',
-                      ringColor: theme.colors.accent,
-                      color: theme.colors.textMain
-                    }}
-                  >
-                    Small
-                  </button>
-                  <button
-                    onClick={() => props.setFontSize(14)}
-                    className={`flex-1 py-2 px-3 rounded border transition-all ${props.fontSize === 14 ? 'ring-2' : ''}`}
-                    style={{
-                      borderColor: theme.colors.border,
-                      backgroundColor: props.fontSize === 14 ? theme.colors.accentDim : 'transparent',
-                      ringColor: theme.colors.accent,
-                      color: theme.colors.textMain
-                    }}
-                  >
-                    Medium
-                  </button>
-                  <button
-                    onClick={() => props.setFontSize(16)}
-                    className={`flex-1 py-2 px-3 rounded border transition-all ${props.fontSize === 16 ? 'ring-2' : ''}`}
-                    style={{
-                      borderColor: theme.colors.border,
-                      backgroundColor: props.fontSize === 16 ? theme.colors.accentDim : 'transparent',
-                      ringColor: theme.colors.accent,
-                      color: theme.colors.textMain
-                    }}
-                  >
-                    Large
-                  </button>
-                  <button
-                    onClick={() => props.setFontSize(18)}
-                    className={`flex-1 py-2 px-3 rounded border transition-all ${props.fontSize === 18 ? 'ring-2' : ''}`}
-                    style={{
-                      borderColor: theme.colors.border,
-                      backgroundColor: props.fontSize === 18 ? theme.colors.accentDim : 'transparent',
-                      ringColor: theme.colors.accent,
-                      color: theme.colors.textMain
-                    }}
-                  >
-                    X-Large
-                  </button>
-                </div>
+                <ToggleButtonGroup
+                  options={[
+                    { value: 12, label: 'Small' },
+                    { value: 14, label: 'Medium' },
+                    { value: 16, label: 'Large' },
+                    { value: 18, label: 'X-Large' },
+                  ]}
+                  value={props.fontSize}
+                  onChange={props.setFontSize}
+                  theme={theme}
+                />
               </div>
 
               {/* Terminal Width */}
               <div>
                 <label className="block text-xs font-bold opacity-70 uppercase mb-2">Terminal Width (Columns)</label>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => props.setTerminalWidth(80)}
-                    className={`flex-1 py-2 px-3 rounded border transition-all ${props.terminalWidth === 80 ? 'ring-2' : ''}`}
-                    style={{
-                      borderColor: theme.colors.border,
-                      backgroundColor: props.terminalWidth === 80 ? theme.colors.accentDim : 'transparent',
-                      ringColor: theme.colors.accent,
-                      color: theme.colors.textMain
-                    }}
-                  >
-                    80
-                  </button>
-                  <button
-                    onClick={() => props.setTerminalWidth(100)}
-                    className={`flex-1 py-2 px-3 rounded border transition-all ${props.terminalWidth === 100 ? 'ring-2' : ''}`}
-                    style={{
-                      borderColor: theme.colors.border,
-                      backgroundColor: props.terminalWidth === 100 ? theme.colors.accentDim : 'transparent',
-                      ringColor: theme.colors.accent,
-                      color: theme.colors.textMain
-                    }}
-                  >
-                    100
-                  </button>
-                  <button
-                    onClick={() => props.setTerminalWidth(120)}
-                    className={`flex-1 py-2 px-3 rounded border transition-all ${props.terminalWidth === 120 ? 'ring-2' : ''}`}
-                    style={{
-                      borderColor: theme.colors.border,
-                      backgroundColor: props.terminalWidth === 120 ? theme.colors.accentDim : 'transparent',
-                      ringColor: theme.colors.accent,
-                      color: theme.colors.textMain
-                    }}
-                  >
-                    120
-                  </button>
-                  <button
-                    onClick={() => props.setTerminalWidth(160)}
-                    className={`flex-1 py-2 px-3 rounded border transition-all ${props.terminalWidth === 160 ? 'ring-2' : ''}`}
-                    style={{
-                      borderColor: theme.colors.border,
-                      backgroundColor: props.terminalWidth === 160 ? theme.colors.accentDim : 'transparent',
-                      ringColor: theme.colors.accent,
-                      color: theme.colors.textMain
-                    }}
-                  >
-                    160
-                  </button>
-                </div>
+                <ToggleButtonGroup
+                  options={[80, 100, 120, 160]}
+                  value={props.terminalWidth}
+                  onChange={props.setTerminalWidth}
+                  theme={theme}
+                />
               </div>
 
               {/* Log Level */}
               <div>
                 <label className="block text-xs font-bold opacity-70 uppercase mb-2">System Log Level</label>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => props.setLogLevel('debug')}
-                    className={`flex-1 py-2 px-3 rounded border transition-all ${props.logLevel === 'debug' ? 'ring-2' : ''}`}
-                    style={{
-                      borderColor: theme.colors.border,
-                      backgroundColor: props.logLevel === 'debug' ? '#6366f1' : 'transparent',
-                      ringColor: '#6366f1',
-                      color: props.logLevel === 'debug' ? 'white' : theme.colors.textMain
-                    }}
-                  >
-                    Debug
-                  </button>
-                  <button
-                    onClick={() => props.setLogLevel('info')}
-                    className={`flex-1 py-2 px-3 rounded border transition-all ${props.logLevel === 'info' ? 'ring-2' : ''}`}
-                    style={{
-                      borderColor: theme.colors.border,
-                      backgroundColor: props.logLevel === 'info' ? '#3b82f6' : 'transparent',
-                      ringColor: '#3b82f6',
-                      color: props.logLevel === 'info' ? 'white' : theme.colors.textMain
-                    }}
-                  >
-                    Info
-                  </button>
-                  <button
-                    onClick={() => props.setLogLevel('warn')}
-                    className={`flex-1 py-2 px-3 rounded border transition-all ${props.logLevel === 'warn' ? 'ring-2' : ''}`}
-                    style={{
-                      borderColor: theme.colors.border,
-                      backgroundColor: props.logLevel === 'warn' ? '#f59e0b' : 'transparent',
-                      ringColor: '#f59e0b',
-                      color: props.logLevel === 'warn' ? 'white' : theme.colors.textMain
-                    }}
-                  >
-                    Warn
-                  </button>
-                  <button
-                    onClick={() => props.setLogLevel('error')}
-                    className={`flex-1 py-2 px-3 rounded border transition-all ${props.logLevel === 'error' ? 'ring-2' : ''}`}
-                    style={{
-                      borderColor: theme.colors.border,
-                      backgroundColor: props.logLevel === 'error' ? '#ef4444' : 'transparent',
-                      ringColor: '#ef4444',
-                      color: props.logLevel === 'error' ? 'white' : theme.colors.textMain
-                    }}
-                  >
-                    Error
-                  </button>
-                </div>
+                <ToggleButtonGroup
+                  options={[
+                    { value: 'debug', label: 'Debug', activeColor: '#6366f1' },
+                    { value: 'info', label: 'Info', activeColor: '#3b82f6' },
+                    { value: 'warn', label: 'Warn', activeColor: '#f59e0b' },
+                    { value: 'error', label: 'Error', activeColor: '#ef4444' },
+                  ]}
+                  value={props.logLevel}
+                  onChange={props.setLogLevel}
+                  theme={theme}
+                />
                 <p className="text-xs opacity-50 mt-2">
                   Higher levels show fewer logs. Debug shows all logs, Error shows only errors.
                 </p>
@@ -988,56 +629,12 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
               {/* Max Log Buffer */}
               <div>
                 <label className="block text-xs font-bold opacity-70 uppercase mb-2">Maximum Log Buffer</label>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => props.setMaxLogBuffer(1000)}
-                    className={`flex-1 py-2 px-3 rounded border transition-all ${props.maxLogBuffer === 1000 ? 'ring-2' : ''}`}
-                    style={{
-                      borderColor: theme.colors.border,
-                      backgroundColor: props.maxLogBuffer === 1000 ? theme.colors.accentDim : 'transparent',
-                      ringColor: theme.colors.accent,
-                      color: theme.colors.textMain
-                    }}
-                  >
-                    1000
-                  </button>
-                  <button
-                    onClick={() => props.setMaxLogBuffer(5000)}
-                    className={`flex-1 py-2 px-3 rounded border transition-all ${props.maxLogBuffer === 5000 ? 'ring-2' : ''}`}
-                    style={{
-                      borderColor: theme.colors.border,
-                      backgroundColor: props.maxLogBuffer === 5000 ? theme.colors.accentDim : 'transparent',
-                      ringColor: theme.colors.accent,
-                      color: theme.colors.textMain
-                    }}
-                  >
-                    5000
-                  </button>
-                  <button
-                    onClick={() => props.setMaxLogBuffer(10000)}
-                    className={`flex-1 py-2 px-3 rounded border transition-all ${props.maxLogBuffer === 10000 ? 'ring-2' : ''}`}
-                    style={{
-                      borderColor: theme.colors.border,
-                      backgroundColor: props.maxLogBuffer === 10000 ? theme.colors.accentDim : 'transparent',
-                      ringColor: theme.colors.accent,
-                      color: theme.colors.textMain
-                    }}
-                  >
-                    10000
-                  </button>
-                  <button
-                    onClick={() => props.setMaxLogBuffer(25000)}
-                    className={`flex-1 py-2 px-3 rounded border transition-all ${props.maxLogBuffer === 25000 ? 'ring-2' : ''}`}
-                    style={{
-                      borderColor: theme.colors.border,
-                      backgroundColor: props.maxLogBuffer === 25000 ? theme.colors.accentDim : 'transparent',
-                      ringColor: theme.colors.accent,
-                      color: theme.colors.textMain
-                    }}
-                  >
-                    25000
-                  </button>
-                </div>
+                <ToggleButtonGroup
+                  options={[1000, 5000, 10000, 25000]}
+                  value={props.maxLogBuffer}
+                  onChange={props.setMaxLogBuffer}
+                  theme={theme}
+                />
                 <p className="text-xs opacity-50 mt-2">
                   Maximum number of log messages to keep in memory. Older logs are automatically removed.
                 </p>
@@ -1046,68 +643,18 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
               {/* Max Output Lines */}
               <div>
                 <label className="block text-xs font-bold opacity-70 uppercase mb-2">Max Output Lines per Response</label>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => props.setMaxOutputLines(15)}
-                    className={`flex-1 py-2 px-3 rounded border transition-all ${props.maxOutputLines === 15 ? 'ring-2' : ''}`}
-                    style={{
-                      borderColor: theme.colors.border,
-                      backgroundColor: props.maxOutputLines === 15 ? theme.colors.accentDim : 'transparent',
-                      ringColor: theme.colors.accent,
-                      color: theme.colors.textMain
-                    }}
-                  >
-                    15
-                  </button>
-                  <button
-                    onClick={() => props.setMaxOutputLines(25)}
-                    className={`flex-1 py-2 px-3 rounded border transition-all ${props.maxOutputLines === 25 ? 'ring-2' : ''}`}
-                    style={{
-                      borderColor: theme.colors.border,
-                      backgroundColor: props.maxOutputLines === 25 ? theme.colors.accentDim : 'transparent',
-                      ringColor: theme.colors.accent,
-                      color: theme.colors.textMain
-                    }}
-                  >
-                    25
-                  </button>
-                  <button
-                    onClick={() => props.setMaxOutputLines(50)}
-                    className={`flex-1 py-2 px-3 rounded border transition-all ${props.maxOutputLines === 50 ? 'ring-2' : ''}`}
-                    style={{
-                      borderColor: theme.colors.border,
-                      backgroundColor: props.maxOutputLines === 50 ? theme.colors.accentDim : 'transparent',
-                      ringColor: theme.colors.accent,
-                      color: theme.colors.textMain
-                    }}
-                  >
-                    50
-                  </button>
-                  <button
-                    onClick={() => props.setMaxOutputLines(100)}
-                    className={`flex-1 py-2 px-3 rounded border transition-all ${props.maxOutputLines === 100 ? 'ring-2' : ''}`}
-                    style={{
-                      borderColor: theme.colors.border,
-                      backgroundColor: props.maxOutputLines === 100 ? theme.colors.accentDim : 'transparent',
-                      ringColor: theme.colors.accent,
-                      color: theme.colors.textMain
-                    }}
-                  >
-                    100
-                  </button>
-                  <button
-                    onClick={() => props.setMaxOutputLines(Infinity)}
-                    className={`flex-1 py-2 px-3 rounded border transition-all ${props.maxOutputLines === Infinity ? 'ring-2' : ''}`}
-                    style={{
-                      borderColor: theme.colors.border,
-                      backgroundColor: props.maxOutputLines === Infinity ? theme.colors.accentDim : 'transparent',
-                      ringColor: theme.colors.accent,
-                      color: theme.colors.textMain
-                    }}
-                  >
-                    All
-                  </button>
-                </div>
+                <ToggleButtonGroup
+                  options={[
+                    { value: 15 },
+                    { value: 25 },
+                    { value: 50 },
+                    { value: 100 },
+                    { value: Infinity, label: 'All' },
+                  ]}
+                  value={props.maxOutputLines}
+                  onChange={props.setMaxOutputLines}
+                  theme={theme}
+                />
                 <p className="text-xs opacity-50 mt-2">
                   Long outputs will be collapsed into a scrollable window. Set to "All" to always show full output.
                 </p>
@@ -1279,60 +826,26 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
               </div>
 
               {/* Default History Toggle */}
-              <div>
-                <label className="block text-xs font-bold opacity-70 uppercase mb-2 flex items-center gap-2">
-                  <History className="w-3 h-3" />
-                  Default History Toggle
-                </label>
-                <label
-                  className="flex items-center gap-3 p-3 rounded border cursor-pointer hover:bg-opacity-10"
-                  style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={props.defaultSaveToHistory}
-                    onChange={(e) => props.setDefaultSaveToHistory(e.target.checked)}
-                    className="w-4 h-4"
-                    style={{ accentColor: theme.colors.accent }}
-                  />
-                  <div className="flex-1">
-                    <div className="font-medium" style={{ color: theme.colors.textMain }}>
-                      Enable "History" by default for new tabs
-                    </div>
-                    <div className="text-xs opacity-50 mt-0.5" style={{ color: theme.colors.textDim }}>
-                      When enabled, new AI tabs will have the "History" toggle on by default, saving a synopsis after each completion
-                    </div>
-                  </div>
-                </label>
-              </div>
+              <SettingCheckbox
+                icon={History}
+                sectionLabel="Default History Toggle"
+                title="Enable &quot;History&quot; by default for new tabs"
+                description="When enabled, new AI tabs will have the &quot;History&quot; toggle on by default, saving a synopsis after each completion"
+                checked={props.defaultSaveToHistory}
+                onChange={props.setDefaultSaveToHistory}
+                theme={theme}
+              />
 
               {/* Check for Updates on Startup */}
-              <div>
-                <label className="block text-xs font-bold opacity-70 uppercase mb-2 flex items-center gap-2">
-                  <Download className="w-3 h-3" />
-                  Updates
-                </label>
-                <label
-                  className="flex items-center gap-3 p-3 rounded border cursor-pointer hover:bg-opacity-10"
-                  style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={props.checkForUpdatesOnStartup}
-                    onChange={(e) => props.setCheckForUpdatesOnStartup(e.target.checked)}
-                    className="w-4 h-4"
-                    style={{ accentColor: theme.colors.accent }}
-                  />
-                  <div className="flex-1">
-                    <div className="font-medium" style={{ color: theme.colors.textMain }}>
-                      Check for updates on startup
-                    </div>
-                    <div className="text-xs opacity-50 mt-0.5" style={{ color: theme.colors.textDim }}>
-                      Automatically check for new Maestro versions when the app starts
-                    </div>
-                  </div>
-                </label>
-              </div>
+              <SettingCheckbox
+                icon={Download}
+                sectionLabel="Updates"
+                title="Check for updates on startup"
+                description="Automatically check for new Maestro versions when the app starts"
+                checked={props.checkForUpdatesOnStartup}
+                onChange={props.setCheckForUpdatesOnStartup}
+                theme={theme}
+              />
             </div>
           )}
 
@@ -1483,234 +996,17 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
           {activeTab === 'theme' && themePickerContent}
 
           {activeTab === 'notifications' && (
-            <div className="space-y-6">
-              {/* OS Notifications */}
-              <div>
-                <label className="block text-xs font-bold opacity-70 uppercase mb-2 flex items-center gap-2">
-                  <Bell className="w-3 h-3" />
-                  Operating System Notifications
-                </label>
-                <label
-                  className="flex items-center gap-3 p-3 rounded border cursor-pointer hover:bg-opacity-10"
-                  style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={props.osNotificationsEnabled}
-                    onChange={(e) => props.setOsNotificationsEnabled(e.target.checked)}
-                    className="w-4 h-4"
-                    style={{ accentColor: theme.colors.accent }}
-                  />
-                  <div className="flex-1">
-                    <div className="font-medium" style={{ color: theme.colors.textMain }}>
-                      Enable OS Notifications
-                    </div>
-                    <div className="text-xs opacity-50 mt-0.5" style={{ color: theme.colors.textDim }}>
-                      Show desktop notifications when tasks complete or require attention
-                    </div>
-                  </div>
-                </label>
-                <button
-                  onClick={() => window.maestro.notification.show('Maestro', 'Test notification - notifications are working!')}
-                  className="mt-2 px-3 py-1.5 rounded text-xs font-medium transition-all"
-                  style={{
-                    backgroundColor: theme.colors.bgActivity,
-                    color: theme.colors.textMain,
-                    border: `1px solid ${theme.colors.border}`
-                  }}
-                >
-                  Test Notification
-                </button>
-              </div>
-
-              {/* Audio Feedback */}
-              <div>
-                <label className="block text-xs font-bold opacity-70 uppercase mb-2 flex items-center gap-2">
-                  <Volume2 className="w-3 h-3" />
-                  Audio Feedback
-                </label>
-                <label
-                  className="flex items-center gap-3 p-3 rounded border cursor-pointer hover:bg-opacity-10"
-                  style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={props.audioFeedbackEnabled}
-                    onChange={(e) => props.setAudioFeedbackEnabled(e.target.checked)}
-                    className="w-4 h-4"
-                    style={{ accentColor: theme.colors.accent }}
-                  />
-                  <div className="flex-1">
-                    <div className="font-medium" style={{ color: theme.colors.textMain }}>
-                      Enable Audio Feedback
-                    </div>
-                    <div className="text-xs opacity-50 mt-0.5" style={{ color: theme.colors.textDim }}>
-                      Speak the one-sentence feedback synopsis from LLM analysis using text-to-speech
-                    </div>
-                  </div>
-                </label>
-
-                {/* Audio Command Configuration */}
-                <div className="mt-3">
-                  <label className="block text-xs font-medium opacity-70 mb-1">TTS Command</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={props.audioFeedbackCommand}
-                      onChange={(e) => props.setAudioFeedbackCommand(e.target.value)}
-                      placeholder="say"
-                      className="flex-1 p-2 rounded border bg-transparent outline-none text-sm font-mono"
-                      style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
-                    />
-                    {testTtsId !== null ? (
-                      <button
-                        onClick={async () => {
-                          console.log('[TTS] Stop test button clicked, ttsId:', testTtsId);
-                          try {
-                            await window.maestro.notification.stopSpeak(testTtsId);
-                          } catch (err) {
-                            console.error('[TTS] Stop error:', err);
-                          }
-                          setTestTtsId(null);
-                        }}
-                        className="px-3 py-2 rounded text-xs font-medium transition-all flex items-center gap-1"
-                        style={{
-                          backgroundColor: theme.colors.error,
-                          color: '#fff',
-                          border: `1px solid ${theme.colors.error}`
-                        }}
-                      >
-                        <Square className="w-3 h-3" fill="currentColor" />
-                        Stop
-                      </button>
-                    ) : (
-                      <button
-                        onClick={async () => {
-                          console.log('[TTS] Test button clicked, command:', props.audioFeedbackCommand);
-                          try {
-                            const result = await window.maestro.notification.speak("Howdy, I'm Maestro, here to conduct your agentic tools into a well-tuned symphony.", props.audioFeedbackCommand);
-                            console.log('[TTS] Speak result:', result);
-                            if (result.success && result.ttsId) {
-                              setTestTtsId(result.ttsId);
-                              // Auto-clear after the message should be done (about 5 seconds for this phrase)
-                              setTimeout(() => setTestTtsId(null), 8000);
-                            }
-                          } catch (err) {
-                            console.error('[TTS] Speak error:', err);
-                          }
-                        }}
-                        className="px-3 py-2 rounded text-xs font-medium transition-all"
-                        style={{
-                          backgroundColor: theme.colors.bgActivity,
-                          color: theme.colors.textMain,
-                          border: `1px solid ${theme.colors.border}`
-                        }}
-                      >
-                        Test
-                      </button>
-                    )}
-                  </div>
-                  <p className="text-xs opacity-50 mt-2" style={{ color: theme.colors.textDim }}>
-                    Command that accepts text via stdin. Pipes are supported (e.g., <code className="px-1 py-0.5 rounded" style={{ backgroundColor: theme.colors.bgActivity }}>cmd1 | cmd2</code>). Examples: <code className="px-1 py-0.5 rounded" style={{ backgroundColor: theme.colors.bgActivity }}>say</code> (macOS), <code className="px-1 py-0.5 rounded" style={{ backgroundColor: theme.colors.bgActivity }}>espeak</code> (Linux), <code className="px-1 py-0.5 rounded" style={{ backgroundColor: theme.colors.bgActivity }}>festival --tts</code>
-                  </p>
-                </div>
-              </div>
-
-              {/* Toast Duration */}
-              <div>
-                <label className="block text-xs font-bold opacity-70 uppercase mb-2 flex items-center gap-2">
-                  <Clock className="w-3 h-3" />
-                  Toast Notification Duration
-                </label>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => props.setToastDuration(-1)}
-                    className={`flex-1 py-2 px-3 rounded border transition-all ${props.toastDuration === -1 ? 'ring-2' : ''}`}
-                    style={{
-                      borderColor: theme.colors.border,
-                      backgroundColor: props.toastDuration === -1 ? theme.colors.accentDim : 'transparent',
-                      ringColor: theme.colors.accent,
-                      color: theme.colors.textMain
-                    }}
-                  >
-                    Off
-                  </button>
-                  <button
-                    onClick={() => props.setToastDuration(5)}
-                    className={`flex-1 py-2 px-3 rounded border transition-all ${props.toastDuration === 5 ? 'ring-2' : ''}`}
-                    style={{
-                      borderColor: theme.colors.border,
-                      backgroundColor: props.toastDuration === 5 ? theme.colors.accentDim : 'transparent',
-                      ringColor: theme.colors.accent,
-                      color: theme.colors.textMain
-                    }}
-                  >
-                    5s
-                  </button>
-                  <button
-                    onClick={() => props.setToastDuration(10)}
-                    className={`flex-1 py-2 px-3 rounded border transition-all ${props.toastDuration === 10 ? 'ring-2' : ''}`}
-                    style={{
-                      borderColor: theme.colors.border,
-                      backgroundColor: props.toastDuration === 10 ? theme.colors.accentDim : 'transparent',
-                      ringColor: theme.colors.accent,
-                      color: theme.colors.textMain
-                    }}
-                  >
-                    10s
-                  </button>
-                  <button
-                    onClick={() => props.setToastDuration(20)}
-                    className={`flex-1 py-2 px-3 rounded border transition-all ${props.toastDuration === 20 ? 'ring-2' : ''}`}
-                    style={{
-                      borderColor: theme.colors.border,
-                      backgroundColor: props.toastDuration === 20 ? theme.colors.accentDim : 'transparent',
-                      ringColor: theme.colors.accent,
-                      color: theme.colors.textMain
-                    }}
-                  >
-                    20s
-                  </button>
-                  <button
-                    onClick={() => props.setToastDuration(30)}
-                    className={`flex-1 py-2 px-3 rounded border transition-all ${props.toastDuration === 30 ? 'ring-2' : ''}`}
-                    style={{
-                      borderColor: theme.colors.border,
-                      backgroundColor: props.toastDuration === 30 ? theme.colors.accentDim : 'transparent',
-                      ringColor: theme.colors.accent,
-                      color: theme.colors.textMain
-                    }}
-                  >
-                    30s
-                  </button>
-                  <button
-                    onClick={() => props.setToastDuration(0)}
-                    className={`flex-1 py-2 px-3 rounded border transition-all ${props.toastDuration === 0 ? 'ring-2' : ''}`}
-                    style={{
-                      borderColor: theme.colors.border,
-                      backgroundColor: props.toastDuration === 0 ? theme.colors.accentDim : 'transparent',
-                      ringColor: theme.colors.accent,
-                      color: theme.colors.textMain
-                    }}
-                  >
-                    Never
-                  </button>
-                </div>
-                <p className="text-xs opacity-50 mt-2">
-                  How long toast notifications remain on screen. "Off" disables them entirely. "Never" means they stay until manually dismissed.
-                </p>
-              </div>
-
-              {/* Info about when notifications are triggered */}
-              <div className="p-3 rounded-lg" style={{ backgroundColor: theme.colors.bgActivity, border: `1px solid ${theme.colors.border}` }}>
-                <div className="text-xs font-medium mb-2" style={{ color: theme.colors.textMain }}>When are notifications triggered?</div>
-                <ul className="text-xs opacity-70 space-y-1" style={{ color: theme.colors.textDim }}>
-                  <li>• When an AI task completes</li>
-                  <li>• When a long-running command finishes</li>
-                  <li>• When the LLM analysis generates a feedback synopsis (audio only, if configured)</li>
-                </ul>
-              </div>
-            </div>
+            <NotificationsPanel
+              osNotificationsEnabled={props.osNotificationsEnabled}
+              setOsNotificationsEnabled={props.setOsNotificationsEnabled}
+              audioFeedbackEnabled={props.audioFeedbackEnabled}
+              setAudioFeedbackEnabled={props.setAudioFeedbackEnabled}
+              audioFeedbackCommand={props.audioFeedbackCommand}
+              setAudioFeedbackCommand={props.setAudioFeedbackCommand}
+              toastDuration={props.toastDuration}
+              setToastDuration={props.setToastDuration}
+              theme={theme}
+            />
           )}
 
           {activeTab === 'aicommands' && (

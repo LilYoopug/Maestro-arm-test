@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronRight, ChevronDown, ChevronUp, Folder, RefreshCw, Check } from 'lucide-react';
-import type { Session, Theme, FileChangeType } from '../types';
+import { useVirtualizer } from '@tanstack/react-virtual';
+import { ChevronRight, ChevronDown, ChevronUp, Folder, RefreshCw, Check, Eye, EyeOff } from 'lucide-react';
+import type { Session, Theme } from '../types';
 import type { FileTreeChanges } from '../utils/fileExplorer';
 import { getFileIcon } from '../utils/theme';
 import { useLayerStack } from '../contexts/LayerStackContext';
@@ -19,6 +20,14 @@ interface FileNode {
   name: string;
   type: 'file' | 'folder';
   children?: FileNode[];
+}
+
+// Flattened node for virtualization
+interface FlattenedNode {
+  node: FileNode;
+  path: string;
+  depth: number;
+  globalIndex: number;
 }
 
 interface FileExplorerPanelProps {
@@ -46,6 +55,8 @@ interface FileExplorerPanelProps {
   setSessions: React.Dispatch<React.SetStateAction<Session[]>>;
   onAutoRefreshChange?: (interval: number) => void;
   onShowFlash?: (message: string) => void;
+  showHiddenFiles: boolean;
+  setShowHiddenFiles: (value: boolean) => void;
 }
 
 export function FileExplorerPanel(props: FileExplorerPanelProps) {
@@ -53,7 +64,8 @@ export function FileExplorerPanel(props: FileExplorerPanelProps) {
     session, theme, fileTreeFilter, setFileTreeFilter, fileTreeFilterOpen, setFileTreeFilterOpen,
     filteredFileTree, selectedFileIndex, setSelectedFileIndex, activeFocus, activeRightTab,
     previewFile, setActiveFocus, fileTreeContainerRef, fileTreeFilterInputRef, toggleFolder, handleFileClick, expandAllFolders,
-    collapseAllFolders, updateSessionWorkingDirectory, refreshFileTree, setSessions, onAutoRefreshChange, onShowFlash
+    collapseAllFolders, updateSessionWorkingDirectory, refreshFileTree, setSessions, onAutoRefreshChange, onShowFlash,
+    showHiddenFiles, setShowHiddenFiles
   } = props;
 
   const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
@@ -193,65 +205,144 @@ export function FileExplorerPanel(props: FileExplorerPanelProps) {
     }
   }, [fileTreeFilterOpen, setFileTreeFilterOpen, setFileTreeFilter, updateLayerHandler]);
 
-  const renderTree = (nodes: FileNode[], currentPath = '', depth = 0, globalIndex = { value: 0 }) => {
-    const expandedSet = new Set(session.fileExplorerExpanded || []);
-    return nodes.map((node, idx) => {
-      const fullPath = currentPath ? `${currentPath}/${node.name}` : node.name;
-      const absolutePath = `${session.fullPath}/${fullPath}`;
-      const change = session.changedFiles?.find(f => f.path.includes(node.name));
-      const isFolder = node.type === 'folder';
-      const isExpanded = expandedSet.has(fullPath);
-      const isSelected = previewFile?.path === absolutePath;
-      const currentIndex = globalIndex.value;
-      const isKeyboardSelected = activeFocus === 'right' && activeRightTab === 'files' && currentIndex === selectedFileIndex;
-      globalIndex.value++;
+  // Filter hidden files from the tree based on showHiddenFiles setting
+  const filterHiddenFiles = useCallback((nodes: FileNode[]): FileNode[] => {
+    if (!nodes) return [];
+    if (showHiddenFiles) return nodes;
+    return nodes
+      .filter(node => !node.name.startsWith('.'))
+      .map(node => ({
+        ...node,
+        children: node.children ? filterHiddenFiles(node.children) : undefined
+      }));
+  }, [showHiddenFiles]);
 
-      return (
-        <div key={idx} className={depth > 0 ? "ml-3 border-l pl-2" : ""} style={{ borderColor: theme.colors.border }}>
-          <div
-            data-file-index={currentIndex}
-            className={`flex items-center gap-2 py-1 text-xs cursor-pointer hover:bg-white/5 px-2 rounded transition-colors border-l-2 select-none min-w-0 ${isSelected ? 'bg-white/10' : ''}`}
+  // Apply hidden file filtering to the already-filtered tree
+  const displayTree = useMemo(() => {
+    return filterHiddenFiles(filteredFileTree || []);
+  }, [filteredFileTree, filterHiddenFiles]);
+
+  // Flatten tree for virtualization - only includes visible nodes (respects expanded state)
+  // When filtering, auto-expand all folders to show matches
+  const flattenedTree = useMemo(() => {
+    const expandedSet = new Set(session.fileExplorerExpanded || []);
+    const isFiltering = fileTreeFilter.length > 0;
+    const result: FlattenedNode[] = [];
+    let globalIndex = 0;
+
+    const flatten = (nodes: FileNode[], currentPath = '', depth = 0) => {
+      for (const node of nodes) {
+        const fullPath = currentPath ? `${currentPath}/${node.name}` : node.name;
+        result.push({ node, path: fullPath, depth, globalIndex });
+        globalIndex++;
+
+        // When filtering, auto-expand all folders to reveal matches
+        // Otherwise, only include children if folder is manually expanded
+        const shouldShowChildren = node.type === 'folder' && node.children &&
+          (isFiltering || expandedSet.has(fullPath));
+
+        if (shouldShowChildren) {
+          flatten(node.children!, fullPath, depth + 1);
+        }
+      }
+    };
+
+    flatten(displayTree);
+    return result;
+  }, [displayTree, session.fileExplorerExpanded, fileTreeFilter]);
+
+  // Virtualization setup
+  const parentRef = useRef<HTMLDivElement>(null);
+  const ROW_HEIGHT = 28; // Height of each tree row in pixels
+
+  const virtualizer = useVirtualizer({
+    count: flattenedTree.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 10, // Render 10 extra items above/below viewport for smooth scrolling
+  });
+
+  // Memoized row renderer
+  const TreeRow = useCallback(({ item, virtualRow }: { item: FlattenedNode; virtualRow: { index: number; start: number; size: number } }) => {
+    const { node, path: fullPath, depth, globalIndex } = item;
+    const absolutePath = `${session.fullPath}/${fullPath}`;
+    const change = session.changedFiles?.find(f => f.path.includes(node.name));
+    const isFolder = node.type === 'folder';
+    const expandedSet = new Set(session.fileExplorerExpanded || []);
+    const isExpanded = expandedSet.has(fullPath);
+    const isSelected = previewFile?.path === absolutePath;
+    const isKeyboardSelected = activeFocus === 'right' && activeRightTab === 'files' && globalIndex === selectedFileIndex;
+
+    // Generate indent guides for each depth level
+    const indentGuides = [];
+    for (let i = 0; i < depth; i++) {
+      indentGuides.push(
+        <div
+          key={i}
+          className="absolute top-0 bottom-0 w-px"
+          style={{
+            left: `${12 + i * 16}px`,
+            backgroundColor: theme.colors.border,
+          }}
+        />
+      );
+    }
+
+    return (
+      <div
+        data-file-index={globalIndex}
+        className={`absolute top-0 left-0 w-full flex items-center gap-2 py-1 text-xs cursor-pointer hover:bg-white/5 px-2 rounded transition-colors border-l-2 select-none min-w-0 ${isSelected ? 'bg-white/10' : ''}`}
+        style={{
+          height: `${virtualRow.size}px`,
+          transform: `translateY(${virtualRow.start}px)`,
+          paddingLeft: `${8 + depth * 16}px`,
+          color: change ? theme.colors.textMain : theme.colors.textDim,
+          borderLeftColor: isKeyboardSelected ? theme.colors.accent : 'transparent',
+          backgroundColor: isKeyboardSelected ? theme.colors.bgActivity : (isSelected ? 'rgba(255,255,255,0.1)' : 'transparent')
+        }}
+        onMouseDown={(e) => {
+          // Prevent focus from leaving the filter input when filtering
+          if (fileTreeFilter.length > 0) {
+            e.preventDefault();
+          }
+        }}
+        onClick={() => {
+          if (isFolder) {
+            toggleFolder(fullPath, session.id, setSessions);
+          } else {
+            setSelectedFileIndex(globalIndex);
+            // Only change focus if not filtering
+            if (fileTreeFilter.length === 0) {
+              setActiveFocus('right');
+            }
+          }
+        }}
+        onDoubleClick={() => {
+          if (!isFolder) {
+            handleFileClick(node, fullPath, session);
+          }
+        }}
+      >
+        {indentGuides}
+        {isFolder && (
+          isExpanded ? <ChevronDown className="w-3 h-3 flex-shrink-0" /> : <ChevronRight className="w-3 h-3 flex-shrink-0" />
+        )}
+        <span className="flex-shrink-0">{isFolder ? <Folder className="w-3.5 h-3.5" style={{ color: theme.colors.accent }} /> : getFileIcon(change?.type, theme)}</span>
+        <span className={`truncate min-w-0 flex-1 ${change ? 'font-medium' : ''}`} title={node.name}>{node.name}</span>
+        {change && (
+          <span
+            className="flex-shrink-0 text-[9px] px-1 rounded uppercase"
             style={{
-              color: change ? theme.colors.textMain : theme.colors.textDim,
-              borderLeftColor: isKeyboardSelected ? theme.colors.accent : 'transparent',
-              backgroundColor: isKeyboardSelected ? theme.colors.bgActivity : (isSelected ? 'rgba(255,255,255,0.1)' : 'transparent')
-            }}
-            onClick={() => {
-              if (isFolder) {
-                toggleFolder(fullPath, session.id, setSessions);
-              } else {
-                setSelectedFileIndex(currentIndex);
-                setActiveFocus('right');
-              }
-            }}
-            onDoubleClick={() => {
-              if (!isFolder) {
-                handleFileClick(node, fullPath, session);
-              }
+              backgroundColor: change.type === 'added' ? theme.colors.success + '20' : change.type === 'deleted' ? theme.colors.error + '20' : theme.colors.warning + '20',
+              color: change.type === 'added' ? theme.colors.success : change.type === 'deleted' ? theme.colors.error : theme.colors.warning
             }}
           >
-            {isFolder && (
-              isExpanded ? <ChevronDown className="w-3 h-3 flex-shrink-0" /> : <ChevronRight className="w-3 h-3 flex-shrink-0" />
-            )}
-            <span className="flex-shrink-0">{isFolder ? <Folder className="w-3.5 h-3.5" style={{ color: theme.colors.accent }} /> : getFileIcon(change?.type, theme)}</span>
-            <span className={`truncate min-w-0 flex-1 ${change ? 'font-medium' : ''}`} title={node.name}>{node.name}</span>
-            {change && (
-              <span
-                className="flex-shrink-0 text-[9px] px-1 rounded uppercase"
-                style={{
-                  backgroundColor: change.type === 'added' ? theme.colors.success + '20' : change.type === 'deleted' ? theme.colors.error + '20' : theme.colors.warning + '20',
-                  color: change.type === 'added' ? theme.colors.success : change.type === 'deleted' ? theme.colors.error : theme.colors.warning
-                }}
-              >
-                {change.type}
-              </span>
-            )}
-          </div>
-          {isFolder && isExpanded && node.children && renderTree(node.children, fullPath, depth + 1, globalIndex)}
-        </div>
-      );
-    });
-  };
+            {change.type}
+          </span>
+        )}
+      </div>
+    );
+  }, [session.fullPath, session.changedFiles, session.fileExplorerExpanded, session.id, previewFile?.path, activeFocus, activeRightTab, selectedFileIndex, theme, toggleFolder, setSessions, setSelectedFileIndex, setActiveFocus, handleFileClick, fileTreeFilter]);
 
   return (
     <div className="space-y-2 relative">
@@ -280,6 +371,17 @@ export function FileExplorerPanel(props: FileExplorerPanelProps) {
       >
         <span className="opacity-50 truncate min-w-0 flex-1" title={session.cwd}>{session.cwd}</span>
         <div className="flex items-center gap-1 flex-shrink-0">
+          <button
+            onClick={() => setShowHiddenFiles(!showHiddenFiles)}
+            className="p-1 rounded hover:bg-white/10 transition-colors"
+            title={showHiddenFiles ? "Hide dotfiles" : "Show dotfiles"}
+            style={{
+              color: showHiddenFiles ? theme.colors.accent : theme.colors.textDim,
+              backgroundColor: showHiddenFiles ? `${theme.colors.accent}20` : 'transparent'
+            }}
+          >
+            {showHiddenFiles ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+          </button>
           <button
             ref={refreshButtonRef}
             onClick={handleRefresh}
@@ -319,7 +421,7 @@ export function FileExplorerPanel(props: FileExplorerPanelProps) {
         </div>
       </div>
 
-      {/* File tree content */}
+      {/* File tree content - virtualized */}
       {session.fileTreeError ? (
         <div className="flex flex-col items-center justify-center gap-3 py-8">
           <div className="text-xs text-center" style={{ color: theme.colors.error }}>
@@ -339,8 +441,33 @@ export function FileExplorerPanel(props: FileExplorerPanelProps) {
           {(!session.fileTree || session.fileTree.length === 0) && (
             <div className="text-xs opacity-50 italic">Loading files...</div>
           )}
-          {filteredFileTree && renderTree(filteredFileTree)}
-          {fileTreeFilter && filteredFileTree && filteredFileTree.length === 0 && (
+          {flattenedTree.length > 0 && (
+            <div
+              ref={parentRef}
+              className="flex-1 overflow-auto"
+              style={{ height: 'calc(100vh - 200px)' }}
+            >
+              <div
+                style={{
+                  height: `${virtualizer.getTotalSize()}px`,
+                  width: '100%',
+                  position: 'relative',
+                }}
+              >
+                {virtualizer.getVirtualItems().map((virtualRow) => {
+                  const item = flattenedTree[virtualRow.index];
+                  return (
+                    <TreeRow
+                      key={item.path}
+                      item={item}
+                      virtualRow={virtualRow}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {fileTreeFilter && flattenedTree.length === 0 && (
             <div className="text-xs opacity-50 italic text-center py-4">No files match your search</div>
           )}
         </>

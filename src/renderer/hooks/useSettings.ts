@@ -126,6 +126,8 @@ export interface UseSettingsReturn {
   setLeftSidebarWidth: (value: number) => void;
   setRightPanelWidth: (value: number) => void;
   setMarkdownEditMode: (value: boolean) => void;
+  showHiddenFiles: boolean;
+  setShowHiddenFiles: (value: boolean) => void;
 
   // Terminal settings
   terminalWidth: number;
@@ -246,6 +248,7 @@ export function useSettings(): UseSettingsReturn {
   const [leftSidebarWidth, setLeftSidebarWidthState] = useState(256);
   const [rightPanelWidth, setRightPanelWidthState] = useState(384);
   const [markdownEditMode, setMarkdownEditModeState] = useState(false);
+  const [showHiddenFiles, setShowHiddenFilesState] = useState(true); // Default: show hidden files
 
   // Terminal Config
   const [terminalWidth, setTerminalWidthState] = useState(100);
@@ -376,6 +379,11 @@ export function useSettings(): UseSettingsReturn {
   const setMarkdownEditMode = useCallback((value: boolean) => {
     setMarkdownEditModeState(value);
     window.maestro.settings.set('markdownEditMode', value);
+  }, []);
+
+  const setShowHiddenFiles = useCallback((value: boolean) => {
+    setShowHiddenFilesState(value);
+    window.maestro.settings.set('showHiddenFiles', value);
   }, []);
 
   const setShortcuts = useCallback((value: Record<string, Shortcut>) => {
@@ -833,6 +841,7 @@ export function useSettings(): UseSettingsReturn {
       const savedLeftSidebarWidth = await window.maestro.settings.get('leftSidebarWidth');
       const savedRightPanelWidth = await window.maestro.settings.get('rightPanelWidth');
       const savedMarkdownEditMode = await window.maestro.settings.get('markdownEditMode');
+      const savedShowHiddenFiles = await window.maestro.settings.get('showHiddenFiles');
       const savedShortcuts = await window.maestro.settings.get('shortcuts');
       const savedActiveThemeId = await window.maestro.settings.get('activeThemeId');
       const savedTerminalWidth = await window.maestro.settings.get('terminalWidth');
@@ -871,6 +880,7 @@ export function useSettings(): UseSettingsReturn {
       if (savedLeftSidebarWidth !== undefined) setLeftSidebarWidthState(Math.max(256, Math.min(600, savedLeftSidebarWidth)));
       if (savedRightPanelWidth !== undefined) setRightPanelWidthState(savedRightPanelWidth);
       if (savedMarkdownEditMode !== undefined) setMarkdownEditModeState(savedMarkdownEditMode);
+      if (savedShowHiddenFiles !== undefined) setShowHiddenFilesState(savedShowHiddenFiles);
       if (savedActiveThemeId !== undefined) setActiveThemeIdState(savedActiveThemeId);
       if (savedTerminalWidth !== undefined) setTerminalWidthState(savedTerminalWidth);
       if (savedLogLevel !== undefined) setLogLevelState(savedLogLevel);
@@ -930,7 +940,17 @@ export function useSettings(): UseSettingsReturn {
           window.maestro.settings.set('shortcuts', migratedShortcuts);
         }
 
-        setShortcutsState({ ...DEFAULT_SHORTCUTS, ...migratedShortcuts });
+        // Merge: use default labels (in case they changed) but preserve user's custom keys
+        const mergedShortcuts: Record<string, Shortcut> = {};
+        for (const [id, defaultShortcut] of Object.entries(DEFAULT_SHORTCUTS)) {
+          const savedShortcut = migratedShortcuts[id];
+          mergedShortcuts[id] = {
+            ...defaultShortcut,
+            // Preserve user's custom keys if they exist
+            keys: savedShortcut?.keys ?? defaultShortcut.keys,
+          };
+        }
+        setShortcutsState(mergedShortcuts);
       }
 
       // Merge saved AI commands with defaults (ensure built-in commands always exist)
@@ -1027,6 +1047,8 @@ export function useSettings(): UseSettingsReturn {
     setLeftSidebarWidth,
     setRightPanelWidth,
     setMarkdownEditMode,
+    showHiddenFiles,
+    setShowHiddenFiles,
     terminalWidth,
     setTerminalWidth,
     logLevel,
@@ -1100,6 +1122,7 @@ export function useSettings(): UseSettingsReturn {
     leftSidebarWidth,
     rightPanelWidth,
     markdownEditMode,
+    showHiddenFiles,
     terminalWidth,
     logLevel,
     maxLogBuffer,
@@ -1136,6 +1159,7 @@ export function useSettings(): UseSettingsReturn {
     setLeftSidebarWidth,
     setRightPanelWidth,
     setMarkdownEditMode,
+    setShowHiddenFiles,
     setTerminalWidth,
     setLogLevel,
     setMaxLogBuffer,
