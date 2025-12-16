@@ -74,24 +74,14 @@ export interface WorkLogItem {
 }
 
 // History entry types for the History panel
-// AUTO = task completed by Auto Run (includes loop summaries), USER = manual user prompt
-export type HistoryEntryType = 'AUTO' | 'USER';
+// Re-export from shared types for convenience
+export type { HistoryEntryType } from '../../shared/types';
 
-export interface HistoryEntry {
-  id: string;
-  type: HistoryEntryType;
-  timestamp: number;
-  summary: string;
-  fullResponse?: string; // Complete agent response for expansion
-  claudeSessionId?: string; // For clicking to jump to session
-  sessionName?: string; // Display name for the session (from active AI tab)
-  projectPath: string; // For per-project filtering
-  sessionId?: string; // Maestro session ID for isolation (interactive sessions exclude batch entries)
-  contextUsage?: number; // Context window usage percentage at time of entry
-  usageStats?: UsageStats; // Token usage and cost at time of entry
-  success?: boolean; // For AUTO entries: whether the task completed successfully (true) or failed (false)
-  elapsedTimeMs?: number; // Time taken to complete this task in milliseconds
-  validated?: boolean; // For AUTO entries: whether a human has validated the task completion
+// Import base HistoryEntry from shared types
+import { HistoryEntry as BaseHistoryEntry } from '../../shared/types';
+
+// Renderer-specific HistoryEntry extends the shared base with UI-specific fields
+export interface HistoryEntry extends BaseHistoryEntry {
   achievementAction?: 'openAbout'; // If set, this entry has an action button to open the About/achievements panel
 }
 

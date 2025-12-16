@@ -12,10 +12,11 @@ export {
   AITabData,
   SessionData,
   SessionDetail,
-  HistoryEntryData,
   LiveSessionInfo as ApiLiveSessionInfo,
   RateLimitConfig,
 } from './apiRoutes';
+
+// Note: HistoryEntry type is exported from shared/types.ts (canonical location)
 
 export {
   StaticRoutes,

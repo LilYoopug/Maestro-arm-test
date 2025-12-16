@@ -17,31 +17,7 @@ import { useThemeColors } from '../components/ThemeProvider';
 import { triggerHaptic, HAPTIC_PATTERNS } from './constants';
 import { buildApiUrl } from '../utils/config';
 import { webLogger } from '../utils/logger';
-
-// History entry type matching the desktop type
-export type HistoryEntryType = 'AUTO' | 'USER';
-
-export interface HistoryEntry {
-  id: string;
-  type: HistoryEntryType;
-  timestamp: number;
-  summary: string;
-  fullResponse?: string;
-  claudeSessionId?: string;
-  projectPath: string;
-  sessionId?: string;
-  contextUsage?: number;
-  usageStats?: {
-    inputTokens: number;
-    outputTokens: number;
-    cacheReadInputTokens: number;
-    cacheCreationInputTokens: number;
-    totalCostUsd: number;
-    contextWindow: number;
-  };
-  success?: boolean;
-  elapsedTimeMs?: number;
-}
+import { HistoryEntry, HistoryEntryType } from '../../shared/types';
 
 /**
  * Format timestamp for display

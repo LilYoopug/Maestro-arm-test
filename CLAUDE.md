@@ -352,9 +352,31 @@ The `window.maestro` API exposes:
 ### Automation
 - `autorun` - Document and image management for Auto Run
 - `playbooks` - Batch run configuration management
-- `history` - Per-project execution history with external change detection
+- `history` - Per-session execution history (see History API below)
 - `cli` - CLI activity detection for playbook runs
 - `tempfile` - Temporary file management for batch processing
+
+### History API
+
+Per-session history storage with 5,000 entries per session (up from 1,000 global). Each session's history is stored as a JSON file in `~/Library/Application Support/Maestro/history/{sessionId}.json`.
+
+```typescript
+window.maestro.history = {
+  getAll: (projectPath?, sessionId?) => Promise<HistoryEntry[]>,
+  add: (entry) => Promise<boolean>,
+  clear: (projectPath?, sessionId?) => Promise<boolean>,
+  delete: (entryId, sessionId?) => Promise<boolean>,
+  update: (entryId, updates, sessionId?) => Promise<boolean>,
+  // For AI context integration:
+  getFilePath: (sessionId) => Promise<string | null>,
+  listSessions: () => Promise<string[]>,
+  // External change detection:
+  onExternalChange: (handler) => () => void,
+  reload: () => Promise<boolean>,
+};
+```
+
+**AI Context Integration**: Use `getFilePath(sessionId)` to get the path to a session's history file. This file can be passed directly to AI agents as context, giving them visibility into past completed tasks, decisions, and work patterns.
 
 ### Utilities
 - `fonts` - Font detection

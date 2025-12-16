@@ -49,6 +49,12 @@ vi.mock('lucide-react', () => ({
   ),
   Eye: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
     <svg data-testid="eye-icon" className={className} style={style} />
+  ),
+  Layers: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+    <svg data-testid="layers-icon" className={className} style={style} />
+  ),
+  FileJson: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+    <svg data-testid="file-json-icon" className={className} style={style} />
   )
 }));
 
@@ -227,10 +233,12 @@ describe('HistoryHelpModal', () => {
       expect(screen.getByTestId('user-icon')).toBeInTheDocument();
     });
 
-    it('renders Bot icon in AUTO badge', () => {
+    it('renders Bot icon in AUTO badge and AI Context section', () => {
       render(<HistoryHelpModal {...defaultProps} />);
 
-      expect(screen.getByTestId('bot-icon')).toBeInTheDocument();
+      // There are multiple bot icons: one in AUTO badge, one in AI Context Integration section
+      const botIcons = screen.getAllByTestId('bot-icon');
+      expect(botIcons.length).toBeGreaterThanOrEqual(1);
     });
 
     it('renders /synopsis code snippet', () => {

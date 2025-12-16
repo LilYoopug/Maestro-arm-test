@@ -12,12 +12,11 @@ import Store from 'electron-store';
 import { registerGitHandlers } from './git';
 import { registerAutorunHandlers } from './autorun';
 import { registerPlaybooksHandlers } from './playbooks';
-import { registerHistoryHandlers, HistoryHandlerDependencies } from './history';
+import { registerHistoryHandlers } from './history';
 import { registerAgentsHandlers, AgentsHandlerDependencies } from './agents';
 import { registerProcessHandlers, ProcessHandlerDependencies } from './process';
 import { registerPersistenceHandlers, PersistenceHandlerDependencies, MaestroSettings, SessionsData, GroupsData } from './persistence';
 import { registerSystemHandlers, setupLoggerEventForwarding, SystemHandlerDependencies } from './system';
-import { HistoryEntry } from '../../../shared/types';
 import { AgentDetector } from '../../agent-detector';
 import { ProcessManager } from '../../process-manager';
 import { WebServer } from '../../web-server';
@@ -35,19 +34,11 @@ export { registerAgentsHandlers };
 export { registerProcessHandlers };
 export { registerPersistenceHandlers };
 export { registerSystemHandlers, setupLoggerEventForwarding };
-export type { HistoryHandlerDependencies };
 export type { AgentsHandlerDependencies };
 export type { ProcessHandlerDependencies };
 export type { PersistenceHandlerDependencies };
 export type { SystemHandlerDependencies };
 export type { MaestroSettings, SessionsData, GroupsData };
-
-/**
- * Interface for history store data (matches main/index.ts definition)
- */
-interface HistoryData {
-  entries: HistoryEntry[];
-}
 
 /**
  * Interface for agent configuration store data
@@ -63,10 +54,6 @@ export interface HandlerDependencies {
   mainWindow: BrowserWindow | null;
   getMainWindow: () => BrowserWindow | null;
   app: App;
-  // History-specific dependencies
-  historyStore: Store<HistoryData>;
-  getHistoryNeedsReload: () => boolean;
-  setHistoryNeedsReload: (value: boolean) => void;
   // Agents-specific dependencies
   getAgentDetector: () => AgentDetector | null;
   agentConfigsStore: Store<AgentConfigsData>;
@@ -89,11 +76,7 @@ export function registerAllHandlers(deps: HandlerDependencies): void {
   registerGitHandlers();
   registerAutorunHandlers(deps);
   registerPlaybooksHandlers(deps);
-  registerHistoryHandlers({
-    historyStore: deps.historyStore,
-    getHistoryNeedsReload: deps.getHistoryNeedsReload,
-    setHistoryNeedsReload: deps.setHistoryNeedsReload,
-  });
+  registerHistoryHandlers();
   registerAgentsHandlers({
     getAgentDetector: deps.getAgentDetector,
     agentConfigsStore: deps.agentConfigsStore,

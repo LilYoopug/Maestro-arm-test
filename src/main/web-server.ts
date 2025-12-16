@@ -8,6 +8,7 @@ import { randomUUID } from 'crypto';
 import path from 'path';
 import { existsSync } from 'fs';
 import type { Theme } from '../shared/theme-types';
+import { HistoryEntry } from '../shared/types';
 import { getLocalIpAddressSync } from './utils/networkUtils';
 import { logger } from './utils/logger';
 import {
@@ -195,33 +196,9 @@ export interface CustomAICommand {
 // Callback type for fetching custom AI commands
 export type GetCustomCommandsCallback = () => CustomAICommand[];
 
-// History entry type for the history API
-export interface HistoryEntryData {
-  id: string;
-  type: 'AUTO' | 'USER';
-  timestamp: number;
-  summary: string;
-  fullResponse?: string;
-  claudeSessionId?: string;
-  sessionName?: string;
-  projectPath: string;
-  sessionId?: string;
-  contextUsage?: number;
-  usageStats?: {
-    inputTokens: number;
-    outputTokens: number;
-    cacheReadInputTokens: number;
-    cacheCreationInputTokens: number;
-    totalCostUsd: number;
-    contextWindow: number;
-  };
-  success?: boolean;
-  elapsedTimeMs?: number;
-  validated?: boolean;
-}
-
 // Callback type for fetching history entries
-export type GetHistoryCallback = (projectPath?: string, sessionId?: string) => HistoryEntryData[];
+// Uses HistoryEntry from shared/types.ts as the canonical type
+export type GetHistoryCallback = (projectPath?: string, sessionId?: string) => HistoryEntry[];
 
 // Default rate limit configuration
 const DEFAULT_RATE_LIMIT_CONFIG: RateLimitConfig = {

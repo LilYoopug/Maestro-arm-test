@@ -14,6 +14,7 @@
  */
 
 import { FastifyInstance } from 'fastify';
+import { HistoryEntry } from '../../../shared/types';
 import { logger } from '../../utils/logger';
 
 // Logger context for all API route logs
@@ -100,32 +101,7 @@ export interface SessionDetail {
   activeTabId?: string;
 }
 
-/**
- * History entry type for the history API
- */
-export interface HistoryEntryData {
-  id: string;
-  type: 'AUTO' | 'USER';
-  timestamp: number;
-  summary: string;
-  fullResponse?: string;
-  claudeSessionId?: string;
-  sessionName?: string;
-  projectPath: string;
-  sessionId?: string;
-  contextUsage?: number;
-  usageStats?: {
-    inputTokens: number;
-    outputTokens: number;
-    cacheReadInputTokens: number;
-    cacheCreationInputTokens: number;
-    totalCostUsd: number;
-    contextWindow: number;
-  };
-  success?: boolean;
-  elapsedTimeMs?: number;
-  validated?: boolean;
-}
+// HistoryEntry is imported from shared/types.ts as the canonical type
 
 /**
  * Live session info for enriching sessions
@@ -161,7 +137,7 @@ export interface ApiRouteCallbacks {
   getTheme: () => Theme | null;
   writeToSession: (sessionId: string, data: string) => boolean;
   interruptSession: (sessionId: string) => Promise<boolean>;
-  getHistory: (projectPath?: string, sessionId?: string) => HistoryEntryData[];
+  getHistory: (projectPath?: string, sessionId?: string) => HistoryEntry[];
   getLiveSessionInfo: (sessionId: string) => LiveSessionInfo | undefined;
   isSessionLive: (sessionId: string) => boolean;
 }

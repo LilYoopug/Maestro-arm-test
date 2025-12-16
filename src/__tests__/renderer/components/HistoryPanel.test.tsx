@@ -992,7 +992,8 @@ describe('HistoryPanel', () => {
       fireEvent.click(screen.getByTestId('modal-delete'));
 
       await waitFor(() => {
-        expect(mockHistoryDelete).toHaveBeenCalledWith('delete-me');
+        // sessionId 'session-1' is passed for efficient lookup in per-session storage
+        expect(mockHistoryDelete).toHaveBeenCalledWith('delete-me', 'session-1');
       });
     });
 
@@ -1718,8 +1719,8 @@ describe('HistoryPanel', () => {
       fireEvent.click(screen.getByTestId('modal-update'));
 
       await waitFor(() => {
-        // Verify the history update was called
-        expect(mockHistoryUpdate).toHaveBeenCalledWith('update-test-entry', { summary: 'Updated summary' });
+        // Verify the history update was called with sessionId for efficient lookup
+        expect(mockHistoryUpdate).toHaveBeenCalledWith('update-test-entry', { summary: 'Updated summary' }, 'session-1');
       });
     });
 

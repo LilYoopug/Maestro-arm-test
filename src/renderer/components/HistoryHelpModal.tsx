@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { X, History, Play, Clock, DollarSign, BarChart2, CheckCircle, Bot, User, Eye } from 'lucide-react';
+import { X, History, Play, Clock, DollarSign, BarChart2, CheckCircle, Bot, User, Eye, Layers, FileJson } from 'lucide-react';
 import type { Theme } from '../types';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
@@ -274,6 +274,66 @@ export function HistoryHelpModal({ theme, onClose }: HistoryHelpModalProps) {
               </p>
               <p>
                 Hover over any bar to see the exact count and time range.
+              </p>
+            </div>
+          </section>
+
+          {/* Per-Session Storage */}
+          <section>
+            <div className="flex items-center gap-2 mb-3">
+              <Layers className="w-5 h-5" style={{ color: theme.colors.accent }} />
+              <h3 className="font-bold">Per-Session Storage</h3>
+            </div>
+            <div
+              className="text-sm space-y-2 pl-7"
+              style={{ color: theme.colors.textDim }}
+            >
+              <p>
+                History is stored in per-session files with a limit of{' '}
+                <strong style={{ color: theme.colors.textMain }}>5,000 entries per session</strong>.
+                This provides better isolation and scalability compared to a single global file.
+              </p>
+              <p>
+                Use the{' '}
+                <span
+                  className="inline-flex items-center justify-center w-5 h-5 rounded"
+                  style={{
+                    border: `1px solid ${theme.colors.border}`,
+                    verticalAlign: 'middle'
+                  }}
+                >
+                  <Layers className="w-3 h-3" />
+                </span>{' '}
+                toggle button to switch between viewing only the current session's history
+                or a cross-session view of all history for the project.
+              </p>
+            </div>
+          </section>
+
+          {/* AI Context Integration */}
+          <section>
+            <div className="flex items-center gap-2 mb-3">
+              <Bot className="w-5 h-5" style={{ color: theme.colors.accent }} />
+              <h3 className="font-bold">AI Context Integration</h3>
+            </div>
+            <div
+              className="text-sm space-y-2 pl-7"
+              style={{ color: theme.colors.textDim }}
+            >
+              <p>
+                History files can be passed directly to AI agents as context. Each session's
+                history is stored as a JSON file that the AI can read to understand past work.
+              </p>
+              <p>
+                <strong style={{ color: theme.colors.textMain }}>File location:</strong>{' '}
+                <code className="px-1.5 py-0.5 rounded text-[11px]" style={{ backgroundColor: theme.colors.bgActivity }}>
+                  ~/Library/Application Support/Maestro/history/{'<sessionId>'}.json
+                </code>
+              </p>
+              <p>
+                <strong style={{ color: theme.colors.textMain }}>Usage with Claude Code:</strong>{' '}
+                Reference the history file in your prompts to give the AI context about
+                completed tasks, decisions made, and work patterns in your session.
               </p>
             </div>
           </section>

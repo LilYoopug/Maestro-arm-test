@@ -487,6 +487,12 @@ contextBridge.exposeInMainWorld('maestro', {
   history: {
     getAll: (projectPath?: string, sessionId?: string) =>
       ipcRenderer.invoke('history:getAll', projectPath, sessionId),
+    // Paginated API for large datasets
+    getAllPaginated: (options?: {
+      projectPath?: string;
+      sessionId?: string;
+      pagination?: { limit?: number; offset?: number };
+    }) => ipcRenderer.invoke('history:getAllPaginated', options),
     add: (entry: {
       id: string;
       type: 'AUTO' | 'USER';
@@ -513,10 +519,16 @@ contextBridge.exposeInMainWorld('maestro', {
       ipcRenderer.invoke('history:add', entry),
     clear: (projectPath?: string) =>
       ipcRenderer.invoke('history:clear', projectPath),
-    delete: (entryId: string) =>
-      ipcRenderer.invoke('history:delete', entryId),
-    update: (entryId: string, updates: { validated?: boolean }) =>
-      ipcRenderer.invoke('history:update', entryId, updates),
+    delete: (entryId: string, sessionId?: string) =>
+      ipcRenderer.invoke('history:delete', entryId, sessionId),
+    update: (entryId: string, updates: { validated?: boolean }, sessionId?: string) =>
+      ipcRenderer.invoke('history:update', entryId, updates, sessionId),
+    // NEW: Get history file path for AI context integration
+    getFilePath: (sessionId: string) =>
+      ipcRenderer.invoke('history:getFilePath', sessionId),
+    // NEW: List sessions with history
+    listSessions: () =>
+      ipcRenderer.invoke('history:listSessions'),
     onExternalChange: (handler: () => void) => {
       const wrappedHandler = () => handler();
       ipcRenderer.on('history:externalChange', wrappedHandler);
@@ -1008,6 +1020,39 @@ export interface MaestroAPI {
       elapsedTimeMs?: number;
       validated?: boolean;
     }>>;
+    getAllPaginated: (options?: {
+      projectPath?: string;
+      sessionId?: string;
+      pagination?: { limit?: number; offset?: number };
+    }) => Promise<{
+      entries: Array<{
+        id: string;
+        type: 'AUTO' | 'USER';
+        timestamp: number;
+        summary: string;
+        fullResponse?: string;
+        claudeSessionId?: string;
+        projectPath: string;
+        sessionId?: string;
+        sessionName?: string;
+        contextUsage?: number;
+        usageStats?: {
+          inputTokens: number;
+          outputTokens: number;
+          cacheReadInputTokens: number;
+          cacheCreationInputTokens: number;
+          totalCostUsd: number;
+          contextWindow: number;
+        };
+        success?: boolean;
+        elapsedTimeMs?: number;
+        validated?: boolean;
+      }>;
+      total: number;
+      limit: number;
+      offset: number;
+      hasMore: boolean;
+    }>;
     add: (entry: {
       id: string;
       type: 'AUTO' | 'USER';
@@ -1032,10 +1077,14 @@ export interface MaestroAPI {
       validated?: boolean;
     }) => Promise<boolean>;
     clear: (projectPath?: string) => Promise<boolean>;
-    delete: (entryId: string) => Promise<boolean>;
-    update: (entryId: string, updates: { validated?: boolean }) => Promise<boolean>;
+    delete: (entryId: string, sessionId?: string) => Promise<boolean>;
+    update: (entryId: string, updates: { validated?: boolean }, sessionId?: string) => Promise<boolean>;
     onExternalChange: (handler: () => void) => () => void;
     reload: () => Promise<boolean>;
+    // NEW: Get history file path for AI context integration
+    getFilePath: (sessionId: string) => Promise<string | null>;
+    // NEW: List sessions with history
+    listSessions: () => Promise<string[]>;
   };
   cli: {
     getActivity: () => Promise<Array<{

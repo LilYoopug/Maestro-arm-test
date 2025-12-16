@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef, useMemo } from 'react';
-import { Bot, User, ExternalLink, Check, X, Clock, HelpCircle, Award } from 'lucide-react';
+import { Bot, User, ExternalLink, Check, X, Clock, HelpCircle, Award, Layers } from 'lucide-react';
 import type { Session, Theme, HistoryEntry, HistoryEntryType } from '../types';
 import { HistoryDetailModal } from './HistoryDetailModal';
 import { HistoryHelpModal } from './HistoryHelpModal';
@@ -437,6 +437,7 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
   const [graphReferenceTime, setGraphReferenceTime] = useState<number | undefined>(undefined);
   const [helpModalOpen, setHelpModalOpen] = useState(false);
   const [graphLookbackHours, setGraphLookbackHours] = useState<number | null>(null); // default to "All time"
+  const [viewMode, setViewMode] = useState<'session' | 'all'>('session'); // 'session' = current session only, 'all' = cross-session view
 
   const listRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Record<number, HTMLDivElement | null>>({});
@@ -454,8 +455,14 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
     }
 
     try {
-      // Pass sessionId to filter: only show entries from this session or legacy entries without sessionId
-      const entries = await window.maestro.history.getAll(session.cwd, session.id);
+      let entries: HistoryEntry[];
+      if (viewMode === 'all') {
+        // Cross-session view: get all entries for this project
+        entries = await window.maestro.history.getAll(session.cwd);
+      } else {
+        // Session view: only show entries from this session or legacy entries without sessionId
+        entries = await window.maestro.history.getAll(session.cwd, session.id);
+      }
       // Ensure entries is an array, limit to MAX_HISTORY_IN_MEMORY
       const validEntries = Array.isArray(entries) ? entries : [];
       setHistoryEntries(validEntries.slice(0, MAX_HISTORY_IN_MEMORY));
@@ -481,7 +488,7 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
       }
     }
   // Note: displayCount intentionally NOT in deps - we don't want to reload history when it changes
-  }, [session.cwd, session.id]);
+  }, [session.cwd, session.id, viewMode]);
 
   // Expose focus and refreshHistory methods to parent
   useImperativeHandle(ref, () => ({
@@ -695,12 +702,12 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
     hasRestoredScroll.current = false;
   }, [session.id]);
 
-  // Reset selected index, display count, and graph reference time when filters change
+  // Reset selected index, display count, and graph reference time when filters or view mode change
   useEffect(() => {
     setSelectedIndex(-1);
     setDisplayCount(INITIAL_DISPLAY_COUNT);
     setGraphReferenceTime(undefined); // Reset to "now" when filters change
-  }, [activeFilters, searchFilter]);
+  }, [activeFilters, searchFilter, viewMode]);
 
   // Scroll selected item into view
   useEffect(() => {
@@ -769,9 +776,10 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
   }, []);
 
   // Delete a history entry
+  // Pass sessionId for efficient lookup in per-session storage
   const handleDeleteEntry = useCallback(async (entryId: string) => {
     try {
-      const success = await window.maestro.history.delete(entryId);
+      const success = await window.maestro.history.delete(entryId, session.id);
       if (success) {
         // Remove from local state
         setHistoryEntries(prev => prev.filter(entry => entry.id !== entryId));
@@ -781,7 +789,7 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
     } catch (error) {
       console.error('Failed to delete history entry:', error);
     }
-  }, []);
+  }, [session.id]);
 
   // Format timestamp
   const formatTime = (timestamp: number) => {
@@ -862,6 +870,20 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
           onLookbackChange={handleLookbackChange}
         />
 
+        {/* View mode toggle */}
+        <button
+          onClick={() => setViewMode(prev => prev === 'session' ? 'all' : 'session')}
+          className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded transition-colors hover:bg-white/10"
+          style={{
+            color: viewMode === 'all' ? theme.colors.accent : theme.colors.textDim,
+            border: `1px solid ${viewMode === 'all' ? theme.colors.accent : theme.colors.border}`,
+            backgroundColor: viewMode === 'all' ? theme.colors.accent + '15' : 'transparent'
+          }}
+          title={viewMode === 'session' ? 'Show all sessions (cross-session view)' : 'Show current session only'}
+        >
+          <Layers className="w-3.5 h-3.5" />
+        </button>
+
         {/* Help button */}
         <button
           onClick={() => setHelpModalOpen(true)}
@@ -925,7 +947,9 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
         ) : filteredEntries.length === 0 ? (
           <div className="text-center py-8 text-xs opacity-50">
             {historyEntries.length === 0
-              ? 'No history yet. Run batch tasks or use /synopsis to add entries.'
+              ? viewMode === 'all'
+                ? 'No history yet for this project. Run batch tasks or use /synopsis to add entries.'
+                : 'No history yet. Run batch tasks or use /synopsis to add entries.'
               : searchFilter
                 ? `No entries match "${searchFilter}"`
                 : 'No entries match the selected filters.'}
@@ -1016,6 +1040,22 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
                         </span>
                         <ExternalLink className="w-2.5 h-2.5 flex-shrink-0" />
                       </button>
+                    )}
+
+                    {/* Cross-session indicator - shows when viewing all sessions and entry is from a different session */}
+                    {viewMode === 'all' && entry.sessionId && entry.sessionId !== session.id && (
+                      <span
+                        className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium"
+                        style={{
+                          backgroundColor: theme.colors.warning + '15',
+                          color: theme.colors.warning,
+                          border: `1px solid ${theme.colors.warning}30`,
+                        }}
+                        title={`From session ${entry.sessionId.substring(0, 8)}...`}
+                      >
+                        <Layers className="w-2.5 h-2.5" />
+                        <span className="font-mono">{entry.sessionId.substring(0, 8)}</span>
+                      </span>
                     )}
                   </div>
 
@@ -1110,7 +1150,8 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
           onResumeSession={onResumeSession}
           onDelete={handleDeleteEntry}
           onUpdate={async (entryId, updates) => {
-            const success = await window.maestro.history.update(entryId, updates);
+            // Pass sessionId for efficient lookup in per-session storage
+            const success = await window.maestro.history.update(entryId, updates, session.id);
             if (success) {
               // Update local state
               setHistoryEntries(prev => prev.map(e =>
