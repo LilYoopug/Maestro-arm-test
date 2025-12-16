@@ -40,6 +40,13 @@ export interface MarkdownComponentsOptions {
   customLanguageRenderers?: Record<string, React.ComponentType<{ code: string; theme: Theme }>>;
   /** Callback when external link is clicked - if not provided, uses default browser behavior */
   onExternalLinkClick?: (href: string) => void;
+  /** Search highlighting options */
+  searchHighlight?: {
+    query: string;
+    currentMatchIndex: number;
+    /** Callback to track match index for scrolling */
+    onMatchRendered?: (index: number, element: HTMLElement) => void;
+  };
 }
 
 // ============================================================================
@@ -143,7 +150,7 @@ export function generateProseStyles(options: ProseStylesOptions): string {
       transform: rotate(45deg);
     }
     .prose input[type="checkbox"]:hover {
-      border-color: ${colors.highlight};
+      border-color: ${colors.accent};
       box-shadow: 0 0 4px ${colors.accent}40;
     }
     .prose li:has(> input[type="checkbox"]) {
@@ -174,10 +181,65 @@ export function generateProseStyles(options: ProseStylesOptions): string {
  * });
  * // In component: <ReactMarkdown components={components}>...</ReactMarkdown>
  */
+// Global match counter for tracking which match is current during render
+let globalMatchCounter = 0;
+
 export function createMarkdownComponents(options: MarkdownComponentsOptions): Partial<Components> {
-  const { theme, imageRenderer, customLanguageRenderers = {}, onExternalLinkClick } = options;
+  const { theme, imageRenderer, customLanguageRenderers = {}, onExternalLinkClick, searchHighlight } = options;
+
+  // Reset match counter at start of each render
+  globalMatchCounter = 0;
 
   const components: Partial<Components> = {
+    // Text node handler for search highlighting
+    text: ({ children }: any) => {
+      const text = String(children);
+
+      // If no search or empty query, return plain text
+      if (!searchHighlight || !searchHighlight.query.trim()) {
+        return React.createElement(React.Fragment, null, text);
+      }
+
+      const { query, currentMatchIndex, onMatchRendered } = searchHighlight;
+      const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`(${escapedQuery})`, 'gi');
+      const parts = text.split(regex);
+
+      // If no matches in this text node, return plain text
+      if (parts.length === 1) {
+        return React.createElement(React.Fragment, null, text);
+      }
+
+      // Build array of text and highlighted spans
+      const elements: React.ReactNode[] = [];
+      parts.forEach((part, i) => {
+        if (part.toLowerCase() === query.toLowerCase()) {
+          const matchIndex = globalMatchCounter++;
+          const isCurrent = matchIndex === currentMatchIndex;
+          elements.push(
+            React.createElement('mark', {
+              key: `match-${i}`,
+              className: 'search-match',
+              'data-match-index': matchIndex,
+              'data-current': isCurrent ? 'true' : undefined,
+              style: {
+                padding: '0 2px',
+                borderRadius: '2px',
+                backgroundColor: isCurrent ? theme.colors.accent : '#ffd700',
+                color: isCurrent ? '#fff' : '#000',
+              },
+              ref: isCurrent && onMatchRendered
+                ? (el: HTMLElement | null) => el && onMatchRendered(matchIndex, el)
+                : undefined,
+            }, part)
+          );
+        } else {
+          elements.push(part);
+        }
+      });
+
+      return React.createElement(React.Fragment, null, ...elements);
+    },
     // Code block with syntax highlighting and custom language support
     code: ({ node, inline, className, children, ...props }: any) => {
       const match = (className || '').match(/language-(\w+)/);

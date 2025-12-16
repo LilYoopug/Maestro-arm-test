@@ -248,78 +248,6 @@ function AttachmentImage({
   );
 }
 
-// Component for displaying search-highlighted content using safe DOM methods
-function SearchHighlightedContent({
-  content,
-  searchQuery,
-  currentMatchIndex,
-  theme,
-  onMatchesRendered
-}: {
-  content: string;
-  searchQuery: string;
-  currentMatchIndex: number;
-  theme: any;
-  onMatchesRendered?: () => void;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!ref.current) return;
-
-    // Clear existing content
-    ref.current.textContent = '';
-
-    if (!searchQuery.trim()) {
-      ref.current.textContent = content;
-      return;
-    }
-
-    const escapedQuery = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(`(${escapedQuery})`, 'gi');
-    const parts = content.split(regex);
-    let matchIndex = 0;
-
-    parts.forEach((part) => {
-      if (part.toLowerCase() === searchQuery.toLowerCase()) {
-        // This is a match - create a highlighted mark element
-        const mark = document.createElement('mark');
-        mark.className = 'search-match';
-        mark.textContent = part;
-        mark.style.padding = '0 2px';
-        mark.style.borderRadius = '2px';
-        if (matchIndex === currentMatchIndex) {
-          mark.style.backgroundColor = theme.colors.accent;
-          mark.style.color = '#fff';
-          mark.dataset.current = 'true';
-        } else {
-          mark.style.backgroundColor = '#ffd700';
-          mark.style.color = '#000';
-        }
-        ref.current!.appendChild(mark);
-        matchIndex++;
-      } else {
-        // Regular text - create a text node
-        ref.current!.appendChild(document.createTextNode(part));
-      }
-    });
-
-    // Notify parent that marks are rendered so it can scroll
-    if (onMatchesRendered) {
-      // Use requestAnimationFrame to ensure DOM is painted
-      requestAnimationFrame(() => onMatchesRendered());
-    }
-  }, [content, searchQuery, currentMatchIndex, theme.colors.accent, onMatchesRendered]);
-
-  return (
-    <div
-      ref={ref}
-      className="font-mono text-sm whitespace-pre-wrap"
-      style={{ color: theme.colors.textMain }}
-    />
-  );
-}
-
 // Image preview thumbnail for staged images in edit mode
 function ImagePreview({
   src,
@@ -858,18 +786,6 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
     setCurrentMatchIndex(prevIndex);
   }, [currentMatchIndex, totalMatches]);
 
-  // Scroll to current match in preview mode - called after marks are rendered
-  const scrollToCurrentMatchInPreview = useCallback(() => {
-    if (!searchOpen || !searchQuery.trim() || totalMatches === 0) return;
-    if (mode !== 'preview' || !previewRef.current) return;
-
-    // Find and scroll to the current match element (marked with data-current)
-    const currentMark = previewRef.current.querySelector('mark.search-match[data-current="true"]');
-    if (currentMark) {
-      currentMark.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  }, [searchOpen, searchQuery, totalMatches, mode]);
-
   // Scroll to current match in edit mode
   useEffect(() => {
     if (!searchOpen || !searchQuery.trim() || totalMatches === 0) return;
@@ -1103,15 +1019,30 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
     return { completed, total };
   }, [localContent]);
 
+  // Callback for when a search match is rendered (used for scrolling to current match)
+  const handleMatchRendered = useCallback((index: number, element: HTMLElement) => {
+    if (index === currentMatchIndex) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [currentMatchIndex]);
+
   // Memoize ReactMarkdown components - only regenerate when dependencies change
   // Uses shared utility from markdownConfig.ts with custom image renderer
   const markdownComponents = useMemo(() => {
-    // Create base components with mermaid support
+    // Create base components with mermaid support and search highlighting
     const baseComponents = createMarkdownComponents({
       theme,
       customLanguageRenderers: {
         mermaid: ({ code, theme: t }) => <MermaidRenderer chart={code} theme={t} />,
       },
+      // Add search highlighting when search is active with matches
+      searchHighlight: searchOpen && searchQuery.trim() && totalMatches > 0
+        ? {
+            query: searchQuery,
+            currentMatchIndex,
+            onMatchRendered: handleMatchRendered,
+          }
+        : undefined,
     });
 
     // Add custom image renderer for AttachmentImage
@@ -1128,7 +1059,7 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
         />
       ),
     };
-  }, [theme, folderPath, openLightboxByFilename]);
+  }, [theme, folderPath, openLightboxByFilename, searchOpen, searchQuery, totalMatches, currentMatchIndex, handleMatchRendered]);
 
   return (
     <div
@@ -1481,23 +1412,12 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
             }}
           >
             <style>{proseStyles}</style>
-            {searchOpen && searchQuery.trim() && totalMatches > 0 ? (
-              // When searching with matches, show raw text with highlights for easy search navigation
-              <SearchHighlightedContent
-                content={localContent || '*No content yet.*'}
-                searchQuery={searchQuery}
-                currentMatchIndex={currentMatchIndex}
-                theme={theme}
-                onMatchesRendered={scrollToCurrentMatchInPreview}
-              />
-            ) : (
-              <ReactMarkdown
-                remarkPlugins={REMARK_PLUGINS}
-                components={markdownComponents}
-              >
-                {localContent || '*No content yet. Switch to Edit mode to start writing.*'}
-              </ReactMarkdown>
-            )}
+            <ReactMarkdown
+              remarkPlugins={REMARK_PLUGINS}
+              components={markdownComponents}
+            >
+              {localContent || '*No content yet. Switch to Edit mode to start writing.*'}
+            </ReactMarkdown>
           </div>
         )}
       </div>
