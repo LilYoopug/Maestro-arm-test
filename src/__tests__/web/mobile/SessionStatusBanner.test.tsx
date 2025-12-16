@@ -234,22 +234,22 @@ describe('SessionStatusBanner', () => {
   });
 
   describe('formatCost (via CostTracker)', () => {
-    it('formats very small costs with 4 decimal places', () => {
+    it('formats very small costs as "<$0.01"', () => {
       const usageStats = createUsageStats({ totalCostUsd: 0.0012 });
       const session = createSession({ usageStats });
 
       render(<SessionStatusBanner session={session} />);
 
-      expect(screen.getByText('$0.0012')).toBeInTheDocument();
+      expect(screen.getByText('<$0.01')).toBeInTheDocument();
     });
 
-    it('formats costs under $1 with 3 decimal places', () => {
+    it('formats costs under $1 with 2 decimal places', () => {
       const usageStats = createUsageStats({ totalCostUsd: 0.123 });
       const session = createSession({ usageStats });
 
       render(<SessionStatusBanner session={session} />);
 
-      expect(screen.getByText('$0.123')).toBeInTheDocument();
+      expect(screen.getByText('$0.12')).toBeInTheDocument();
     });
 
     it('formats costs $1 or more with 2 decimal places', () => {
@@ -261,13 +261,13 @@ describe('SessionStatusBanner', () => {
       expect(screen.getByText('$5.68')).toBeInTheDocument();
     });
 
-    it('formats exactly $0.01 with 3 decimal places', () => {
+    it('formats exactly $0.01 with 2 decimal places', () => {
       const usageStats = createUsageStats({ totalCostUsd: 0.01 });
       const session = createSession({ usageStats });
 
       render(<SessionStatusBanner session={session} />);
 
-      expect(screen.getByText('$0.010')).toBeInTheDocument();
+      expect(screen.getByText('$0.01')).toBeInTheDocument();
     });
 
     it('formats exactly $1.00 with 2 decimal places', () => {
@@ -285,7 +285,7 @@ describe('SessionStatusBanner', () => {
 
       render(<SessionStatusBanner session={session} />);
 
-      expect(screen.getByText('$0.0000')).toBeInTheDocument();
+      expect(screen.getByText('$0.00')).toBeInTheDocument();
     });
 
     it('does not render CostTracker when cost is undefined', () => {
@@ -618,7 +618,7 @@ describe('SessionStatusBanner', () => {
 
       render(<SessionStatusBanner session={session} />);
 
-      expect(screen.getByText('$0.500')).toBeInTheDocument();
+      expect(screen.getByText('$0.50')).toBeInTheDocument();
       expect(screen.getByText('💰')).toBeInTheDocument();
     });
 
@@ -1278,7 +1278,7 @@ describe('SessionStatusBanner', () => {
         // Mode
         expect(screen.getByText('AI')).toBeInTheDocument();
         // Cost
-        expect(screen.getByText('$0.150')).toBeInTheDocument();
+        expect(screen.getByText('$0.15')).toBeInTheDocument();
         // Tokens
         expect(screen.getByText('7.0K')).toBeInTheDocument();
         // Context usage
@@ -1374,7 +1374,7 @@ describe('SessionStatusBanner', () => {
 
       render(<SessionStatusBanner session={session} />);
 
-      expect(screen.getByText('$0.0000')).toBeInTheDocument();
+      expect(screen.getByText('<$0.01')).toBeInTheDocument();
     });
 
     it('handles rapid state changes', () => {

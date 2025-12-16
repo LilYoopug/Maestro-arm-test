@@ -15,6 +15,7 @@ import { useOfflineQueue } from '../hooks/useOfflineQueue';
 import { useMobileSessionManagement } from '../hooks/useMobileSessionManagement';
 import { useOfflineStatus, useMaestroMode, useDesktopTheme } from '../main';
 import { buildApiUrl } from '../utils/config';
+import { formatCost } from '../../shared/formatters';
 import { triggerHaptic, HAPTIC_PATTERNS } from './constants';
 import { webLogger } from '../utils/logger';
 import { SessionPillBar } from './SessionPillBar';
@@ -36,15 +37,6 @@ import { useMobileKeyboardHandler } from '../hooks/useMobileKeyboardHandler';
 import { useMobileViewState } from '../hooks/useMobileViewState';
 import { useMobileAutoReconnect } from '../hooks/useMobileAutoReconnect';
 
-
-/**
- * Format cost in USD for display
- */
-function formatCost(cost: number): string {
-  if (cost < 0.01) return `$${cost.toFixed(4)}`;
-  if (cost < 1.0) return `$${cost.toFixed(3)}`;
-  return `$${cost.toFixed(2)}`;
-}
 
 /**
  * Calculate context usage percentage from usage stats
