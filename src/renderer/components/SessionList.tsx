@@ -834,14 +834,20 @@ export function SessionList(props: SessionListProps) {
                           <div className="mt-2">
                             <div className="flex items-center gap-2">
                               <input
-                                type="number"
-                                min={1024}
-                                max={65535}
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
                                 value={webInterfaceCustomPort}
                                 onChange={(e) => {
-                                  const value = parseInt(e.target.value, 10);
-                                  if (!isNaN(value) && value >= 0) {
-                                    setWebInterfaceCustomPort(value);
+                                  // Allow empty or any numeric input during typing
+                                  const raw = e.target.value.replace(/[^0-9]/g, '');
+                                  if (raw === '') {
+                                    setWebInterfaceCustomPort(0);
+                                  } else {
+                                    const value = parseInt(raw, 10);
+                                    if (!isNaN(value)) {
+                                      setWebInterfaceCustomPort(value);
+                                    }
                                   }
                                 }}
                                 onBlur={() => {

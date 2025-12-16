@@ -576,14 +576,18 @@ export default function MaestroConsole() {
       let hasSessionsLoaded = false;
 
       try {
+        console.log('[Startup] Loading sessions and groups...');
         const savedSessions = await window.maestro.sessions.getAll();
         const savedGroups = await window.maestro.groups.getAll();
+        console.log('[Startup] Loaded from storage:', { sessionCount: savedSessions?.length, groupCount: savedGroups?.length });
 
         // Handle sessions
         if (savedSessions && savedSessions.length > 0) {
+          console.log('[Startup] Restoring', savedSessions.length, 'sessions...');
           const restoredSessions = await Promise.all(
             savedSessions.map(s => restoreSession(s))
           );
+          console.log('[Startup] Restored sessions:', restoredSessions.length);
           setSessions(restoredSessions);
           hasSessionsLoaded = true;
           // Set active session to first session if current activeSessionId is invalid
@@ -591,6 +595,7 @@ export default function MaestroConsole() {
             setActiveSessionId(restoredSessions[0].id);
           }
         } else {
+          console.log('[Startup] No sessions found in storage');
           setSessions([]);
         }
 
@@ -601,7 +606,7 @@ export default function MaestroConsole() {
           setGroups([]);
         }
       } catch (e) {
-        console.error('Failed to load sessions/groups:', e);
+        console.error('[Startup] Failed to load sessions/groups:', e);
         setSessions([]);
         setGroups([]);
       } finally {
@@ -611,18 +616,24 @@ export default function MaestroConsole() {
         // Mark sessions as loaded for splash screen coordination
         setSessionsLoaded(true);
 
+        console.log('[Startup] hasSessionsLoaded:', hasSessionsLoaded);
         // If no sessions were loaded, check for wizard resume state or open wizard
         if (!hasSessionsLoaded) {
+          console.log('[Startup] No sessions loaded, checking for wizard resume state...');
           // Check if there's a saved wizard state to resume
           const savedResumeState = await loadResumeState();
           if (savedResumeState) {
+            console.log('[Startup] Found resume state, showing resume modal');
             // Show resume dialog instead of opening wizard directly
             setWizardResumeState(savedResumeState);
             setWizardResumeModalOpen(true);
           } else {
+            console.log('[Startup] No resume state, opening fresh wizard');
             // No resume state, start fresh wizard
             openWizardModal();
           }
+        } else {
+          console.log('[Startup] Sessions loaded successfully, not showing wizard');
         }
       }
     };
