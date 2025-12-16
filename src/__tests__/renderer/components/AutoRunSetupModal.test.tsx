@@ -277,7 +277,8 @@ describe('AutoRunSetupModal', () => {
         await vi.runAllTimersAsync();
       });
 
-      const modalContent = container.querySelector('.w-\\[520px\\]');
+      // Modal uses inline width style instead of Tailwind class
+      const modalContent = container.querySelector('[style*="width: 520px"]');
       expect(modalContent).toHaveStyle({ backgroundColor: theme.colors.bgSidebar });
     });
   });
@@ -825,7 +826,7 @@ describe('AutoRunSetupModal', () => {
 
       vi.mocked(window.maestro.dialog.selectFolder).mockResolvedValue('/selected/folder');
 
-      renderWithLayerStack(
+      const { container } = renderWithLayerStack(
         <AutoRunSetupModal
           theme={theme}
           onClose={onClose}
@@ -837,8 +838,9 @@ describe('AutoRunSetupModal', () => {
         await vi.runAllTimersAsync();
       });
 
-      const dialog = screen.getByRole('dialog');
-      fireEvent.keyDown(dialog, { key: 'o', metaKey: true });
+      // Keyboard events are handled by the wrapper div around Modal
+      const wrapper = container.firstChild as HTMLElement;
+      fireEvent.keyDown(wrapper, { key: 'o', metaKey: true });
 
       await act(async () => {
         await vi.runAllTimersAsync();
@@ -853,7 +855,7 @@ describe('AutoRunSetupModal', () => {
 
       vi.mocked(window.maestro.dialog.selectFolder).mockResolvedValue('/selected/folder');
 
-      renderWithLayerStack(
+      const { container } = renderWithLayerStack(
         <AutoRunSetupModal
           theme={theme}
           onClose={onClose}
@@ -865,8 +867,9 @@ describe('AutoRunSetupModal', () => {
         await vi.runAllTimersAsync();
       });
 
-      const dialog = screen.getByRole('dialog');
-      fireEvent.keyDown(dialog, { key: 'O', ctrlKey: true });
+      // Keyboard events are handled by the wrapper div around Modal
+      const wrapper = container.firstChild as HTMLElement;
+      fireEvent.keyDown(wrapper, { key: 'O', ctrlKey: true });
 
       await act(async () => {
         await vi.runAllTimersAsync();
@@ -881,7 +884,7 @@ describe('AutoRunSetupModal', () => {
 
       vi.mocked(window.maestro.autorun.listDocs).mockResolvedValue({ success: true, files: [] });
 
-      renderWithLayerStack(
+      const { container } = renderWithLayerStack(
         <AutoRunSetupModal
           theme={theme}
           onClose={onClose}
@@ -901,8 +904,9 @@ describe('AutoRunSetupModal', () => {
         await vi.runAllTimersAsync();
       });
 
-      const dialog = screen.getByRole('dialog');
-      fireEvent.keyDown(dialog, { key: 'Enter' });
+      // Keyboard events are handled by the wrapper div around Modal
+      const wrapper = container.firstChild as HTMLElement;
+      fireEvent.keyDown(wrapper, { key: 'Enter' });
 
       expect(onFolderSelected).toHaveBeenCalledWith('/valid/path');
       expect(onClose).toHaveBeenCalled();
@@ -1290,7 +1294,8 @@ describe('AutoRunSetupModal', () => {
       const dialog = screen.getByRole('dialog');
       expect(dialog).toHaveClass('fixed');
       expect(dialog).toHaveClass('inset-0');
-      expect(dialog).toHaveClass('z-[9999]');
+      // Modal component uses inline z-index style instead of Tailwind class
+      expect(dialog).toHaveStyle({ zIndex: 9999 });
     });
 
     it('has blur backdrop', async () => {
@@ -1382,7 +1387,8 @@ describe('AutoRunSetupModal', () => {
         await vi.runAllTimersAsync();
       });
 
-      const modalContent = container.querySelector('.w-\\[520px\\]');
+      // Modal uses inline width style instead of Tailwind class
+      const modalContent = container.querySelector('[style*="width: 520px"]');
       expect(modalContent).toHaveStyle({ backgroundColor: lightTheme.colors.bgSidebar });
     });
 
