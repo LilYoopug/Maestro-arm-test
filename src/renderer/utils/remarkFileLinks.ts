@@ -15,6 +15,7 @@
 import { visit } from 'unist-util-visit';
 import type { Root, Text, Link, Image } from 'mdast';
 import type { FileNode } from '../hooks/useFileExplorer';
+import { buildFileIndex as buildFileIndexShared, type FilePathEntry } from '../../shared/treeUtils';
 
 export interface RemarkFileLinksOptions {
   /** The file tree to validate paths against */
@@ -25,33 +26,12 @@ export interface RemarkFileLinksOptions {
   projectRoot?: string;
 }
 
-interface FilePathEntry {
-  /** Relative path from project root */
-  relativePath: string;
-  /** Just the filename */
-  filename: string;
-}
-
 /**
  * Build a flat index of all files in the tree for quick lookup
+ * @see {@link buildFileIndexShared} from shared/treeUtils for the underlying implementation
  */
 function buildFileIndex(nodes: FileNode[], currentPath = ''): FilePathEntry[] {
-  const entries: FilePathEntry[] = [];
-
-  for (const node of nodes) {
-    const nodePath = currentPath ? `${currentPath}/${node.name}` : node.name;
-
-    if (node.type === 'file') {
-      entries.push({
-        relativePath: nodePath,
-        filename: node.name,
-      });
-    } else if (node.type === 'folder' && node.children) {
-      entries.push(...buildFileIndex(node.children, nodePath));
-    }
-  }
-
-  return entries;
+  return buildFileIndexShared(nodes, currentPath);
 }
 
 /**

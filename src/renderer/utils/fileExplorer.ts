@@ -1,3 +1,8 @@
+import {
+  getAllFolderPaths as getAllFolderPathsShared,
+  walkTreePartitioned,
+} from '../../shared/treeUtils';
+
 /**
  * Check if a file should be opened in external app based on extension
  */
@@ -68,19 +73,10 @@ export async function loadFileTree(
 
 /**
  * Get all folder paths from a file tree recursively
+ * @see {@link getAllFolderPathsShared} from shared/treeUtils for the underlying implementation
  */
 export function getAllFolderPaths(nodes: FileTreeNode[], currentPath = ''): string[] {
-  let paths: string[] = [];
-  nodes.forEach((node) => {
-    if (node.type === 'folder') {
-      const fullPath = currentPath ? `${currentPath}/${node.name}` : node.name;
-      paths.push(fullPath);
-      if (node.children) {
-        paths = paths.concat(getAllFolderPaths(node.children, fullPath));
-      }
-    }
-  });
-  return paths;
+  return getAllFolderPathsShared(nodes, currentPath);
 }
 
 export interface FlatTreeNode extends FileTreeNode {
@@ -119,29 +115,13 @@ export interface FileTreeChanges {
 
 /**
  * Helper to collect all paths from a file tree
+ * @see {@link walkTreePartitioned} from shared/treeUtils for the underlying implementation
  */
 function collectPaths(
   nodes: FileTreeNode[],
   currentPath = ''
 ): { files: Set<string>; folders: Set<string> } {
-  const files = new Set<string>();
-  const folders = new Set<string>();
-
-  for (const node of nodes) {
-    const fullPath = currentPath ? `${currentPath}/${node.name}` : node.name;
-    if (node.type === 'folder') {
-      folders.add(fullPath);
-      if (node.children) {
-        const childPaths = collectPaths(node.children, fullPath);
-        childPaths.files.forEach(f => files.add(f));
-        childPaths.folders.forEach(f => folders.add(f));
-      }
-    } else {
-      files.add(fullPath);
-    }
-  }
-
-  return { files, folders };
+  return walkTreePartitioned(nodes, currentPath);
 }
 
 /**
