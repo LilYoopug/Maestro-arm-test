@@ -93,6 +93,23 @@ const AGENT_DEFINITIONS: Omit<AgentConfig, 'available' | 'path' | 'capabilities'
     resumeArgs: (sessionId: string) => ['--session', sessionId], // Resume with session ID
     readOnlyArgs: ['--agent', 'plan'], // Read-only/plan mode
     modelArgs: (modelId: string) => ['--model', modelId], // Model selection (e.g., 'ollama/qwen3:8b')
+    // Agent-specific configuration options shown in UI
+    configOptions: [
+      {
+        key: 'model',
+        type: 'text',
+        label: 'Model',
+        description: 'Model to use (e.g., "ollama/qwen3:8b", "anthropic/claude-sonnet-4-20250514"). Leave empty for default.',
+        default: '', // Empty string means use OpenCode's default model
+        argBuilder: (value: string) => {
+          // Only add --model arg if a model is specified
+          if (value && value.trim()) {
+            return ['--model', value.trim()];
+          }
+          return [];
+        },
+      },
+    ],
   },
 ];
 

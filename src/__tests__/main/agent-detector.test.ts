@@ -103,6 +103,7 @@ describe('agent-detector', () => {
           supportsBatchMode: false,
           supportsStreaming: true,
           supportsResultMessages: false,
+          supportsModelSelection: false,
         },
       };
       expect(config.customPath).toBe('/custom/path');
@@ -125,8 +126,10 @@ describe('agent-detector', () => {
         supportsBatchMode: true,
         supportsStreaming: true,
         supportsResultMessages: true,
+        supportsModelSelection: true,
       };
       expect(capabilities.supportsResume).toBe(true);
+      expect(capabilities.supportsModelSelection).toBe(true);
       expect(capabilities.supportsImageInput).toBe(true);
     });
 
@@ -153,6 +156,31 @@ describe('agent-detector', () => {
       };
       expect(option.argBuilder!(true)).toEqual(['--verbose']);
       expect(option.argBuilder!(false)).toEqual([]);
+    });
+
+    it('should support model config option with argBuilder for OpenCode', () => {
+      // Model config option that only adds args when value is non-empty
+      const option: AgentConfigOption = {
+        key: 'model',
+        type: 'text',
+        label: 'Model',
+        description: 'Model to use',
+        default: '',
+        argBuilder: (value: string) => {
+          if (value && value.trim()) {
+            return ['--model', value.trim()];
+          }
+          return [];
+        },
+      };
+      // When model is empty, no args should be added
+      expect(option.argBuilder!('')).toEqual([]);
+      expect(option.argBuilder!('  ')).toEqual([]);
+      // When model is specified, add --model arg
+      expect(option.argBuilder!('ollama/qwen3:8b')).toEqual(['--model', 'ollama/qwen3:8b']);
+      expect(option.argBuilder!('anthropic/claude-sonnet-4-20250514')).toEqual(['--model', 'anthropic/claude-sonnet-4-20250514']);
+      // Trim whitespace from value
+      expect(option.argBuilder!('  ollama/qwen3:8b  ')).toEqual(['--model', 'ollama/qwen3:8b']);
     });
   });
 

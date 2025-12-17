@@ -48,6 +48,9 @@ export interface AgentCapabilities {
 
   /** Agent provides distinct "result" messages when done */
   supportsResultMessages: boolean;
+
+  /** Agent supports selecting different models (e.g., --model flag) */
+  supportsModelSelection: boolean;
 }
 
 /**
@@ -67,6 +70,7 @@ export const DEFAULT_CAPABILITIES: AgentCapabilities = {
   supportsBatchMode: false,
   supportsStreaming: false,
   supportsResultMessages: false,
+  supportsModelSelection: false,
 };
 
 /**
@@ -98,6 +102,7 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
     supportsBatchMode: true,     // --print flag
     supportsStreaming: true,     // Stream JSON events
     supportsResultMessages: true, // "result" event type
+    supportsModelSelection: false, // Model is configured via Anthropic account
   },
 
   /**
@@ -117,6 +122,7 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
     supportsBatchMode: false,
     supportsStreaming: true,  // PTY streams output
     supportsResultMessages: false,
+    supportsModelSelection: false,
   },
 
   /**
@@ -138,6 +144,7 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
     supportsBatchMode: false,
     supportsStreaming: true,     // Most CLIs stream
     supportsResultMessages: false,
+    supportsModelSelection: false, // Not yet investigated
   },
 
   /**
@@ -159,6 +166,7 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
     supportsBatchMode: false,
     supportsStreaming: true,     // Likely streams
     supportsResultMessages: false,
+    supportsModelSelection: false, // Not yet investigated
   },
 
   /**
@@ -180,6 +188,7 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
     supportsBatchMode: false,
     supportsStreaming: true,     // Likely streams
     supportsResultMessages: false,
+    supportsModelSelection: false, // Not yet investigated
   },
 
   /**
@@ -202,6 +211,7 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
     supportsBatchMode: true,      // run subcommand (auto-approves all permissions) - Verified
     supportsStreaming: true,      // Streams JSONL events - Verified
     supportsResultMessages: true, // step_finish with part.reason:"stop" - Verified
+    supportsModelSelection: true, // --model provider/model (e.g., 'ollama/qwen3:8b') - Verified
   },
 };
 

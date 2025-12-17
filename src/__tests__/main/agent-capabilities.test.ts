@@ -240,6 +240,7 @@ describe('agent-capabilities', () => {
         'supportsBatchMode',
         'supportsStreaming',
         'supportsResultMessages',
+        'supportsModelSelection',
       ];
 
       const defaultKeys = Object.keys(DEFAULT_CAPABILITIES);
