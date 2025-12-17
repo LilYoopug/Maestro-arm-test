@@ -5,10 +5,11 @@
  * OpenCode uses server-managed sessions, so this implementation serves as a
  * placeholder until the actual session storage location and format are known.
  *
- * TODO: Implement when OpenCode session storage format is documented
- * - Investigate where OpenCode stores session data
- * - Determine the file format (JSON, JSONL, SQLite, etc.)
- * - Implement actual session reading/searching logic
+ * PLACEHOLDER: This stub returns empty results for all operations.
+ * To implement, investigate:
+ * - Where OpenCode stores session data (local files or server API)
+ * - The file format (JSON, JSONL, SQLite, etc.)
+ * - Session reading/searching logic
  */
 
 import { logger } from '../utils/logger';
@@ -38,7 +39,7 @@ export class OpenCodeSessionStorage implements AgentSessionStorage {
 
   async listSessions(_projectPath: string): Promise<AgentSessionInfo[]> {
     logger.debug('OpenCode session storage not yet implemented', LOG_CONTEXT);
-    // TODO: Implement when OpenCode session storage location is known
+    // Stub: returns empty until OpenCode storage location is known
     return [];
   }
 
@@ -47,7 +48,7 @@ export class OpenCodeSessionStorage implements AgentSessionStorage {
     _options?: SessionListOptions
   ): Promise<PaginatedSessionsResult> {
     logger.debug('OpenCode session storage not yet implemented', LOG_CONTEXT);
-    // TODO: Implement when OpenCode session storage location is known
+    // Stub: returns empty until OpenCode storage location is known
     return {
       sessions: [],
       hasMore: false,
@@ -62,7 +63,7 @@ export class OpenCodeSessionStorage implements AgentSessionStorage {
     _options?: SessionReadOptions
   ): Promise<SessionMessagesResult> {
     logger.debug('OpenCode session storage not yet implemented', LOG_CONTEXT);
-    // TODO: Implement when OpenCode session storage format is known
+    // Stub: returns empty until OpenCode storage format is known
     return {
       messages: [],
       total: 0,
@@ -76,7 +77,7 @@ export class OpenCodeSessionStorage implements AgentSessionStorage {
     _searchMode: SessionSearchMode
   ): Promise<SessionSearchResult[]> {
     logger.debug('OpenCode session storage not yet implemented', LOG_CONTEXT);
-    // TODO: Implement when OpenCode session storage format is known
+    // Stub: returns empty until OpenCode storage format is known
     return [];
   }
 

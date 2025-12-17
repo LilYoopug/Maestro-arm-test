@@ -73,8 +73,12 @@ export const DEFAULT_CAPABILITIES: AgentCapabilities = {
  * Capability definitions for each supported agent.
  *
  * NOTE: These are the current known capabilities. As agents evolve,
- * these may need to be updated. When in doubt, set to false and
- * add a TODO comment for investigation.
+ * these may need to be updated. When in doubt, set capabilities to false
+ * and mark them as "Unverified" or "PLACEHOLDER" until tested.
+ *
+ * Agents marked as PLACEHOLDER have not been integrated yet - their
+ * capabilities are conservative defaults that should be updated when
+ * the agent CLI becomes available and can be tested.
  */
 export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
   /**
@@ -117,72 +121,81 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
 
   /**
    * OpenAI Codex - OpenAI's code generation model
-   * TODO: Verify capabilities when Codex CLI is available
+   *
+   * PLACEHOLDER: All capabilities set to false until Codex CLI is available
+   * and can be tested. Update this configuration when integrating the agent.
    */
   'openai-codex': {
-    supportsResume: false,       // TBD
-    supportsReadOnlyMode: false, // TBD
-    supportsJsonOutput: false,   // TBD
-    supportsSessionId: false,    // TBD
-    supportsImageInput: false,   // TBD - GPT-4 variants may support this
-    supportsSlashCommands: false, // TBD
-    supportsSessionStorage: false, // TBD
-    supportsCostTracking: false, // TBD
-    supportsUsageStats: false,   // TBD
-    supportsBatchMode: false,    // TBD
+    supportsResume: false,
+    supportsReadOnlyMode: false,
+    supportsJsonOutput: false,
+    supportsSessionId: false,
+    supportsImageInput: false,   // GPT-4 variants may support this
+    supportsSlashCommands: false,
+    supportsSessionStorage: false,
+    supportsCostTracking: false,
+    supportsUsageStats: false,
+    supportsBatchMode: false,
     supportsStreaming: true,     // Most CLIs stream
-    supportsResultMessages: false, // TBD
+    supportsResultMessages: false,
   },
 
   /**
    * Gemini CLI - Google's Gemini model CLI
-   * TODO: Verify capabilities when Gemini CLI is stable
+   *
+   * PLACEHOLDER: Most capabilities set to false until Gemini CLI is stable
+   * and can be tested. Update this configuration when integrating the agent.
    */
   'gemini-cli': {
-    supportsResume: false,       // TBD
-    supportsReadOnlyMode: false, // TBD
-    supportsJsonOutput: false,   // TBD
-    supportsSessionId: false,    // TBD
+    supportsResume: false,
+    supportsReadOnlyMode: false,
+    supportsJsonOutput: false,
+    supportsSessionId: false,
     supportsImageInput: true,    // Gemini supports multimodal
-    supportsSlashCommands: false, // TBD
-    supportsSessionStorage: false, // TBD
-    supportsCostTracking: false, // TBD
-    supportsUsageStats: false,   // TBD
-    supportsBatchMode: false,    // TBD
+    supportsSlashCommands: false,
+    supportsSessionStorage: false,
+    supportsCostTracking: false,
+    supportsUsageStats: false,
+    supportsBatchMode: false,
     supportsStreaming: true,     // Likely streams
-    supportsResultMessages: false, // TBD
+    supportsResultMessages: false,
   },
 
   /**
    * Qwen3 Coder - Alibaba's Qwen coding model
-   * TODO: Verify capabilities when Qwen3 Coder CLI is available
+   *
+   * PLACEHOLDER: Most capabilities set to false until Qwen3 Coder CLI is available
+   * and can be tested. Update this configuration when integrating the agent.
    */
   'qwen3-coder': {
-    supportsResume: false,       // TBD
-    supportsReadOnlyMode: false, // TBD
-    supportsJsonOutput: false,   // TBD
-    supportsSessionId: false,    // TBD
-    supportsImageInput: false,   // TBD
-    supportsSlashCommands: false, // TBD
-    supportsSessionStorage: false, // TBD
+    supportsResume: false,
+    supportsReadOnlyMode: false,
+    supportsJsonOutput: false,
+    supportsSessionId: false,
+    supportsImageInput: false,
+    supportsSlashCommands: false,
+    supportsSessionStorage: false,
     supportsCostTracking: false, // Local model - no cost
-    supportsUsageStats: false,   // TBD
-    supportsBatchMode: false,    // TBD
+    supportsUsageStats: false,
+    supportsBatchMode: false,
     supportsStreaming: true,     // Likely streams
-    supportsResultMessages: false, // TBD
+    supportsResultMessages: false,
   },
 
   /**
    * OpenCode - Open source coding assistant
    * https://github.com/opencode-ai/opencode
+   *
+   * NOTE: Some capabilities marked as false may be supported but are unverified.
+   * Update this configuration after testing with the actual OpenCode CLI.
    */
   'opencode': {
     supportsResume: true,        // --session flag (sessionID in output)
     supportsReadOnlyMode: true,  // --agent plan (plan mode)
     supportsJsonOutput: true,    // --format json
     supportsSessionId: true,     // sessionID in JSON output
-    supportsImageInput: false,   // TBD - verify if supported
-    supportsSlashCommands: false, // TBD - verify if supported
+    supportsImageInput: false,   // Unverified - may be supported
+    supportsSlashCommands: false, // Unverified - may be supported
     supportsSessionStorage: false, // Server-managed sessions
     supportsCostTracking: false, // May not apply to local/self-hosted
     supportsUsageStats: true,    // part.tokens in output

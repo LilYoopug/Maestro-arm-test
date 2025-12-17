@@ -22,7 +22,7 @@ import { getErrorPatterns, matchErrorPattern } from './error-patterns';
 
 /**
  * Raw message structure from OpenCode output
- * Note: This is based on expected format - TBD final verification
+ * NOTE: Based on expected format - may need updates after integration testing
  */
 interface OpenCodeRawMessage {
   type?: string;
@@ -196,7 +196,7 @@ export class OpenCodeOutputParser implements AgentOutputParser {
 
   /**
    * Extract slash commands from an event
-   * OpenCode TBD - may not support slash commands
+   * NOTE: OpenCode slash command support is unverified
    */
   extractSlashCommands(event: ParsedEvent): string[] | null {
     return event.slashCommands || null;

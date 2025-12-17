@@ -93,7 +93,7 @@ describe('agent-capabilities', () => {
     it('should have capabilities for openai-codex', () => {
       const capabilities = AGENT_CAPABILITIES['openai-codex'];
       expect(capabilities).toBeDefined();
-      // Most capabilities TBD (false) until Codex CLI is available
+      // Placeholder: capabilities are false until Codex CLI is available
       expect(capabilities.supportsStreaming).toBe(true);
     });
 
