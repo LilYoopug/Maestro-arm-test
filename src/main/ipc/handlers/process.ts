@@ -88,16 +88,30 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 
       // Get agent definition to access config options and argument builders
       const agent = await agentDetector.getAgent(config.toolType);
+      logger.debug(`Spawn config received`, LOG_CONTEXT, {
+        configToolType: config.toolType,
+        configCommand: config.command,
+        agentId: agent?.id,
+        agentCommand: agent?.command,
+        agentPath: agent?.path,
+        hasAgentSessionId: !!config.agentSessionId
+      });
       let finalArgs = [...config.args];
 
       // ========================================================================
       // Build args from agent argument builders (for multi-agent support)
       // ========================================================================
       if (agent) {
-        // For batch mode agents: prepend batch mode prefix (e.g., 'run' for OpenCode)
+        // For batch mode agents: prepend batch mode prefix (e.g., 'run' for OpenCode, 'exec' for Codex)
         // This must come BEFORE base args to form: opencode run --format json ...
         if (agent.batchModePrefix && config.prompt) {
           finalArgs = [...agent.batchModePrefix, ...finalArgs];
+        }
+
+        // Add batch mode args if the agent has them and we're in batch mode (have a prompt)
+        // These are args that are only valid when using the batch subcommand (e.g., --skip-git-repo-check for Codex exec)
+        if (agent.batchModeArgs && config.prompt) {
+          finalArgs = [...finalArgs, ...agent.batchModeArgs];
         }
 
         // Add JSON output args if the agent supports it
@@ -200,6 +214,7 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
         toolType: config.toolType,
         cwd: config.cwd,
         command: config.command,
+        fullCommand: `${config.command} ${finalArgs.join(' ')}`,
         args: finalArgs,
         requiresPty: agent?.requiresPty || false,
         shell: shellToUse,

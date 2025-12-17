@@ -337,14 +337,24 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, defaultAgen
 
                       {/* Expanded details for supported agents */}
                       {isSupported && isExpanded && (
-                        <div className="px-3 pb-3 pt-1 border-t" style={{ borderColor: theme.colors.border }}>
-                          {/* Show path if available */}
+                        <div className="px-3 pb-3 pt-2 space-y-3">
+                          {/* Show detected path if available */}
                           {agent.path && (
-                            <div className="text-xs opacity-50 font-mono mb-2 pl-6">{agent.path}</div>
+                            <div
+                              className="text-xs font-mono px-3 py-2 rounded"
+                              style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textDim }}
+                            >
+                              {agent.path}
+                            </div>
                           )}
                           {/* Custom path input */}
-                          <div className="pl-6">
-                            <label className="block text-xs opacity-60 mb-1">Custom Path (optional)</label>
+                          <div
+                            className="p-3 rounded border"
+                            style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain }}
+                          >
+                            <label className="block text-xs font-medium mb-2" style={{ color: theme.colors.textDim }}>
+                              Custom Path (optional)
+                            </label>
                             <div className="flex gap-2">
                               <input
                                 type="text"
@@ -360,7 +370,7 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, defaultAgen
                                 }}
                                 onClick={(e) => e.stopPropagation()}
                                 placeholder={`/path/to/${agent.binaryName}`}
-                                className="flex-1 p-1.5 rounded border bg-transparent outline-none text-xs font-mono"
+                                className="flex-1 p-2 rounded border bg-transparent outline-none text-xs font-mono"
                                 style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
                               />
                               {customAgentPaths[agent.id] && (
@@ -373,20 +383,25 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, defaultAgen
                                     await window.maestro.agents.setCustomPath(agent.id, null);
                                     loadAgents();
                                   }}
-                                  className="px-2 py-1 rounded text-xs"
+                                  className="px-2 py-1.5 rounded text-xs"
                                   style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textDim }}
                                 >
                                   Clear
                                 </button>
                               )}
                             </div>
-                            <p className="text-xs opacity-40 mt-1">
+                            <p className="text-xs opacity-50 mt-2">
                               Specify a custom path if the agent is not in your PATH
                             </p>
                           </div>
                           {/* Custom CLI arguments input */}
-                          <div className="pl-6 mt-3">
-                            <label className="block text-xs opacity-60 mb-1">Custom Arguments (optional)</label>
+                          <div
+                            className="p-3 rounded border"
+                            style={{ borderColor: theme.colors.border, backgroundColor: theme.colors.bgMain }}
+                          >
+                            <label className="block text-xs font-medium mb-2" style={{ color: theme.colors.textDim }}>
+                              Custom Arguments (optional)
+                            </label>
                             <div className="flex gap-2">
                               <input
                                 type="text"
@@ -401,7 +416,7 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, defaultAgen
                                 }}
                                 onClick={(e) => e.stopPropagation()}
                                 placeholder="--flag value --another-flag"
-                                className="flex-1 p-1.5 rounded border bg-transparent outline-none text-xs font-mono"
+                                className="flex-1 p-2 rounded border bg-transparent outline-none text-xs font-mono"
                                 style={{ borderColor: theme.colors.border, color: theme.colors.textMain }}
                               />
                               {customAgentArgs[agent.id] && (
@@ -413,14 +428,14 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, defaultAgen
                                     setCustomAgentArgs(newArgs);
                                     await window.maestro.agents.setCustomArgs(agent.id, null);
                                   }}
-                                  className="px-2 py-1 rounded text-xs"
+                                  className="px-2 py-1.5 rounded text-xs"
                                   style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textDim }}
                                 >
                                   Clear
                                 </button>
                               )}
                             </div>
-                            <p className="text-xs opacity-40 mt-1">
+                            <p className="text-xs opacity-50 mt-2">
                               Additional CLI arguments appended to all calls to this agent
                             </p>
                           </div>

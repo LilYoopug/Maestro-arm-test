@@ -43,6 +43,9 @@ export interface AgentCapabilities {
   /** Agent supports batch/headless mode (non-interactive) */
   supportsBatchMode: boolean;
 
+  /** Agent requires a prompt to start (no eager spawn on session creation) */
+  requiresPromptToStart: boolean;
+
   /** Agent streams responses in real-time */
   supportsStreaming: boolean;
 
@@ -68,6 +71,7 @@ export const DEFAULT_CAPABILITIES: AgentCapabilities = {
   supportsCostTracking: false,
   supportsUsageStats: false,
   supportsBatchMode: false,
+  requiresPromptToStart: false,
   supportsStreaming: false,
   supportsResultMessages: false,
   supportsModelSelection: false,
@@ -100,6 +104,7 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
     supportsCostTracking: true,  // Cost info in usage stats
     supportsUsageStats: true,    // Token counts in output
     supportsBatchMode: true,     // --print flag
+    requiresPromptToStart: false, // Claude Code can run in --print mode waiting for input
     supportsStreaming: true,     // Stream JSON events
     supportsResultMessages: true, // "result" event type
     supportsModelSelection: false, // Model is configured via Anthropic account
@@ -120,6 +125,7 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
     supportsCostTracking: false,
     supportsUsageStats: false,
     supportsBatchMode: false,
+    requiresPromptToStart: false,
     supportsStreaming: true,  // PTY streams output
     supportsResultMessages: false,
     supportsModelSelection: false,
@@ -143,6 +149,7 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
     supportsCostTracking: false,  // Token counts only - Codex doesn't provide cost, pricing varies by model
     supportsUsageStats: true,     // usage in turn.completed events - Verified
     supportsBatchMode: true,      // exec subcommand - Verified
+    requiresPromptToStart: true,  // Codex requires 'exec' subcommand with prompt, no interactive mode via PTY
     supportsStreaming: true,      // Streams JSONL events - Verified
     supportsResultMessages: false, // All messages are agent_message type (no distinct result) - Verified
     supportsModelSelection: true, // -m, --model flag - Documented
@@ -165,6 +172,7 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
     supportsCostTracking: false,
     supportsUsageStats: false,
     supportsBatchMode: false,
+    requiresPromptToStart: false, // Not yet investigated
     supportsStreaming: true,     // Likely streams
     supportsResultMessages: false,
     supportsModelSelection: false, // Not yet investigated
@@ -187,6 +195,7 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
     supportsCostTracking: false, // Local model - no cost
     supportsUsageStats: false,
     supportsBatchMode: false,
+    requiresPromptToStart: false, // Not yet investigated
     supportsStreaming: true,     // Likely streams
     supportsResultMessages: false,
     supportsModelSelection: false, // Not yet investigated
@@ -210,6 +219,7 @@ export const AGENT_CAPABILITIES: Record<string, AgentCapabilities> = {
     supportsCostTracking: true,   // part.cost in step_finish events - Verified
     supportsUsageStats: true,     // part.tokens in step_finish events - Verified
     supportsBatchMode: true,      // run subcommand (auto-approves all permissions) - Verified
+    requiresPromptToStart: true,  // OpenCode requires 'run' subcommand with prompt, no interactive mode via PTY
     supportsStreaming: true,      // Streams JSONL events - Verified
     supportsResultMessages: true, // step_finish with part.reason:"stop" - Verified
     supportsModelSelection: true, // --model provider/model (e.g., 'ollama/qwen3:8b') - Verified

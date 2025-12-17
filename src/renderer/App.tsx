@@ -56,6 +56,7 @@ import { useThemeStyles } from './hooks/useThemeStyles';
 import { useSortedSessions, compareNamesIgnoringEmojis } from './hooks/useSortedSessions';
 import { useInputProcessing, DEFAULT_IMAGE_ONLY_PROMPT } from './hooks/useInputProcessing';
 import { useAgentErrorRecovery } from './hooks/useAgentErrorRecovery';
+import { useAgentCapabilities } from './hooks/useAgentCapabilities';
 
 // Import contexts
 import { useLayerStack } from './contexts/LayerStackContext';
@@ -497,11 +498,12 @@ export default function MaestroConsole() {
       }
 
       // Spawn AI process (terminal uses runCommand which spawns fresh shells per command)
-      const isClaudeBatchMode = aiAgentType === 'claude' || aiAgentType === 'claude-code';
-      let aiSpawnResult = { pid: 0, success: true }; // Default for batch mode
+      // Check if agent requires a prompt to start (Codex, OpenCode) - skip eager spawn for those
+      const capabilities = await window.maestro.agents.getCapabilities(aiAgentType);
+      let aiSpawnResult = { pid: 0, success: true }; // Default for agents that don't need eager spawn
 
-      if (!isClaudeBatchMode) {
-        // Only spawn for non-batch-mode agents (Codex, Gemini, Qwen, etc.)
+      if (!capabilities.requiresPromptToStart) {
+        // Spawn for agents that support interactive mode (Claude Code)
         // Include active tab ID in session ID to match batch mode format
         const activeTabId = correctedSession.activeTabId || correctedSession.aiTabs?.[0]?.id || 'default';
         // Use agent.path (full path) if available for better cross-environment compatibility
@@ -515,8 +517,8 @@ export default function MaestroConsole() {
         });
       }
 
-      // For batch mode (Claude), aiPid can be 0 since we don't spawn until first message
-      const aiSuccess = aiSpawnResult.success && (isClaudeBatchMode || aiSpawnResult.pid > 0);
+      // For agents that requiresPromptToStart, aiPid can be 0 since we don't spawn until first message
+      const aiSuccess = aiSpawnResult.success && (capabilities.requiresPromptToStart || aiSpawnResult.pid > 0);
 
       if (aiSuccess) {
         // Check if the working directory is a Git repository
@@ -853,7 +855,7 @@ export default function MaestroConsole() {
       } | null = null;
       let queuedItemToProcess: { sessionId: string; item: QueuedItem } | null = null;
       // Track if we need to run synopsis after completion (for /commit and other AI commands)
-      let synopsisData: { sessionId: string; cwd: string; agentSessionId: string; command: string; groupName: string; projectName: string; tabName?: string; tabId?: string } | null = null;
+      let synopsisData: { sessionId: string; cwd: string; agentSessionId: string; command: string; groupName: string; projectName: string; tabName?: string; tabId?: string; toolType?: ToolType } | null = null;
 
       if (isFromAi) {
         const currentSession = sessionsRef.current.find(s => s.id === actualSessionId);
@@ -952,7 +954,8 @@ export default function MaestroConsole() {
               groupName,
               projectName,
               tabName,
-              tabId: completedTab?.id
+              tabId: completedTab?.id,
+              toolType: currentSession.toolType // Pass tool type for multi-provider support
             };
           }
         }
@@ -1178,7 +1181,8 @@ export default function MaestroConsole() {
           synopsisData.sessionId,
           synopsisData.cwd,
           synopsisData.agentSessionId,
-          SYNOPSIS_PROMPT
+          SYNOPSIS_PROMPT,
+          synopsisData.toolType // Pass tool type for multi-provider support
         ).then(result => {
           const duration = Date.now() - startTime;
           if (result.success && result.response && addHistoryEntryRef.current) {
@@ -1731,7 +1735,10 @@ export default function MaestroConsole() {
     themeColors: theme.colors,
   });
 
-  // Combine built-in slash commands with custom AI commands AND Claude Code commands for autocomplete
+  // Get capabilities for the active session's agent type
+  const { hasCapability: hasActiveSessionCapability } = useAgentCapabilities(activeSession?.toolType);
+
+  // Combine built-in slash commands with custom AI commands AND agent-specific commands for autocomplete
   const allSlashCommands = useMemo(() => {
     const customCommandsAsSlash = customAICommands
       .map(cmd => ({
@@ -1740,14 +1747,17 @@ export default function MaestroConsole() {
         aiOnly: true, // Custom AI commands are only available in AI mode
         prompt: cmd.prompt, // Include prompt for execution
       }));
-    // Include Claude Code commands from the active session
-    const agentCommands = (activeSession?.agentCommands || []).map(cmd => ({
-      command: cmd.command,
-      description: cmd.description,
-      aiOnly: true, // Claude commands are only available in AI mode
-    }));
+    // Only include agent-specific commands if the agent supports slash commands
+    // This allows built-in and custom commands to be shown for all agents (Codex, OpenCode, etc.)
+    const agentCommands = hasActiveSessionCapability('supportsSlashCommands')
+      ? (activeSession?.agentCommands || []).map(cmd => ({
+          command: cmd.command,
+          description: cmd.description,
+          aiOnly: true, // Agent commands are only available in AI mode
+        }))
+      : [];
     return [...slashCommands, ...customCommandsAsSlash, ...agentCommands];
-  }, [customAICommands, activeSession?.agentCommands]);
+  }, [customAICommands, activeSession?.agentCommands, hasActiveSessionCapability]);
 
   // Derive current input value and setter based on active session mode
   // For AI mode: use active tab's inputValue (stored per-tab)
@@ -2794,18 +2804,27 @@ export default function MaestroConsole() {
 
     // Spawn AI process (terminal uses runCommand which spawns fresh shells per command)
     try {
-      // Spawn AI agent process
-      // Use agent.path (full path) if available for better cross-environment compatibility
-      const aiSpawnResult = await window.maestro.process.spawn({
-        sessionId: `${newId}-ai`,
-        toolType: agentId,
-        cwd: workingDir,
-        command: agent.path || agent.command,
-        args: agent.args || []
-      });
+      // Get agent capabilities to check if eager spawn is supported
+      const capabilities = await window.maestro.agents.getCapabilities(agentId);
 
-      if (!aiSpawnResult.success || aiSpawnResult.pid <= 0) {
-        throw new Error('Failed to spawn AI agent process');
+      // For agents that require a prompt to start (Codex, OpenCode), skip eager spawn
+      // They will be spawned on first message instead
+      let aiPid = 0;
+      if (!capabilities.requiresPromptToStart) {
+        // Spawn AI agent process
+        // Use agent.path (full path) if available for better cross-environment compatibility
+        const aiSpawnResult = await window.maestro.process.spawn({
+          sessionId: `${newId}-ai`,
+          toolType: agentId,
+          cwd: workingDir,
+          command: agent.path || agent.command,
+          args: agent.args || []
+        });
+
+        if (!aiSpawnResult.success || aiSpawnResult.pid <= 0) {
+          throw new Error('Failed to spawn AI agent process');
+        }
+        aiPid = aiSpawnResult.pid;
       }
 
       // Terminal processes are spawned lazily when needed (not eagerly)
@@ -2859,7 +2878,8 @@ export default function MaestroConsole() {
         contextUsage: 0,
         inputMode: agentId === 'terminal' ? 'terminal' : 'ai',
         // AI process PID (terminal uses runCommand which spawns fresh shells)
-        aiPid: aiSpawnResult.pid,
+        // For agents that requiresPromptToStart, this starts as 0 and gets set on first message
+        aiPid,
         terminalPid: 0,
         port: 3000 + Math.floor(Math.random() * 100),
         isLive: false,
@@ -2919,23 +2939,30 @@ export default function MaestroConsole() {
       throw new Error(validation.error || 'Session validation failed');
     }
 
-    // Get agent definition
+    // Get agent definition and capabilities
     const agent = await window.maestro.agents.get(selectedAgent);
     if (!agent) {
       throw new Error(`Agent not found: ${selectedAgent}`);
     }
+    const capabilities = await window.maestro.agents.getCapabilities(selectedAgent);
 
-    // Spawn AI process
-    const aiSpawnResult = await window.maestro.process.spawn({
-      sessionId: `${newId}-ai`,
-      toolType: selectedAgent,
-      cwd: directoryPath,
-      command: agent.path || agent.command,
-      args: agent.args || []
-    });
+    // For agents that require a prompt to start (Codex, OpenCode), skip eager spawn
+    // They will be spawned on first message instead
+    let aiPid = 0;
+    if (!capabilities.requiresPromptToStart) {
+      // Spawn AI process for agents that support interactive mode (Claude Code)
+      const aiSpawnResult = await window.maestro.process.spawn({
+        sessionId: `${newId}-ai`,
+        toolType: selectedAgent,
+        cwd: directoryPath,
+        command: agent.path || agent.command,
+        args: agent.args || []
+      });
 
-    if (!aiSpawnResult.success || aiSpawnResult.pid <= 0) {
-      throw new Error('Failed to spawn AI agent process');
+      if (!aiSpawnResult.success || aiSpawnResult.pid <= 0) {
+        throw new Error('Failed to spawn AI agent process');
+      }
+      aiPid = aiSpawnResult.pid;
     }
 
     // Check git repo status
@@ -2989,7 +3016,7 @@ export default function MaestroConsole() {
       workLog: [],
       contextUsage: 0,
       inputMode: 'ai',
-      aiPid: aiSpawnResult.pid,
+      aiPid,
       terminalPid: 0,
       port: 3000 + Math.floor(Math.random() * 100),
       isLive: false,
@@ -3314,9 +3341,10 @@ export default function MaestroConsole() {
         return;
       }
 
-      // Handle AI mode for Claude Code
-      if (session.toolType !== 'claude' && session.toolType !== 'claude-code') {
-        console.log('[Remote] Not Claude Code, skipping');
+      // Handle AI mode for batch-mode agents (Claude Code, Codex, OpenCode)
+      const supportedBatchAgents: ToolType[] = ['claude', 'claude-code', 'codex', 'opencode'];
+      if (!supportedBatchAgents.includes(session.toolType)) {
+        console.log('[Remote] Not a batch-mode agent, skipping');
         return;
       }
 
@@ -3377,10 +3405,10 @@ export default function MaestroConsole() {
       }
 
       try {
-        // Get agent configuration
-        const agent = await window.maestro.agents.get('claude-code');
+        // Get agent configuration for this session's tool type
+        const agent = await window.maestro.agents.get(session.toolType);
         if (!agent) {
-          console.log('[Remote] ERROR: Claude Code agent not found');
+          console.log(`[Remote] ERROR: Agent not found for toolType: ${session.toolType}`);
           return;
         }
 
@@ -3469,17 +3497,17 @@ export default function MaestroConsole() {
           };
         }));
 
-        // Spawn Claude with the prompt (original or substituted)
+        // Spawn agent with the prompt (original or substituted)
         await window.maestro.process.spawn({
           sessionId: targetSessionId,
-          toolType: 'claude-code',
+          toolType: session.toolType,
           cwd: session.cwd,
           command: commandToUse,
           args: spawnArgs,
           prompt: promptToSend
         });
 
-        console.log('[Remote] Claude spawn initiated successfully');
+        console.log(`[Remote] ${session.toolType} spawn initiated successfully`);
       } catch (error) {
         console.error('[Remote] Failed to spawn Claude:', error);
         const errorLogEntry: LogEntry = {
@@ -3564,9 +3592,9 @@ export default function MaestroConsole() {
     const targetSessionId = `${sessionId}-ai-${targetTab?.id || 'default'}`;
 
     try {
-      // Get agent configuration
-      const agent = await window.maestro.agents.get('claude-code');
-      if (!agent) throw new Error('Claude Code agent not found');
+      // Get agent configuration for this session's tool type
+      const agent = await window.maestro.agents.get(session.toolType);
+      if (!agent) throw new Error(`Agent not found for toolType: ${session.toolType}`);
 
       // Build spawn args with resume if we have a session ID
       // Use the TARGET TAB's agentSessionId (not the active tab or deprecated session-level one)
@@ -3602,13 +3630,13 @@ export default function MaestroConsole() {
       const isImageOnlyMessage = item.type === 'message' && hasImages && !hasText;
 
       if (item.type === 'message' && (hasText || isImageOnlyMessage)) {
-        // Process a message - spawn Claude with the message text
+        // Process a message - spawn agent with the message text
         // If user sends only an image without text, inject the default image-only prompt
         const effectivePrompt = isImageOnlyMessage ? DEFAULT_IMAGE_ONLY_PROMPT : item.text!;
 
         await window.maestro.process.spawn({
           sessionId: targetSessionId,
-          toolType: 'claude-code',
+          toolType: session.toolType,
           cwd: session.cwd,
           command: commandToUse,
           args: spawnArgs,
@@ -3654,10 +3682,10 @@ export default function MaestroConsole() {
             };
           }));
 
-          // Spawn Claude with the substituted prompt
+          // Spawn agent with the substituted prompt
           await window.maestro.process.spawn({
             sessionId: targetSessionId,
-            toolType: 'claude-code',
+            toolType: session.toolType,
             cwd: session.cwd,
             command: commandToUse,
             args: spawnArgs,

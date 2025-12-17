@@ -850,6 +850,7 @@ ${docList}
               // Request a synopsis from the agent by resuming the session
               // Use effectiveCwd (worktree path when active) to find the session
               try {
+                console.log(`[BatchProcessor] Synopsis request: sessionId=${sessionId}, agentSessionId=${result.agentSessionId}, toolType=${session.toolType}`);
                 const synopsisResult = await onSpawnSynopsis(
                   sessionId,
                   effectiveCwd,

@@ -35,6 +35,7 @@ export interface AgentConfig {
   // Argument builders for dynamic CLI construction
   // These are optional - agents that don't have them use hardcoded behavior
   batchModePrefix?: string[]; // Args added before base args for batch mode (e.g., ['run'] for OpenCode)
+  batchModeArgs?: string[]; // Args only applied in batch mode (e.g., ['--skip-git-repo-check'] for Codex exec)
   jsonOutputArgs?: string[]; // Args for JSON output format (e.g., ['--format', 'json'])
   resumeArgs?: (sessionId: string) => string[]; // Function to build resume args
   readOnlyArgs?: string[]; // Args for read-only/plan mode (e.g., ['--agent', 'plan'])
@@ -67,20 +68,19 @@ const AGENT_DEFINITIONS: Omit<AgentConfig, 'available' | 'path' | 'capabilities'
     name: 'Codex',
     binaryName: 'codex',
     command: 'codex',
-    // YOLO mode is always enabled - Maestro requires it for non-interactive automation
-    // When read-only mode is active, this flag is filtered out in useInputProcessing.ts
-    // --skip-git-repo-check allows running in non-git directories or untrusted repos
-    args: ['--dangerously-bypass-approvals-and-sandbox', '--skip-git-repo-check'],
+    // Base args for interactive mode (no flags that are exec-only)
+    args: [],
     // Codex CLI argument builders
-    // Batch mode: codex exec --json [--sandbox read-only] [resume <id>] "prompt"
+    // Batch mode: codex exec --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check [--sandbox read-only] [-C dir] [resume <id>] -- "prompt"
     // Sandbox modes:
     //   - Default (YOLO): --dangerously-bypass-approvals-and-sandbox (full system access, required by Maestro)
     //   - Read-only: --sandbox read-only (can only read files, overrides YOLO)
     batchModePrefix: ['exec'], // Codex uses 'exec' subcommand for batch mode
+    batchModeArgs: ['--dangerously-bypass-approvals-and-sandbox', '--skip-git-repo-check'], // Args only valid on 'exec' subcommand
     jsonOutputArgs: ['--json'], // JSON output format (must come before resume subcommand)
     resumeArgs: (sessionId: string) => ['resume', sessionId], // Resume with session/thread ID
     readOnlyArgs: ['--sandbox', 'read-only'], // Read-only/plan mode
-    yoloModeArgs: ['--dangerously-bypass-approvals-and-sandbox'], // Full access mode (already in base args)
+    yoloModeArgs: ['--dangerously-bypass-approvals-and-sandbox'], // Full access mode
     workingDirArgs: (dir: string) => ['-C', dir], // Set working directory
   },
   {
