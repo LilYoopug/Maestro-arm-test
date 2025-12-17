@@ -46,16 +46,19 @@ export {
   clearPatternRegistry,
   CLAUDE_ERROR_PATTERNS,
   OPENCODE_ERROR_PATTERNS,
+  CODEX_ERROR_PATTERNS,
 } from './error-patterns';
 
 // Import parser implementations
 import { ClaudeOutputParser } from './claude-output-parser';
 import { OpenCodeOutputParser } from './opencode-output-parser';
+import { CodexOutputParser } from './codex-output-parser';
 import { registerOutputParser, clearParserRegistry } from './agent-output-parser';
 
 // Export parser classes for direct use if needed
 export { ClaudeOutputParser } from './claude-output-parser';
 export { OpenCodeOutputParser } from './opencode-output-parser';
+export { CodexOutputParser } from './codex-output-parser';
 
 /**
  * Initialize all output parser implementations.
@@ -68,6 +71,7 @@ export function initializeOutputParsers(): void {
   // Register all parser implementations
   registerOutputParser(new ClaudeOutputParser());
   registerOutputParser(new OpenCodeOutputParser());
+  registerOutputParser(new CodexOutputParser());
 }
 
 /**

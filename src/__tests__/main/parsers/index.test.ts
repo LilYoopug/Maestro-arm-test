@@ -8,6 +8,7 @@ import {
   clearParserRegistry,
   ClaudeOutputParser,
   OpenCodeOutputParser,
+  CodexOutputParser,
 } from '../../../main/parsers';
 
 describe('parsers/index', () => {
@@ -32,21 +33,29 @@ describe('parsers/index', () => {
       expect(hasOutputParser('opencode')).toBe(true);
     });
 
-    it('should register exactly 2 parsers', () => {
+    it('should register Codex parser', () => {
+      expect(hasOutputParser('codex')).toBe(false);
+
+      initializeOutputParsers();
+
+      expect(hasOutputParser('codex')).toBe(true);
+    });
+
+    it('should register exactly 3 parsers', () => {
       initializeOutputParsers();
 
       const parsers = getAllOutputParsers();
-      expect(parsers.length).toBe(2);
+      expect(parsers.length).toBe(3);
     });
 
     it('should clear existing parsers before registering', () => {
       // First initialization
       initializeOutputParsers();
-      expect(getAllOutputParsers().length).toBe(2);
+      expect(getAllOutputParsers().length).toBe(3);
 
-      // Second initialization should still have exactly 2
+      // Second initialization should still have exactly 3
       initializeOutputParsers();
-      expect(getAllOutputParsers().length).toBe(2);
+      expect(getAllOutputParsers().length).toBe(3);
     });
   });
 
@@ -56,7 +65,7 @@ describe('parsers/index', () => {
 
       ensureParsersInitialized();
 
-      expect(getAllOutputParsers().length).toBe(2);
+      expect(getAllOutputParsers().length).toBe(3);
     });
 
     it('should be idempotent after first call', () => {
@@ -87,6 +96,12 @@ describe('parsers/index', () => {
       expect(parser).toBeInstanceOf(OpenCodeOutputParser);
     });
 
+    it('should return CodexOutputParser for codex', () => {
+      const parser = getOutputParser('codex');
+      expect(parser).not.toBeNull();
+      expect(parser).toBeInstanceOf(CodexOutputParser);
+    });
+
     it('should return null for terminal', () => {
       const parser = getOutputParser('terminal');
       expect(parser).toBeNull();
@@ -107,6 +122,11 @@ describe('parsers/index', () => {
     it('should export OpenCodeOutputParser class', () => {
       const parser = new OpenCodeOutputParser();
       expect(parser.agentId).toBe('opencode');
+    });
+
+    it('should export CodexOutputParser class', () => {
+      const parser = new CodexOutputParser();
+      expect(parser.agentId).toBe('codex');
     });
   });
 
@@ -135,6 +155,19 @@ describe('parsers/index', () => {
 
       expect(event?.type).toBe('result');
       expect(event?.sessionId).toBe('oc-123');
+    });
+
+    it('should correctly parse Codex output after initialization', () => {
+      initializeOutputParsers();
+
+      const parser = getOutputParser('codex');
+      // Codex uses thread.started for session initialization with thread_id
+      const event = parser?.parseJsonLine(
+        JSON.stringify({ type: 'thread.started', thread_id: 'cdx-456' })
+      );
+
+      expect(event?.type).toBe('init');
+      expect(event?.sessionId).toBe('cdx-456');
     });
   });
 });

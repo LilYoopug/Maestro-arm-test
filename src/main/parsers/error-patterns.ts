@@ -278,12 +278,137 @@ export const OPENCODE_ERROR_PATTERNS: AgentErrorPatterns = {
 };
 
 // ============================================================================
+// Codex Error Patterns
+// ============================================================================
+
+export const CODEX_ERROR_PATTERNS: AgentErrorPatterns = {
+  auth_expired: [
+    {
+      pattern: /invalid.*api.*key/i,
+      message: 'Invalid API key. Please check your OpenAI credentials.',
+      recoverable: true,
+    },
+    {
+      pattern: /authentication.*failed/i,
+      message: 'Authentication failed. Please verify your API key.',
+      recoverable: true,
+    },
+    {
+      pattern: /unauthorized/i,
+      message: 'Unauthorized access. Please check your API key.',
+      recoverable: true,
+    },
+    {
+      pattern: /api.*key.*expired/i,
+      message: 'Your API key has expired. Please renew your credentials.',
+      recoverable: true,
+    },
+  ],
+
+  token_exhaustion: [
+    {
+      pattern: /context.*length/i,
+      message: 'Context length exceeded. Start a new session.',
+      recoverable: true,
+    },
+    {
+      pattern: /maximum.*tokens/i,
+      message: 'Maximum token limit reached. Start a new session.',
+      recoverable: true,
+    },
+    {
+      pattern: /token.*limit/i,
+      message: 'Token limit reached. Consider starting a fresh conversation.',
+      recoverable: true,
+    },
+  ],
+
+  rate_limited: [
+    {
+      pattern: /rate.*limit/i,
+      message: 'Rate limit exceeded. Please wait before trying again.',
+      recoverable: true,
+    },
+    {
+      pattern: /too many requests/i,
+      message: 'Too many requests. Please wait before sending more messages.',
+      recoverable: true,
+    },
+    {
+      pattern: /quota.*exceeded/i,
+      message: 'Your API quota has been exceeded.',
+      recoverable: false,
+    },
+    {
+      pattern: /429/i,
+      message: 'Rate limited. Please wait and try again.',
+      recoverable: true,
+    },
+  ],
+
+  network_error: [
+    {
+      pattern: /connection.*failed/i,
+      message: 'Connection failed. Check your internet connection.',
+      recoverable: true,
+    },
+    {
+      pattern: /timeout/i,
+      message: 'Request timed out. Please try again.',
+      recoverable: true,
+    },
+    {
+      pattern: /ECONNREFUSED/i,
+      message: 'Connection refused. The service may be unavailable.',
+      recoverable: true,
+    },
+    {
+      pattern: /network.*error/i,
+      message: 'Network error occurred. Please check your connection.',
+      recoverable: true,
+    },
+  ],
+
+  permission_denied: [
+    {
+      pattern: /permission denied/i,
+      message: 'Permission denied. The agent cannot access the requested resource.',
+      recoverable: false,
+    },
+    {
+      pattern: /access denied/i,
+      message: 'Access denied to the requested resource.',
+      recoverable: false,
+    },
+  ],
+
+  agent_crashed: [
+    {
+      pattern: /unexpected error/i,
+      message: 'An unexpected error occurred in the agent.',
+      recoverable: true,
+    },
+    {
+      pattern: /internal error/i,
+      message: 'Internal error. Please try again or restart the agent.',
+      recoverable: true,
+    },
+    {
+      pattern: /fatal/i,
+      message: 'Fatal error occurred. The agent needs to be restarted.',
+      recoverable: true,
+    },
+  ],
+};
+
+// ============================================================================
 // Pattern Registry
 // ============================================================================
 
 const patternRegistry = new Map<ToolType, AgentErrorPatterns>([
   ['claude-code', CLAUDE_ERROR_PATTERNS],
   ['opencode', OPENCODE_ERROR_PATTERNS],
+  ['codex', CODEX_ERROR_PATTERNS],
 ]);
 
 /**
