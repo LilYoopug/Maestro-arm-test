@@ -138,27 +138,22 @@ export const CLAUDE_ERROR_PATTERNS: AgentErrorPatterns = {
 
   network_error: [
     {
-      pattern: /connection.*failed/i,
+      pattern: /connection\s*(failed|refused|error|reset|closed)/i,
       message: 'Connection failed. Check your internet connection.',
       recoverable: true,
     },
     {
-      pattern: /timeout/i,
-      message: 'Request timed out. Please try again.',
-      recoverable: true,
-    },
-    {
-      pattern: /ECONNREFUSED/i,
-      message: 'Connection refused. The service may be unavailable.',
-      recoverable: true,
-    },
-    {
-      pattern: /ENOTFOUND/i,
+      pattern: /ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND/i,
       message: 'Network error. Check your internet connection.',
       recoverable: true,
     },
     {
-      pattern: /network error/i,
+      pattern: /request\s+timed?\s*out|timed?\s*out\s+waiting/i,
+      message: 'Request timed out. Please try again.',
+      recoverable: true,
+    },
+    {
+      pattern: /network\s+(error|failure|unavailable)/i,
       message: 'Network error occurred. Please check your connection.',
       recoverable: true,
     },
@@ -176,7 +171,7 @@ export const CLAUDE_ERROR_PATTERNS: AgentErrorPatterns = {
       recoverable: false,
     },
     {
-      pattern: /not allowed/i,
+      pattern: /\bnot allowed\b/i,
       message: 'This operation is not allowed.',
       recoverable: false,
     },
@@ -186,7 +181,7 @@ export const CLAUDE_ERROR_PATTERNS: AgentErrorPatterns = {
       recoverable: false,
     },
     {
-      pattern: /forbidden/i,
+      pattern: /\b403\b.*forbidden|\bforbidden\b.*\b403\b/i,
       message: 'Forbidden. You may need additional permissions.',
       recoverable: false,
     },
@@ -194,18 +189,8 @@ export const CLAUDE_ERROR_PATTERNS: AgentErrorPatterns = {
 
   agent_crashed: [
     {
-      pattern: /unexpected error/i,
+      pattern: /\b(fatal|unexpected|internal|unhandled)\s+error\b/i,
       message: 'An unexpected error occurred in the agent.',
-      recoverable: true,
-    },
-    {
-      pattern: /internal error/i,
-      message: 'Internal error. Please try again or restart the agent.',
-      recoverable: true,
-    },
-    {
-      pattern: /fatal error/i,
-      message: 'Fatal error occurred. The agent needs to be restarted.',
       recoverable: true,
     },
   ],
@@ -370,22 +355,22 @@ export const CODEX_ERROR_PATTERNS: AgentErrorPatterns = {
 
   network_error: [
     {
-      pattern: /connection.*failed/i,
+      pattern: /connection\s*(failed|refused|error|reset|closed)/i,
       message: 'Connection failed. Check your internet connection.',
       recoverable: true,
     },
     {
-      pattern: /timeout/i,
+      pattern: /ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND/i,
+      message: 'Network error. Check your internet connection.',
+      recoverable: true,
+    },
+    {
+      pattern: /request\s+timed?\s*out|timed?\s*out\s+waiting/i,
       message: 'Request timed out. Please try again.',
       recoverable: true,
     },
     {
-      pattern: /ECONNREFUSED/i,
-      message: 'Connection refused. The service may be unavailable.',
-      recoverable: true,
-    },
-    {
-      pattern: /network.*error/i,
+      pattern: /network\s+(error|failure|unavailable)/i,
       message: 'Network error occurred. Please check your connection.',
       recoverable: true,
     },
@@ -406,18 +391,8 @@ export const CODEX_ERROR_PATTERNS: AgentErrorPatterns = {
 
   agent_crashed: [
     {
-      pattern: /unexpected error/i,
+      pattern: /\b(fatal|unexpected|internal|unhandled)\s+error\b/i,
       message: 'An unexpected error occurred in the agent.',
-      recoverable: true,
-    },
-    {
-      pattern: /internal error/i,
-      message: 'Internal error. Please try again or restart the agent.',
-      recoverable: true,
-    },
-    {
-      pattern: /fatal/i,
-      message: 'Fatal error occurred. The agent needs to be restarted.',
       recoverable: true,
     },
   ],
