@@ -313,6 +313,7 @@ export function useAgentExecution(
           sessionCustomPath: session.customPath,
           sessionCustomArgs: session.customArgs,
           sessionCustomEnvVars: session.customEnvVars,
+          sessionCustomModel: session.customModel,
         }).catch(() => {
           cleanup();
           resolve({ success: false });

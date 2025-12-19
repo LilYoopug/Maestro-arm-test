@@ -719,7 +719,7 @@ describe('NewInstanceModal', () => {
         fireEvent.click(createButton);
       });
 
-      expect(onCreate).toHaveBeenCalledWith('claude-code', '/home/testuser/projects', 'My Session', undefined, undefined, undefined, undefined);
+      expect(onCreate).toHaveBeenCalledWith('claude-code', '/home/testuser/projects', 'My Session', undefined, undefined, undefined, undefined, undefined);
     });
 
     it('should expand lone tilde to home directory', async () => {
@@ -753,7 +753,7 @@ describe('NewInstanceModal', () => {
         fireEvent.click(createButton);
       });
 
-      expect(onCreate).toHaveBeenCalledWith('claude-code', '/home/testuser', 'Home Session', undefined, undefined, undefined, undefined);
+      expect(onCreate).toHaveBeenCalledWith('claude-code', '/home/testuser', 'Home Session', undefined, undefined, undefined, undefined, undefined);
     });
 
     it('should not expand tilde in middle of path', async () => {
@@ -787,7 +787,7 @@ describe('NewInstanceModal', () => {
         fireEvent.click(createButton);
       });
 
-      expect(onCreate).toHaveBeenCalledWith('claude-code', '/path/with~tilde', 'Tilde Test', undefined, undefined, undefined, undefined);
+      expect(onCreate).toHaveBeenCalledWith('claude-code', '/path/with~tilde', 'Tilde Test', undefined, undefined, undefined, undefined, undefined);
     });
   });
 
@@ -822,7 +822,7 @@ describe('NewInstanceModal', () => {
         fireEvent.click(createButton);
       });
 
-      expect(onCreate).toHaveBeenCalledWith('claude-code', '/my/project', 'My Session', undefined, undefined, undefined, undefined);
+      expect(onCreate).toHaveBeenCalledWith('claude-code', '/my/project', 'My Session', undefined, undefined, undefined, undefined, undefined);
       expect(onClose).toHaveBeenCalled();
     });
 
@@ -1314,6 +1314,7 @@ describe('NewInstanceModal', () => {
         'My Session',
         undefined,
         '/custom/path/to/claude',
+        undefined,
         undefined,
         undefined
       );

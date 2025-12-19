@@ -13,7 +13,25 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import React, { useState, useCallback } from 'react';
 import { SessionList } from '../../renderer/components/SessionList';
 import { AutoRun, AutoRunHandle } from '../../renderer/components/AutoRun';
+import { LayerStackProvider } from '../../renderer/contexts/LayerStackContext';
 import type { Session, Group, Theme, Shortcut, BatchRunState, SessionState } from '../../renderer/types';
+
+// Helper to wrap component in LayerStackProvider with custom rerender
+const renderWithProviders = (ui: React.ReactElement) => {
+  const result = render(
+    <LayerStackProvider>
+      {ui}
+    </LayerStackProvider>
+  );
+  return {
+    ...result,
+    rerender: (newUi: React.ReactElement) => result.rerender(
+      <LayerStackProvider>
+        {newUi}
+      </LayerStackProvider>
+    ),
+  };
+};
 
 // Mock external dependencies
 vi.mock('react-markdown', () => ({
@@ -363,6 +381,7 @@ const IntegrationTestWrapper = ({
   const shortcuts = createMockShortcuts();
 
   return (
+    <LayerStackProvider>
     <div style={{ display: 'flex', height: '100vh' }}>
       {/* Session List */}
       <SessionList
@@ -528,6 +547,7 @@ const IntegrationTestWrapper = ({
         </div>
       )}
     </div>
+    </LayerStackProvider>
   );
 };
 
@@ -923,6 +943,7 @@ describe('Auto Run + Session List Integration', () => {
         const theme = createMockTheme();
 
         return (
+          <LayerStackProvider>
           <div>
             <div data-testid="session-buttons">
               {sessions.map(s => (
@@ -959,6 +980,7 @@ describe('Auto Run + Session List Integration', () => {
               />
             )}
           </div>
+          </LayerStackProvider>
         );
       };
 

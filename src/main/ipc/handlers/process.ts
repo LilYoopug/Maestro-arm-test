@@ -36,6 +36,9 @@ interface AgentConfigsData {
  */
 interface MaestroSettings {
   defaultShell: string;
+  customShellPath?: string;  // Custom path to shell binary (overrides auto-detected path)
+  shellArgs?: string;        // Additional CLI arguments for shell sessions
+  shellEnvVars?: Record<string, string>;  // Environment variables for shell sessions
   [key: string]: any;
 }
 
@@ -86,6 +89,7 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
       sessionCustomPath?: string;     // Session-specific custom path
       sessionCustomArgs?: string;     // Session-specific custom args
       sessionCustomEnvVars?: Record<string, string>; // Session-specific env vars
+      sessionCustomModel?: string;    // Session-specific model selection
     }) => {
       const processManager = requireProcessManager(getProcessManager);
       const agentDetector = requireDependency(getAgentDetector, 'Agent detector');
@@ -164,17 +168,28 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
       }
 
       // ========================================================================
-      // Build additional args from agent configuration (legacy support)
+      // Build additional args from agent configuration
+      // Session-level overrides take precedence over agent-level config
       // ========================================================================
       if (agent && agent.configOptions) {
         const agentConfig = agentConfigsStore.get('configs', {})[config.toolType] || {};
 
         for (const option of agent.configOptions) {
           if (option.argBuilder) {
-            // Get config value, fallback to default
-            const value = agentConfig[option.key] !== undefined
-              ? agentConfig[option.key]
-              : option.default;
+            // For model, prefer session-level config over agent-level
+            let value: any;
+            if (option.key === 'model') {
+              // Session-level model takes precedence
+              value = config.sessionCustomModel ?? agentConfig[option.key] ?? option.default;
+              if (config.sessionCustomModel) {
+                logger.debug(`Using session-level model for ${config.toolType}`, LOG_CONTEXT, { model: config.sessionCustomModel });
+              }
+            } else {
+              // Get config value, fallback to default
+              value = agentConfig[option.key] !== undefined
+                ? agentConfig[option.key]
+                : option.default;
+            }
 
             // Build args from this config value
             const additionalArgs = option.argBuilder(value);
@@ -219,7 +234,22 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
       }
 
       // If no shell is specified and this is a terminal session, use the default shell from settings
-      const shellToUse = config.shell || (config.toolType === 'terminal' ? settingsStore.get('defaultShell', 'zsh') : undefined);
+      // For terminal sessions, we also load custom shell path, args, and env vars
+      let shellToUse = config.shell || (config.toolType === 'terminal' ? settingsStore.get('defaultShell', 'zsh') : undefined);
+      let shellArgsStr: string | undefined;
+      let shellEnvVars: Record<string, string> | undefined;
+
+      if (config.toolType === 'terminal') {
+        // Custom shell path overrides the detected/selected shell path
+        const customShellPath = settingsStore.get('customShellPath', '');
+        if (customShellPath && customShellPath.trim()) {
+          shellToUse = customShellPath.trim();
+          logger.debug('Using custom shell path for terminal', LOG_CONTEXT, { customShellPath });
+        }
+        // Load additional shell args and env vars
+        shellArgsStr = settingsStore.get('shellArgs', '');
+        shellEnvVars = settingsStore.get('shellEnvVars', {}) as Record<string, string>;
+      }
 
       // Extract session ID from args for logging (supports both --resume and --session flags)
       const resumeArgIndex = finalArgs.indexOf('--resume');
@@ -259,6 +289,8 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
         requiresPty: agent?.requiresPty,
         prompt: config.prompt,
         shell: shellToUse,
+        shellArgs: shellArgsStr,         // Shell-specific CLI args (for terminal sessions)
+        shellEnvVars: shellEnvVars,      // Shell-specific env vars (for terminal sessions)
         contextWindow, // Pass configured context window to process manager
         customEnvVars: effectiveCustomEnvVars, // Pass custom env vars (session-level or agent-level)
       });
@@ -341,20 +373,29 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
       const processManager = requireProcessManager(getProcessManager);
 
       // Get the shell from settings if not provided
-      // Shell name (e.g., 'zsh') will be resolved to full path in process-manager
-      const shell = config.shell || settingsStore.get('defaultShell', 'zsh');
+      // Custom shell path takes precedence over the selected shell ID
+      let shell = config.shell || settingsStore.get('defaultShell', 'zsh');
+      const customShellPath = settingsStore.get('customShellPath', '');
+      if (customShellPath && customShellPath.trim()) {
+        shell = customShellPath.trim();
+      }
+
+      // Get shell env vars for passing to runCommand
+      const shellEnvVars = settingsStore.get('shellEnvVars', {}) as Record<string, string>;
 
       logger.debug(`Running command: ${config.command}`, LOG_CONTEXT, {
         sessionId: config.sessionId,
         cwd: config.cwd,
-        shell
+        shell,
+        hasCustomEnvVars: Object.keys(shellEnvVars).length > 0
       });
 
       return processManager.runCommand(
         config.sessionId,
         config.command,
         config.cwd,
-        shell
+        shell,
+        shellEnvVars
       );
     })
   );

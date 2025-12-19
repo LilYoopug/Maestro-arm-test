@@ -48,6 +48,9 @@ function generateClientToken(): string {
   return crypto.randomUUID();
 }
 
+// Error message for lost auth token
+const AUTH_TOKEN_LOST_MESSAGE = 'Your email is confirmed but we seem to have lost your auth token. Please contact pedram@runmaestro.ai to resolve this issue or ping him on Discord.';
+
 export function LeaderboardRegistrationModal({
   theme,
   autoRunStats,
@@ -222,7 +225,7 @@ export function LeaderboardRegistrationModal({
         // Email is confirmed but we're missing the auth token - show manual entry
         setSubmitState('error');
         setShowManualTokenEntry(true);
-        setErrorMessage('Your email is confirmed but we need your auth token. Enter it below or check your confirmation email.');
+        setErrorMessage(AUTH_TOKEN_LOST_MESSAGE);
       } else {
         setSubmitState('error');
         setErrorMessage(result.error || result.message || 'Submission failed');
@@ -322,13 +325,13 @@ export function LeaderboardRegistrationModal({
         } else {
           // Token not available from server, show manual entry
           setShowManualTokenEntry(true);
-          setErrorMessage('Your email is confirmed but we need your auth token. Enter it below or check your confirmation email.');
+          setErrorMessage(AUTH_TOKEN_LOST_MESSAGE);
         }
       }).catch(() => {
         setIsRecovering(false);
         // On error, show manual entry as fallback
         setShowManualTokenEntry(true);
-        setErrorMessage('Your email is confirmed but we need your auth token. Enter it below or check your confirmation email.');
+        setErrorMessage(AUTH_TOKEN_LOST_MESSAGE);
       });
     }
   }, [needsAuthTokenRecovery, existingRegistration, onSave, recoveryAttempted]);

@@ -1,6 +1,8 @@
-import React, { useState, useCallback, memo } from 'react';
+import React, { useState, useCallback, memo, useEffect, useRef } from 'react';
 import { X, ChevronLeft, ChevronRight, Copy, Check, Trash2 } from 'lucide-react';
 import type { Theme } from '../types';
+import { useLayerStack } from '../contexts/LayerStackContext';
+import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 
 // ============================================================================
 // AutoRunLightbox - Full-screen image viewer with navigation, copy, delete
@@ -43,6 +45,43 @@ export const AutoRunLightbox = memo(({
   onDelete,
 }: AutoRunLightboxProps) => {
   const [copied, setCopied] = useState(false);
+  const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
+  const layerIdRef = useRef<string>();
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  // Determine if lightbox is visible
+  const isVisible = Boolean(lightboxFilename);
+
+  // Register with layer stack when lightbox is visible
+  // This ensures Escape closes the lightbox first before the expanded modal
+  useEffect(() => {
+    if (isVisible) {
+      const id = registerLayer({
+        type: 'modal',
+        priority: MODAL_PRIORITIES.AUTORUN_LIGHTBOX,
+        onEscape: () => {
+          onCloseRef.current();
+        },
+      });
+      layerIdRef.current = id;
+
+      return () => {
+        if (layerIdRef.current) {
+          unregisterLayer(layerIdRef.current);
+        }
+      };
+    }
+  }, [isVisible, registerLayer, unregisterLayer]);
+
+  // Keep escape handler up to date
+  useEffect(() => {
+    if (layerIdRef.current) {
+      updateLayerHandler(layerIdRef.current, () => {
+        onCloseRef.current();
+      });
+    }
+  }, [onClose, updateLayerHandler]);
 
   // Calculate current index and navigation availability
   const currentIndex = lightboxFilename ? attachmentsList.indexOf(lightboxFilename) : -1;
@@ -106,12 +145,11 @@ export const AutoRunLightbox = memo(({
   }, [lightboxFilename, lightboxExternalUrl, attachmentsList, currentIndex, onDelete, onNavigate, onClose]);
 
   // Handle keyboard events
+  // Note: Escape is handled by the LayerStack system to ensure proper priority
+  // over the expanded modal - don't handle it here
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     e.stopPropagation();
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      onClose();
-    } else if (e.key === 'ArrowLeft') {
+    if (e.key === 'ArrowLeft') {
       e.preventDefault();
       goToPrevImage();
     } else if (e.key === 'ArrowRight') {
@@ -123,7 +161,7 @@ export const AutoRunLightbox = memo(({
         handleDelete();
       }
     }
-  }, [onClose, goToPrevImage, goToNextImage, lightboxExternalUrl, onDelete, handleDelete]);
+  }, [goToPrevImage, goToNextImage, lightboxExternalUrl, onDelete, handleDelete]);
 
   // Don't render if no image is selected
   const imageUrl = lightboxExternalUrl || (lightboxFilename ? attachmentPreviews.get(lightboxFilename) : undefined);

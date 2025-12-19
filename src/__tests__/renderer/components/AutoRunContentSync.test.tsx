@@ -13,7 +13,25 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import React from 'react';
 import { AutoRun, AutoRunHandle } from '../../../renderer/components/AutoRun';
+import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme } from '../../../renderer/types';
+
+// Helper to wrap component in LayerStackProvider with custom rerender
+const renderWithProviders = (ui: React.ReactElement) => {
+  const result = render(
+    <LayerStackProvider>
+      {ui}
+    </LayerStackProvider>
+  );
+  return {
+    ...result,
+    rerender: (newUi: React.ReactElement) => result.rerender(
+      <LayerStackProvider>
+        {newUi}
+      </LayerStackProvider>
+    ),
+  };
+};
 
 // Mock the external dependencies
 vi.mock('react-markdown', () => ({
@@ -173,7 +191,7 @@ describe('AutoRun Content Synchronization Race Conditions', () => {
         contentVersion: 1,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
       expect(textarea).toHaveValue('Initial content from props');
@@ -196,7 +214,7 @@ describe('AutoRun Content Synchronization Race Conditions', () => {
         contentVersion: 1,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
       fireEvent.change(textarea, { target: { value: 'User local edits' } });
@@ -217,7 +235,7 @@ describe('AutoRun Content Synchronization Race Conditions', () => {
         contentVersion: 1,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
 
@@ -245,7 +263,7 @@ describe('AutoRun Content Synchronization Race Conditions', () => {
         contentVersion: 1,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
       fireEvent.change(textarea, { target: { value: 'Local edits in session 1' } });
@@ -265,7 +283,7 @@ describe('AutoRun Content Synchronization Race Conditions', () => {
         contentVersion: 1,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
       fireEvent.change(textarea, { target: { value: 'Local edits in doc 1' } });
@@ -287,7 +305,7 @@ describe('AutoRun Content Synchronization Race Conditions', () => {
         contentVersion: 1,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
 
@@ -320,7 +338,7 @@ describe('AutoRun Content Synchronization Race Conditions', () => {
         contentVersion: 1,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
 
@@ -345,7 +363,7 @@ describe('AutoRun Content Synchronization Race Conditions', () => {
         contentVersion: 1,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
 
@@ -367,7 +385,7 @@ describe('AutoRun Content Synchronization Race Conditions', () => {
         contentVersion: 1,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
       fireEvent.change(textarea, { target: { value: 'Dirty local content' } });
@@ -390,7 +408,7 @@ describe('AutoRun Content Synchronization Race Conditions', () => {
         contentVersion: 1,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
       fireEvent.change(textarea, { target: { value: 'Local edits' } });
@@ -406,7 +424,7 @@ describe('AutoRun Content Synchronization Race Conditions', () => {
         contentVersion: 0,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
       expect(textarea).toHaveValue('Content with version 0');
@@ -424,7 +442,7 @@ describe('AutoRun Content Synchronization Race Conditions', () => {
         // contentVersion not specified (undefined)
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
       fireEvent.change(textarea, { target: { value: 'Local edits' } });
@@ -443,7 +461,7 @@ describe('AutoRun Content Synchronization Race Conditions', () => {
         contentVersion: 1,
       });
 
-      render(<AutoRun {...props} ref={ref} />);
+      renderWithProviders(<AutoRun {...props} ref={ref} />);
 
       // Initially not dirty
       expect(ref.current?.isDirty()).toBe(false);
@@ -469,7 +487,7 @@ describe('AutoRun Content Synchronization Race Conditions', () => {
         selectedFile: 'my-doc',
       });
 
-      render(<AutoRun {...props} ref={ref} />);
+      renderWithProviders(<AutoRun {...props} ref={ref} />);
 
       const textarea = screen.getByRole('textbox');
       fireEvent.change(textarea, { target: { value: 'New content to save' } });
@@ -498,7 +516,7 @@ describe('AutoRun Content Synchronization Race Conditions', () => {
         content: 'Original saved content',
       });
 
-      render(<AutoRun {...props} ref={ref} />);
+      renderWithProviders(<AutoRun {...props} ref={ref} />);
 
       const textarea = screen.getByRole('textbox');
       fireEvent.change(textarea, { target: { value: 'Dirty changes' } });
@@ -522,7 +540,7 @@ describe('AutoRun Content Synchronization Race Conditions', () => {
         contentVersion: 1,
       });
 
-      const { rerender } = render(<AutoRun {...props} ref={ref} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} ref={ref} />);
 
       const textarea = screen.getByRole('textbox');
       fireEvent.change(textarea, { target: { value: 'Dirty' } });
@@ -546,7 +564,7 @@ describe('AutoRun Content Synchronization Race Conditions', () => {
         contentVersion: 1,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
       expect(textarea).toHaveValue('');
@@ -567,7 +585,7 @@ describe('AutoRun Content Synchronization Race Conditions', () => {
         contentVersion: 1,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
       expect(textarea).toHaveValue(longContent);
@@ -590,7 +608,7 @@ describe('AutoRun Content Synchronization Race Conditions', () => {
         contentVersion: 1,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
       expect(textarea).toHaveValue(specialContent);
@@ -611,7 +629,7 @@ describe('AutoRun Content Synchronization Race Conditions', () => {
         contentVersion: 1,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
       expect(textarea).toHaveValue('   \n\n   \t\t\n   ');
@@ -631,7 +649,7 @@ describe('AutoRun Content Synchronization Race Conditions', () => {
         contentVersion: 1,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
       fireEvent.change(textarea, { target: { value: 'Local edits' } });
@@ -649,7 +667,7 @@ describe('AutoRun Content Synchronization Race Conditions', () => {
         contentVersion: 1,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
       fireEvent.change(textarea, { target: { value: 'Local edits' } });
@@ -670,7 +688,7 @@ describe('AutoRun Content Synchronization Race Conditions', () => {
         contentVersion: 1,
       });
 
-      const { rerender } = render(<AutoRun {...props} ref={ref} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} ref={ref} />);
 
       // Make dirty in session 1
       const textarea = screen.getByRole('textbox');
@@ -703,7 +721,7 @@ describe('AutoRun Content Synchronization Race Conditions', () => {
         contentVersion: 1,
       });
 
-      const { rerender } = render(<AutoRun {...props} ref={ref} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} ref={ref} />);
 
       // Make dirty
       const textarea = screen.getByRole('textbox');
@@ -725,7 +743,7 @@ describe('AutoRun Content Synchronization Race Conditions', () => {
         contentVersion: 1,
       });
 
-      const { rerender } = render(<AutoRun {...props} ref={ref} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} ref={ref} />);
 
       // Make dirty
       const textarea = screen.getByRole('textbox');

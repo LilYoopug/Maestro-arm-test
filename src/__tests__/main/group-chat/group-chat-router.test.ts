@@ -10,6 +10,33 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import * as path from 'path';
+import * as os from 'os';
+import * as fs from 'fs/promises';
+
+// Mock Electron's app module before importing modules that use it
+let mockUserDataPath: string;
+vi.mock('electron', () => ({
+  app: {
+    getPath: vi.fn((name: string) => {
+      if (name === 'userData') {
+        return mockUserDataPath;
+      }
+      throw new Error(`Unknown path name: ${name}`);
+    }),
+  },
+}));
+
+// Mock electron-store to return no custom path (use userData)
+vi.mock('electron-store', () => {
+  return {
+    default: class MockStore {
+      get() { return undefined; } // No custom sync path
+      set() {}
+    },
+  };
+});
+
 import {
   extractMentions,
   routeUserMessage,
@@ -38,8 +65,19 @@ describe('group-chat-router', () => {
   let mockProcessManager: IProcessManager;
   let mockAgentDetector: AgentDetector;
   let createdChats: string[] = [];
+  let testDir: string;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    // Create a unique temp directory for each test
+    testDir = path.join(
+      os.tmpdir(),
+      `group-chat-router-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
+    await fs.mkdir(testDir, { recursive: true });
+
+    // Set the mock userData path to our test directory
+    mockUserDataPath = testDir;
+
     // Create a fresh mock for each test
     mockProcessManager = {
       spawn: vi.fn().mockReturnValue({ pid: 12345, success: true }),
@@ -86,6 +124,13 @@ describe('group-chat-router', () => {
     // Clear sessions
     clearAllModeratorSessions();
     clearAllParticipantSessionsGlobal();
+
+    // Clean up temp directory
+    try {
+      await fs.rm(testDir, { recursive: true, force: true });
+    } catch {
+      // Ignore cleanup errors
+    }
 
     // Clear mocks
     vi.clearAllMocks();

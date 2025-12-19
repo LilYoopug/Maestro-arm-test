@@ -167,6 +167,9 @@ export default function MaestroConsole() {
     modelSlug, setModelSlug,
     apiKey, setApiKey,
     defaultShell, setDefaultShell,
+    customShellPath, setCustomShellPath,
+    shellArgs, setShellArgs,
+    shellEnvVars, setShellEnvVars,
     ghPath, setGhPath,
     fontFamily, setFontFamily,
     fontSize, setFontSize,
@@ -496,17 +499,19 @@ export default function MaestroConsole() {
       let correctedSession = { ...session };
       let aiAgentType = correctedSession.toolType;
 
-      // If toolType is 'terminal', use claude-code instead for AI process
+      // If toolType is 'terminal', migrate to claude-code
+      // This fixes legacy sessions that were incorrectly saved with toolType='terminal'
       if (aiAgentType === 'terminal') {
-        console.warn(`[restoreSession] Session has toolType='terminal', using claude-code for AI process`);
+        console.warn(`[restoreSession] Session has toolType='terminal', migrating to claude-code`);
         aiAgentType = 'claude-code' as ToolType;
+        correctedSession = { ...correctedSession, toolType: 'claude-code' as ToolType };
 
         // Add warning to the active tab's logs
         const warningLog: LogEntry = {
           id: generateId(),
           timestamp: Date.now(),
           source: 'system',
-          text: '⚠️ Using default AI agent (Claude Code) for this session.'
+          text: '⚠️ Session migrated to use Claude Code agent.'
         };
         const activeTabIndex = correctedSession.aiTabs.findIndex(tab => tab.id === correctedSession.activeTabId);
         if (activeTabIndex >= 0) {
@@ -3195,7 +3200,8 @@ export default function MaestroConsole() {
     nudgeMessage?: string,
     customPath?: string,
     customArgs?: string,
-    customEnvVars?: Record<string, string>
+    customEnvVars?: Record<string, string>,
+    customModel?: string
   ) => {
     // Validate uniqueness before creating
     const validation = validateNewSession(name, workingDir, agentId as ToolType, sessions);
@@ -3290,10 +3296,11 @@ export default function MaestroConsole() {
         closedTabHistory: [],
         // Nudge message - appended to every interactive user message
         nudgeMessage,
-        // Per-agent config (path, args, env vars)
+        // Per-agent config (path, args, env vars, model)
         customPath,
         customArgs,
-        customEnvVars
+        customEnvVars,
+        customModel
       };
       setSessions(prev => [...prev, newSession]);
       setActiveSessionId(newId);
@@ -3893,6 +3900,7 @@ export default function MaestroConsole() {
           sessionCustomPath: session.customPath,
           sessionCustomArgs: session.customArgs,
           sessionCustomEnvVars: session.customEnvVars,
+          sessionCustomModel: session.customModel,
         });
 
         console.log(`[Remote] ${session.toolType} spawn initiated successfully`);
@@ -4068,6 +4076,7 @@ export default function MaestroConsole() {
           sessionCustomPath: session.customPath,
           sessionCustomArgs: session.customArgs,
           sessionCustomEnvVars: session.customEnvVars,
+          sessionCustomModel: session.customModel,
         });
       } else if (item.type === 'command' && item.command) {
         // Process a slash command - find the matching custom AI command
@@ -4137,6 +4146,7 @@ export default function MaestroConsole() {
             sessionCustomPath: session.customPath,
             sessionCustomArgs: session.customArgs,
             sessionCustomEnvVars: session.customEnvVars,
+            sessionCustomModel: session.customModel,
           });
         } else {
           // Unknown command - add error log
@@ -6494,10 +6504,10 @@ export default function MaestroConsole() {
           setEditAgentModalOpen(false);
           setEditAgentSession(null);
         }}
-        onSave={(sessionId, name, nudgeMessage, customPath, customArgs, customEnvVars) => {
+        onSave={(sessionId, name, nudgeMessage, customPath, customArgs, customEnvVars, customModel) => {
           setSessions(prev => prev.map(s => {
             if (s.id !== sessionId) return s;
-            return { ...s, name, nudgeMessage, customPath, customArgs, customEnvVars };
+            return { ...s, name, nudgeMessage, customPath, customArgs, customEnvVars, customModel };
           }));
         }}
         theme={theme}
@@ -6527,6 +6537,12 @@ export default function MaestroConsole() {
         setShortcuts={setShortcuts}
         defaultShell={defaultShell}
         setDefaultShell={setDefaultShell}
+        customShellPath={customShellPath}
+        setCustomShellPath={setCustomShellPath}
+        shellArgs={shellArgs}
+        setShellArgs={setShellArgs}
+        shellEnvVars={shellEnvVars}
+        setShellEnvVars={setShellEnvVars}
         ghPath={ghPath}
         setGhPath={setGhPath}
         enterToSendAI={enterToSendAI}

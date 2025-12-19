@@ -32,7 +32,8 @@ interface NewInstanceModalProps {
     nudgeMessage?: string,
     customPath?: string,
     customArgs?: string,
-    customEnvVars?: Record<string, string>
+    customEnvVars?: Record<string, string>,
+    customModel?: string
   ) => void;
   theme: any;
   existingSessions: Session[];
@@ -47,7 +48,8 @@ interface EditAgentModalProps {
     nudgeMessage?: string,
     customPath?: string,
     customArgs?: string,
-    customEnvVars?: Record<string, string>
+    customEnvVars?: Record<string, string>,
+    customModel?: string
   ) => void;
   theme: any;
   session: Session | null;
@@ -192,6 +194,8 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, existingSes
     const agentCustomEnvVars = customAgentEnvVars[selectedAgent] && Object.keys(customAgentEnvVars[selectedAgent]).length > 0
       ? customAgentEnvVars[selectedAgent]
       : undefined;
+    // Get model from agent config - this will become per-session
+    const agentCustomModel = agentConfigs[selectedAgent]?.model?.trim() || undefined;
 
     onCreate(
       selectedAgent,
@@ -200,7 +204,8 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, existingSes
       nudgeMessage.trim() || undefined,
       agentCustomPath,
       agentCustomArgs,
-      agentCustomEnvVars
+      agentCustomEnvVars,
+      agentCustomModel
     );
     onClose();
 
@@ -212,7 +217,7 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, existingSes
     setCustomAgentPaths(prev => ({ ...prev, [selectedAgent]: '' }));
     setCustomAgentArgs(prev => ({ ...prev, [selectedAgent]: '' }));
     setCustomAgentEnvVars(prev => ({ ...prev, [selectedAgent]: {} }));
-  }, [instanceName, selectedAgent, workingDir, nudgeMessage, customAgentPaths, customAgentArgs, customAgentEnvVars, onCreate, onClose, expandTilde, existingSessions]);
+  }, [instanceName, selectedAgent, workingDir, nudgeMessage, customAgentPaths, customAgentArgs, customAgentEnvVars, agentConfigs, onCreate, onClose, expandTilde, existingSessions]);
 
   // Check if form is valid for submission
   const isFormValid = useMemo(() => {
@@ -636,6 +641,7 @@ export function EditAgentModal({ isOpen, onClose, onSave, theme, session, existi
   const [customPath, setCustomPath] = useState('');
   const [customArgs, setCustomArgs] = useState('');
   const [customEnvVars, setCustomEnvVars] = useState<Record<string, string>>({});
+  const [customModel, setCustomModel] = useState('');
   const [refreshingAgent, setRefreshingAgent] = useState(false);
 
   const nameInputRef = useRef<HTMLInputElement>(null);
@@ -657,14 +663,20 @@ export function EditAgentModal({ isOpen, onClose, onSave, theme, session, existi
             .finally(() => setLoadingModels(false));
         }
       });
-      // Load agent config (for agent-specific options like model, contextWindow)
-      window.maestro.agents.getConfig(session.toolType).then(setAgentConfig);
+      // Load agent config for non-per-session options (like contextWindow)
+      // Model is now per-session, so we only use global config for defaults
+      window.maestro.agents.getConfig(session.toolType).then((globalConfig) => {
+        // Use session-level model if set, otherwise use global default
+        const modelValue = session.customModel ?? globalConfig.model ?? '';
+        setAgentConfig({ ...globalConfig, model: modelValue });
+      });
 
-      // Load per-agent config (stored on the session/agent instance)
+      // Load per-session config (stored on the session/agent instance)
       // No provider-level fallback - each agent has its own config
       setCustomPath(session.customPath ?? '');
       setCustomArgs(session.customArgs ?? '');
       setCustomEnvVars(session.customEnvVars ?? {});
+      setCustomModel(session.customModel ?? '');
     }
   }, [isOpen, session]);
 
@@ -694,17 +706,21 @@ export function EditAgentModal({ isOpen, onClose, onSave, theme, session, existi
     const result = validateEditSession(name, session.id, existingSessions);
     if (!result.valid) return;
 
-    // Save with per-session config fields
+    // Get model from agentConfig (which is updated via onConfigChange)
+    const modelValue = agentConfig.model?.trim() || undefined;
+
+    // Save with per-session config fields including model
     onSave(
       session.id,
       name,
       nudgeMessage.trim() || undefined,
       customPath.trim() || undefined,
       customArgs.trim() || undefined,
-      Object.keys(customEnvVars).length > 0 ? customEnvVars : undefined
+      Object.keys(customEnvVars).length > 0 ? customEnvVars : undefined,
+      modelValue
     );
     onClose();
-  }, [session, instanceName, nudgeMessage, customPath, customArgs, customEnvVars, onSave, onClose, existingSessions]);
+  }, [session, instanceName, nudgeMessage, customPath, customArgs, customEnvVars, agentConfig, onSave, onClose, existingSessions]);
 
   // Refresh available models
   const refreshModels = useCallback(async () => {
@@ -908,8 +924,10 @@ export function EditAgentModal({ isOpen, onClose, onSave, theme, session, existi
                   setAgentConfig(prev => ({ ...prev, [key]: value }));
                 }}
                 onConfigBlur={() => {
-                  // Agent-specific config (model, contextWindow) still saved at agent level
-                  window.maestro.agents.setConfig(session.toolType, agentConfig);
+                  // Save non-model config options at agent level (e.g., contextWindow as default)
+                  // Model is saved per-session on modal save, not globally
+                  const { model: _model, ...nonModelConfig } = agentConfig;
+                  window.maestro.agents.setConfig(session.toolType, nonModelConfig);
                 }}
                 availableModels={availableModels}
                 loadingModels={loadingModels}

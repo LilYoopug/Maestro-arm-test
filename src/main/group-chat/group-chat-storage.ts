@@ -11,7 +11,8 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import * as os from 'os';
+import { app } from 'electron';
+import Store from 'electron-store';
 import { v4 as uuidv4 } from 'uuid';
 import type { ToolType } from '../../shared/types';
 import type { ModeratorConfig } from '../../shared/group-chat-types';
@@ -21,6 +22,19 @@ import type { ModeratorConfig } from '../../shared/group-chat-types';
  * Must match available agents from agent-detector.
  */
 const VALID_MODERATOR_AGENT_IDS: ToolType[] = ['claude-code', 'codex', 'opencode'];
+
+/**
+ * Bootstrap settings store for custom storage location.
+ * This is the same store used in main/index.ts for settings sync.
+ */
+interface BootstrapSettings {
+  customSyncPath?: string;
+}
+
+const bootstrapStore = new Store<BootstrapSettings>({
+  name: 'maestro-bootstrap',
+  defaults: {},
+});
 
 /**
  * Group chat participant
@@ -70,20 +84,13 @@ export interface GroupChat {
 export type GroupChatUpdate = Partial<Pick<GroupChat, 'name' | 'moderatorSessionId' | 'participants' | 'updatedAt'>>;
 
 /**
- * Get the Maestro config directory path
+ * Get the Maestro config directory path.
+ * Uses custom sync path if configured, otherwise falls back to Electron's userData.
+ * This respects both the custom storage location setting and demo mode.
  */
 function getConfigDir(): string {
-  const platform = os.platform();
-  const home = os.homedir();
-
-  if (platform === 'darwin') {
-    return path.join(home, 'Library', 'Application Support', 'Maestro');
-  } else if (platform === 'win32') {
-    return path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'Maestro');
-  } else {
-    // Linux and others
-    return path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), 'Maestro');
-  }
+  const customPath = bootstrapStore.get('customSyncPath');
+  return customPath || app.getPath('userData');
 }
 
 /**

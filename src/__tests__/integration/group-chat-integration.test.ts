@@ -5,6 +5,7 @@
  * 1. Detect available agents (Claude Code, Codex, OpenCode)
  * 2. Randomly select one as moderator, others as participants
  * 3. Have a real conversation between them
+ * 4. Test argument building with and without images
  *
  * REQUIREMENTS:
  * - At least 2 AI provider CLIs must be installed
@@ -12,12 +13,20 @@
  *
  * These tests are SKIPPED by default. To run them:
  *   RUN_INTEGRATION_TESTS=true npm test -- group-chat-integration
+ *
+ * IMPORTANT: These tests mirror the actual argument building logic from:
+ * - src/main/agent-detector.ts (agent definitions with arg builders)
+ * - src/main/ipc/handlers/process.ts (IPC spawn handler)
+ * - src/main/process-manager.ts (ProcessManager.spawn)
+ *
+ * If those files change, these tests should be updated to match.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import { spawn } from 'child_process';
 import { promisify } from 'util';
 import { exec } from 'child_process';
+import { getAgentCapabilities } from '../../main/agent-capabilities';
 
 const execAsync = promisify(exec);
 
@@ -36,8 +45,14 @@ interface AgentConfig {
   name: string;
   command: string;
   checkCommand: string;
-  /** Build args for batch mode with a prompt */
-  buildArgs: (prompt: string) => string[];
+  /**
+   * Build args for batch mode with a prompt.
+   * These should mirror the logic in:
+   * - agent-detector.ts (base args, batchModePrefix, batchModeArgs, jsonOutputArgs, etc.)
+   * - process.ts IPC handler (arg assembly order)
+   * - process-manager.ts (--input-format stream-json for images)
+   */
+  buildArgs: (prompt: string, options?: { images?: string[] }) => string[];
   /** Parse response text from output */
   parseResponse: (output: string) => string | null;
   /** Check if output indicates success */
@@ -50,14 +65,34 @@ const AGENTS: AgentConfig[] = [
     name: 'Claude Code',
     command: 'claude',
     checkCommand: 'claude --version',
-    buildArgs: (prompt: string) => [
-      '--print',
-      '--verbose',
-      '--output-format', 'stream-json',
-      '--dangerously-skip-permissions',
-      '--',
-      prompt,
-    ],
+    /**
+     * Mirrors agent-detector.ts Claude Code definition:
+     *   args: ['--print', '--verbose', '--output-format', 'stream-json', '--dangerously-skip-permissions']
+     *
+     * And process-manager.ts spawn() logic for images:
+     *   if (hasImages && prompt && capabilities.supportsStreamJsonInput) {
+     *     finalArgs = [...args, '--input-format', 'stream-json'];
+     *   }
+     */
+    buildArgs: (prompt: string, options?: { images?: string[] }) => {
+      const baseArgs = [
+        '--print',
+        '--verbose',
+        '--output-format', 'stream-json',
+        '--dangerously-skip-permissions',
+      ];
+
+      const hasImages = options?.images && options.images.length > 0;
+      const capabilities = getAgentCapabilities('claude-code');
+
+      if (hasImages && capabilities.supportsStreamJsonInput) {
+        // With images: add --input-format stream-json (prompt sent via stdin)
+        return [...baseArgs, '--input-format', 'stream-json'];
+      } else {
+        // Without images: prompt as CLI argument
+        return [...baseArgs, '--', prompt];
+      }
+    },
     parseResponse: (output: string) => {
       for (const line of output.split('\n')) {
         try {
@@ -74,15 +109,38 @@ const AGENTS: AgentConfig[] = [
     name: 'Codex',
     command: 'codex',
     checkCommand: 'codex --version',
-    buildArgs: (prompt: string) => [
-      'exec',
-      '--json',
-      '--dangerously-bypass-approvals-and-sandbox',
-      '--skip-git-repo-check',
-      '-C', TEST_CWD,
-      '--',
-      prompt,
-    ],
+    /**
+     * Mirrors agent-detector.ts Codex definition:
+     *   batchModePrefix: ['exec']
+     *   batchModeArgs: ['--dangerously-bypass-approvals-and-sandbox', '--skip-git-repo-check']
+     *   jsonOutputArgs: ['--json']
+     *   workingDirArgs: (dir) => ['-C', dir]
+     *
+     * And process-manager.ts spawn() logic for images:
+     *   Codex does NOT support --input-format stream-json (supportsStreamJsonInput: false)
+     */
+    buildArgs: (prompt: string, options?: { images?: string[] }) => {
+      const args = [
+        'exec',
+        '--dangerously-bypass-approvals-and-sandbox',
+        '--skip-git-repo-check',
+        '--json',
+        '-C', TEST_CWD,
+      ];
+
+      // IMPORTANT: This mirrors process-manager.ts logic
+      // Codex does NOT support --input-format stream-json (supportsStreamJsonInput: false)
+      const hasImages = options?.images && options.images.length > 0;
+      const capabilities = getAgentCapabilities('codex');
+
+      if (hasImages && capabilities.supportsStreamJsonInput) {
+        // This branch should NEVER execute for Codex
+        throw new Error('Codex should not support stream-json input - capability misconfigured');
+      }
+
+      // Regular batch mode - prompt as CLI arg
+      return [...args, '--', prompt];
+    },
     parseResponse: (output: string) => {
       const responses: string[] = [];
       for (const line of output.split('\n')) {
@@ -111,12 +169,33 @@ const AGENTS: AgentConfig[] = [
     name: 'OpenCode',
     command: 'opencode',
     checkCommand: 'opencode --version',
-    buildArgs: (prompt: string) => [
-      'run',
-      '--format', 'json',
-      '--',
-      prompt,
-    ],
+    /**
+     * Mirrors agent-detector.ts OpenCode definition:
+     *   batchModePrefix: ['run']
+     *   jsonOutputArgs: ['--format', 'json']
+     *
+     * And process-manager.ts spawn() logic for images:
+     *   OpenCode does NOT support --input-format stream-json (supportsStreamJsonInput: false)
+     */
+    buildArgs: (prompt: string, options?: { images?: string[] }) => {
+      const args = [
+        'run',
+        '--format', 'json',
+      ];
+
+      // IMPORTANT: This mirrors process-manager.ts logic
+      // OpenCode does NOT support --input-format stream-json (supportsStreamJsonInput: false)
+      const hasImages = options?.images && options.images.length > 0;
+      const capabilities = getAgentCapabilities('opencode');
+
+      if (hasImages && capabilities.supportsStreamJsonInput) {
+        // This branch should NEVER execute for OpenCode
+        throw new Error('OpenCode should not support stream-json input - capability misconfigured');
+      }
+
+      // Regular batch mode - prompt as CLI arg
+      return [...args, '--', prompt];
+    },
     parseResponse: (output: string) => {
       const responses: string[] = [];
       for (const line of output.split('\n')) {
@@ -515,6 +594,68 @@ Summarize the outcome for the user in one sentence. Start with "RESULT:"`;
     expect(summaryResult.exitCode).toBe(0);
     expect(summaryResult.response?.toLowerCase()).toMatch(/result|complete|success|pass|add|function/i);
   }, TEST_TIMEOUT);
+});
+
+/**
+ * Argument Building Tests
+ *
+ * These tests validate that buildArgs correctly handles the image capability check
+ * for all agents. This mirrors the bug fix in process-manager.ts where
+ * --input-format stream-json was being added unconditionally to all agents.
+ */
+describe.skipIf(SKIP_INTEGRATION)('Agent Argument Building Tests', () => {
+  // Test all agents, even if not available (this is arg building, not execution)
+  for (const agent of AGENTS) {
+    describe(agent.name, () => {
+      it('should build valid args without images', () => {
+        const prompt = 'Test prompt';
+        const args = agent.buildArgs(prompt);
+
+        console.log(`\n📝 ${agent.name} args without images: ${args.join(' ')}`);
+
+        // Should NOT have --input-format without images
+        expect(args.includes('--input-format')).toBe(false);
+
+        // Should have the prompt
+        expect(args.includes(prompt)).toBe(true);
+      });
+
+      it('should build valid args with images', () => {
+        const prompt = 'Test prompt';
+        const fakeImage = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+        const args = agent.buildArgs(prompt, { images: [fakeImage] });
+
+        console.log(`\n🖼️  ${agent.name} args with images: ${args.join(' ')}`);
+
+        const capabilities = getAgentCapabilities(agent.id);
+        const hasInputFormat = args.includes('--input-format');
+
+        if (capabilities.supportsStreamJsonInput) {
+          // Claude Code should have --input-format stream-json
+          expect(hasInputFormat).toBe(true);
+          expect(args.includes('stream-json')).toBe(true);
+          // Should NOT have the prompt as an arg (it's sent via stdin)
+          expect(args.includes(prompt)).toBe(false);
+        } else {
+          // Codex, OpenCode should NOT have --input-format
+          expect(hasInputFormat).toBe(false);
+          // Should have the prompt as an arg
+          expect(args.includes(prompt)).toBe(true);
+        }
+      });
+
+      it('should have consistent capability check behavior', () => {
+        // Verify that the capability flag matches our expectations
+        const capabilities = getAgentCapabilities(agent.id);
+
+        if (agent.id === 'claude-code') {
+          expect(capabilities.supportsStreamJsonInput).toBe(true);
+        } else {
+          expect(capabilities.supportsStreamJsonInput).toBe(false);
+        }
+      });
+    });
+  }
 });
 
 /**

@@ -13,7 +13,25 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import React from 'react';
 import { AutoRunDocumentSelector, DocTreeNode } from '../../renderer/components/AutoRunDocumentSelector';
 import { AutoRun, AutoRunHandle } from '../../renderer/components/AutoRun';
+import { LayerStackProvider } from '../../renderer/contexts/LayerStackContext';
 import type { Theme } from '../../renderer/types';
+
+// Helper to wrap component in LayerStackProvider with custom rerender
+const renderWithProviders = (ui: React.ReactElement) => {
+  const result = render(
+    <LayerStackProvider>
+      {ui}
+    </LayerStackProvider>
+  );
+  return {
+    ...result,
+    rerender: (newUi: React.ReactElement) => result.rerender(
+      <LayerStackProvider>
+        {newUi}
+      </LayerStackProvider>
+    ),
+  };
+};
 
 // Mock dependencies for AutoRun component
 vi.mock('react-markdown', () => ({
@@ -290,7 +308,7 @@ describe('AutoRun Many Documents Performance', () => {
       const documents = generateManyDocuments(500);
       const props = createSelectorDefaultProps({ documents, selectedDocument: documents[0] });
 
-      render(<AutoRunDocumentSelector {...props} />);
+      renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Dropdown button should render with selected document
       const button = screen.getByRole('button', { name: new RegExp(documents[0], 'i') });
@@ -301,7 +319,7 @@ describe('AutoRun Many Documents Performance', () => {
       const documents = generateManyDocuments(500);
       const props = createSelectorDefaultProps({ documents, selectedDocument: documents[0] });
 
-      render(<AutoRunDocumentSelector {...props} />);
+      renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Open dropdown
       const button = screen.getByRole('button', { name: new RegExp(documents[0], 'i') });
@@ -318,7 +336,7 @@ describe('AutoRun Many Documents Performance', () => {
       const documents = generateManyDocuments(1000);
       const props = createSelectorDefaultProps({ documents, selectedDocument: documents[0] });
 
-      render(<AutoRunDocumentSelector {...props} />);
+      renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Open dropdown
       const button = screen.getByRole('button', { name: new RegExp(documents[0], 'i') });
@@ -338,7 +356,7 @@ describe('AutoRun Many Documents Performance', () => {
         onSelectDocument,
       });
 
-      render(<AutoRunDocumentSelector {...props} />);
+      renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Open dropdown
       fireEvent.click(screen.getByRole('button', { name: new RegExp(documents[0], 'i') }));
@@ -354,7 +372,7 @@ describe('AutoRun Many Documents Performance', () => {
       const documents = generateManyDocuments(500);
       const props = createSelectorDefaultProps({ documents, selectedDocument: documents[0] });
 
-      render(<AutoRunDocumentSelector {...props} />);
+      renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Open dropdown
       fireEvent.click(screen.getByRole('button', { name: new RegExp(documents[0], 'i') }));
@@ -375,7 +393,7 @@ describe('AutoRun Many Documents Performance', () => {
         documentTaskCounts,
       });
 
-      render(<AutoRunDocumentSelector {...props} />);
+      renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Open dropdown
       fireEvent.click(screen.getByRole('button', { name: new RegExp(documents[0], 'i') }));
@@ -394,7 +412,7 @@ describe('AutoRun Many Documents Performance', () => {
         onSelectDocument,
       });
 
-      const { rerender } = render(<AutoRunDocumentSelector {...props} />);
+      const { rerender } = renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Simulate rapid selection changes
       for (let i = 0; i < 20; i++) {
@@ -424,7 +442,7 @@ describe('AutoRun Many Documents Performance', () => {
         selectedDocument: files[0]
       });
 
-      render(<AutoRunDocumentSelector {...props} />);
+      renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Open dropdown
       const button = screen.getByRole('button', { name: new RegExp(files[0].split('/').pop() || '', 'i') });
@@ -442,7 +460,7 @@ describe('AutoRun Many Documents Performance', () => {
         selectedDocument: files[0]
       });
 
-      render(<AutoRunDocumentSelector {...props} />);
+      renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Open dropdown
       fireEvent.click(screen.getByRole('button', { name: new RegExp(files[0].split('/').pop() || '', 'i') }));
@@ -465,7 +483,7 @@ describe('AutoRun Many Documents Performance', () => {
         selectedDocument: files[0]
       });
 
-      render(<AutoRunDocumentSelector {...props} />);
+      renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Open dropdown - should not crash or freeze
       fireEvent.click(screen.getByRole('button', { name: new RegExp(files[0].split('/').pop() || '', 'i') }));
@@ -484,7 +502,7 @@ describe('AutoRun Many Documents Performance', () => {
         onSelectDocument,
       });
 
-      render(<AutoRunDocumentSelector {...props} />);
+      renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Open dropdown
       fireEvent.click(screen.getByRole('button', { name: new RegExp(files[0].split('/').pop() || '', 'i') }));
@@ -508,7 +526,7 @@ describe('AutoRun Many Documents Performance', () => {
       const documents = generateManyDocuments(500);
       const props = createSelectorDefaultProps({ documents, selectedDocument: documents[0] });
 
-      const { container } = render(<AutoRunDocumentSelector {...props} />);
+      const { container } = renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Open dropdown
       fireEvent.click(screen.getByRole('button', { name: new RegExp(documents[0], 'i') }));
@@ -522,7 +540,7 @@ describe('AutoRun Many Documents Performance', () => {
       const documents = generateManyDocuments(500);
       const props = createSelectorDefaultProps({ documents, selectedDocument: documents[0] });
 
-      render(<AutoRunDocumentSelector {...props} />);
+      renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Open dropdown
       fireEvent.click(screen.getByRole('button', { name: new RegExp(documents[0], 'i') }));
@@ -538,7 +556,7 @@ describe('AutoRun Many Documents Performance', () => {
       const documents = generateManyDocuments(500);
       const props = createSelectorDefaultProps({ documents, selectedDocument: documents[0] });
 
-      const { container } = render(<AutoRunDocumentSelector {...props} />);
+      const { container } = renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Open dropdown
       fireEvent.click(screen.getByRole('button', { name: new RegExp(documents[0], 'i') }));
@@ -556,7 +574,7 @@ describe('AutoRun Many Documents Performance', () => {
       const documents = generateManyDocuments(500);
       const props = createSelectorDefaultProps({ documents, selectedDocument: documents[0] });
 
-      render(<AutoRunDocumentSelector {...props} />);
+      renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Click create button
       fireEvent.click(screen.getByTitle('Create new document'));
@@ -570,7 +588,7 @@ describe('AutoRun Many Documents Performance', () => {
       const documents = generateManyDocuments(500);
       const props = createSelectorDefaultProps({ documents, selectedDocument: documents[0] });
 
-      render(<AutoRunDocumentSelector {...props} />);
+      renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Open create modal
       fireEvent.click(screen.getByTitle('Create new document'));
@@ -594,7 +612,7 @@ describe('AutoRun Many Documents Performance', () => {
         onCreateDocument,
       });
 
-      render(<AutoRunDocumentSelector {...props} />);
+      renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Open create modal
       fireEvent.click(screen.getByTitle('Create new document'));
@@ -712,7 +730,7 @@ describe('AutoRun Many Documents Performance', () => {
         selectedFile: documents[0],
       });
 
-      render(<AutoRun {...props} />);
+      renderWithProviders(<AutoRun {...props} />);
 
       // Component should render
       expect(screen.getByRole('textbox')).toBeInTheDocument();
@@ -727,7 +745,7 @@ describe('AutoRun Many Documents Performance', () => {
         onSelectDocument,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Simulate switching to different document
       rerender(<AutoRun {...props} selectedFile={documents[250]} />);
@@ -744,7 +762,7 @@ describe('AutoRun Many Documents Performance', () => {
         content: '# Original Content',
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Make an edit
       const textarea = screen.getByRole('textbox');
@@ -766,7 +784,7 @@ describe('AutoRun Many Documents Performance', () => {
         content: '# Document 1 Content',
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Switch document with new content
       rerender(<AutoRun
@@ -786,7 +804,7 @@ describe('AutoRun Many Documents Performance', () => {
       const props = createSelectorDefaultProps({ documents, selectedDocument: documents[0] });
 
       // Should render without crashing
-      render(<AutoRunDocumentSelector {...props} />);
+      renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       expect(screen.getByRole('button', { name: new RegExp(documents[0], 'i') })).toBeInTheDocument();
     });
@@ -795,7 +813,7 @@ describe('AutoRun Many Documents Performance', () => {
       const documents = generateManyDocuments(2000);
       const props = createSelectorDefaultProps({ documents, selectedDocument: documents[0] });
 
-      render(<AutoRunDocumentSelector {...props} />);
+      renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Open dropdown - should not freeze
       fireEvent.click(screen.getByRole('button', { name: new RegExp(documents[0], 'i') }));
@@ -815,7 +833,7 @@ describe('AutoRun Many Documents Performance', () => {
         documentTaskCounts,
       });
 
-      render(<AutoRunDocumentSelector {...props} />);
+      renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Should render without issues
       expect(screen.getByRole('button', { name: new RegExp(documents[0], 'i') })).toBeInTheDocument();
@@ -825,7 +843,7 @@ describe('AutoRun Many Documents Performance', () => {
       const documents = generateManyDocuments(1000);
       const props = createSelectorDefaultProps({ documents, selectedDocument: documents[0] });
 
-      const { rerender } = render(<AutoRunDocumentSelector {...props} />);
+      const { rerender } = renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Multiple re-renders with same list
       for (let i = 0; i < 10; i++) {
@@ -841,7 +859,7 @@ describe('AutoRun Many Documents Performance', () => {
     it('handles empty document list', () => {
       const props = createSelectorDefaultProps({ documents: [], selectedDocument: null });
 
-      render(<AutoRunDocumentSelector {...props} />);
+      renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Open dropdown
       fireEvent.click(screen.getByRole('button', { name: /select a document/i }));
@@ -861,7 +879,7 @@ describe('AutoRun Many Documents Performance', () => {
       ];
       const props = createSelectorDefaultProps({ documents, selectedDocument: documents[0] });
 
-      render(<AutoRunDocumentSelector {...props} />);
+      renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Open dropdown
       fireEvent.click(screen.getByRole('button', { name: /doc-with-special-chars/i }));
@@ -881,7 +899,7 @@ describe('AutoRun Many Documents Performance', () => {
       const documents = [longName, 'short-doc', 'another-long-document-name-for-testing-purposes'];
       const props = createSelectorDefaultProps({ documents, selectedDocument: documents[0] });
 
-      render(<AutoRunDocumentSelector {...props} />);
+      renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Open dropdown - use the button that has the document name (partial match)
       fireEvent.click(screen.getByRole('button', { name: /this-is-a-very-long-document-name/i }));
@@ -903,7 +921,7 @@ describe('AutoRun Many Documents Performance', () => {
       ];
       const props = createSelectorDefaultProps({ documents, selectedDocument: documents[0] });
 
-      render(<AutoRunDocumentSelector {...props} />);
+      renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Open dropdown - use the button that has the first document name
       fireEvent.click(screen.getByRole('button', { name: new RegExp(documents[0], 'i') }));
@@ -921,7 +939,7 @@ describe('AutoRun Many Documents Performance', () => {
       const documents = generateManyDocuments(500);
       const props = createSelectorDefaultProps({ documents, selectedDocument: documents[0] });
 
-      render(<AutoRunDocumentSelector {...props} />);
+      renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Rapid open/close
       const button = screen.getByRole('button', { name: new RegExp(documents[0], 'i') });
@@ -946,7 +964,7 @@ describe('AutoRun Many Documents Performance', () => {
         selectedDocument: 'root-doc-1'
       });
 
-      render(<AutoRunDocumentSelector {...props} />);
+      renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Open dropdown - use the button that shows the selected document
       fireEvent.click(screen.getByRole('button', { name: /root-doc-1/i }));
@@ -965,7 +983,7 @@ describe('AutoRun Many Documents Performance', () => {
         isLoading: true,
       });
 
-      render(<AutoRunDocumentSelector {...props} />);
+      renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Refresh button should show loading state
       const refreshButton = screen.getByTitle('Refresh document list');
@@ -982,7 +1000,7 @@ describe('AutoRun Many Documents Performance', () => {
         onRefresh,
       });
 
-      render(<AutoRunDocumentSelector {...props} />);
+      renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Click refresh
       fireEvent.click(screen.getByTitle('Refresh document list'));
@@ -1000,7 +1018,7 @@ describe('AutoRun Many Documents Performance', () => {
         isLoading: true,
       });
 
-      render(<AutoRunDocumentSelector {...props} />);
+      renderWithProviders(<AutoRunDocumentSelector {...props} />);
 
       // Click refresh (should be disabled)
       fireEvent.click(screen.getByTitle('Refresh document list'));

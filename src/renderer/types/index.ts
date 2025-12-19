@@ -440,6 +440,8 @@ export interface Session {
   customPath?: string;           // Custom path to agent binary (overrides agent-level)
   customArgs?: string;           // Custom CLI arguments (overrides agent-level)
   customEnvVars?: Record<string, string>; // Custom environment variables (overrides agent-level)
+  customModel?: string;          // Custom model ID (overrides agent-level)
+  customProviderPath?: string;   // Custom provider path (overrides agent-level)
 }
 
 export interface Group {

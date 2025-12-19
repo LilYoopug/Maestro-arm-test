@@ -92,6 +92,9 @@ export const MODAL_PRIORITIES = {
   /** Auto Run search bar (within expanded modal) */
   AUTORUN_SEARCH: 706,
 
+  /** Auto Run lightbox (above expanded modal so Escape closes it first) */
+  AUTORUN_LIGHTBOX: 715,
+
   /** Quick actions command palette (Cmd+K) */
   QUICK_ACTION: 700,
 

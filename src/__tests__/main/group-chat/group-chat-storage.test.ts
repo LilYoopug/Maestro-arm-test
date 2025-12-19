@@ -15,6 +15,30 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
+
+// Mock Electron's app module before importing the storage module
+let mockUserDataPath: string;
+vi.mock('electron', () => ({
+  app: {
+    getPath: vi.fn((name: string) => {
+      if (name === 'userData') {
+        return mockUserDataPath;
+      }
+      throw new Error(`Unknown path name: ${name}`);
+    }),
+  },
+}));
+
+// Mock electron-store to return no custom path (use userData)
+vi.mock('electron-store', () => {
+  return {
+    default: class MockStore {
+      get() { return undefined; } // No custom sync path
+      set() {}
+    },
+  };
+});
+
 import {
   createGroupChat,
   loadGroupChat,
@@ -32,7 +56,6 @@ vi.mock('uuid', () => ({
 
 describe('group-chat-storage', () => {
   let testDir: string;
-  let originalConfigDir: string;
 
   beforeEach(async () => {
     // Create a unique temp directory for each test
@@ -42,21 +65,11 @@ describe('group-chat-storage', () => {
     );
     await fs.mkdir(testDir, { recursive: true });
 
-    // Store original environment and override for tests
-    originalConfigDir = process.env.XDG_CONFIG_HOME || '';
-
-    // On macOS, we need to handle the Library path specially
-    // We'll use a different approach - mock the getGroupChatsDir function
+    // Set the mock userData path to our test directory
+    mockUserDataPath = testDir;
   });
 
   afterEach(async () => {
-    // Restore original environment
-    if (originalConfigDir) {
-      process.env.XDG_CONFIG_HOME = originalConfigDir;
-    } else {
-      delete process.env.XDG_CONFIG_HOME;
-    }
-
     // Clean up temp directory
     try {
       await fs.rm(testDir, { recursive: true, force: true });

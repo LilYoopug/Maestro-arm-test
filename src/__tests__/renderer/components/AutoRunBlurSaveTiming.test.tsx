@@ -20,7 +20,25 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import React from 'react';
 import { AutoRun, AutoRunHandle } from '../../../renderer/components/AutoRun';
+import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme } from '../../../renderer/types';
+
+// Helper to wrap component in LayerStackProvider with custom rerender
+const renderWithProviders = (ui: React.ReactElement) => {
+  const result = render(
+    <LayerStackProvider>
+      {ui}
+    </LayerStackProvider>
+  );
+  return {
+    ...result,
+    rerender: (newUi: React.ReactElement) => result.rerender(
+      <LayerStackProvider>
+        {newUi}
+      </LayerStackProvider>
+    ),
+  };
+};
 
 // Mock the external dependencies
 vi.mock('react-markdown', () => ({
@@ -183,7 +201,7 @@ describe('AutoRun Save Path Correctness', () => {
         content: 'Original content',
       });
 
-      render(<AutoRun {...props} ref={ref} />);
+      renderWithProviders(<AutoRun {...props} ref={ref} />);
 
       const textarea = screen.getByRole('textbox');
       fireEvent.change(textarea, { target: { value: 'Modified content for alpha' } });
@@ -210,7 +228,7 @@ describe('AutoRun Save Path Correctness', () => {
         content: 'Initial tasks',
       });
 
-      render(<AutoRun {...props} />);
+      renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
       fireEvent.change(textarea, { target: { value: 'Updated tasks list' } });
@@ -234,7 +252,7 @@ describe('AutoRun Save Path Correctness', () => {
         content: 'Original readme',
       });
 
-      render(<AutoRun {...props} />);
+      renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
       fireEvent.change(textarea, { target: { value: 'Updated readme content' } });
@@ -257,7 +275,7 @@ describe('AutoRun Save Path Correctness', () => {
         content: 'Version 1',
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
 
@@ -297,7 +315,7 @@ describe('AutoRun Save Path Correctness', () => {
         content: 'Content A',
       });
 
-      const { rerender } = render(<AutoRun {...propsA} />);
+      const { rerender } = renderWithProviders(<AutoRun {...propsA} />);
 
       const textarea = screen.getByRole('textbox');
 
@@ -325,7 +343,7 @@ describe('AutoRun Save Path Correctness', () => {
         content: 'Original A',
       });
 
-      const { rerender } = render(<AutoRun {...propsA} />);
+      const { rerender } = renderWithProviders(<AutoRun {...propsA} />);
 
       const textarea = screen.getByRole('textbox');
 
@@ -358,7 +376,7 @@ describe('AutoRun Save Path Correctness', () => {
         content: 'Doc 1 content',
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
       fireEvent.change(textarea, { target: { value: 'Dirty doc1 content' } });
@@ -381,7 +399,7 @@ describe('AutoRun Save Path Correctness', () => {
         content: 'Unchanged content',
       });
 
-      render(<AutoRun {...props} ref={ref} />);
+      renderWithProviders(<AutoRun {...props} ref={ref} />);
 
       // Initially not dirty
       expect(ref.current?.isDirty()).toBe(false);
@@ -404,7 +422,7 @@ describe('AutoRun Save Path Correctness', () => {
         content: originalContent,
       });
 
-      render(<AutoRun {...props} ref={ref} />);
+      renderWithProviders(<AutoRun {...props} ref={ref} />);
 
       const textarea = screen.getByRole('textbox');
 
@@ -427,7 +445,7 @@ describe('AutoRun Save Path Correctness', () => {
         content: 'Original',
       });
 
-      render(<AutoRun {...props} ref={ref} />);
+      renderWithProviders(<AutoRun {...props} ref={ref} />);
 
       const textarea = screen.getByRole('textbox');
       fireEvent.change(textarea, { target: { value: 'Changed' } });
@@ -457,7 +475,7 @@ describe('AutoRun Save Path Correctness', () => {
         content: 'Original saved content',
       });
 
-      render(<AutoRun {...props} ref={ref} />);
+      renderWithProviders(<AutoRun {...props} ref={ref} />);
 
       const textarea = screen.getByRole('textbox');
       fireEvent.change(textarea, { target: { value: 'Dirty changes' } });
@@ -486,7 +504,7 @@ describe('AutoRun Save Path Correctness', () => {
         content: 'Initial',
       });
 
-      render(<AutoRun {...props} ref={ref} />);
+      renderWithProviders(<AutoRun {...props} ref={ref} />);
 
       const textarea = screen.getByRole('textbox');
       fireEvent.change(textarea, { target: { value: 'New content' } });
@@ -515,7 +533,7 @@ describe('AutoRun Save Path Correctness', () => {
         content: 'Initial',
       });
 
-      render(<AutoRun {...props} ref={ref} />);
+      renderWithProviders(<AutoRun {...props} ref={ref} />);
 
       const textarea = screen.getByRole('textbox');
       fireEvent.change(textarea, { target: { value: 'New content' } });
@@ -538,7 +556,7 @@ describe('AutoRun Save Path Correctness', () => {
         content: 'Version 1',
       });
 
-      render(<AutoRun {...props} ref={ref} />);
+      renderWithProviders(<AutoRun {...props} ref={ref} />);
 
       const textarea = screen.getByRole('textbox');
 
@@ -574,7 +592,7 @@ describe('AutoRun Save Path Correctness', () => {
         content: 'Start',
       });
 
-      render(<AutoRun {...props} />);
+      renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
 
@@ -602,7 +620,7 @@ describe('AutoRun Save Path Correctness', () => {
         content: 'Has content initially',
       });
 
-      render(<AutoRun {...props} />);
+      renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
       fireEvent.change(textarea, { target: { value: '' } });
@@ -623,7 +641,7 @@ describe('AutoRun Save Path Correctness', () => {
         content: 'Original text',
       });
 
-      render(<AutoRun {...props} />);
+      renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
       fireEvent.change(textarea, { target: { value: '   \n\n   ' } });
@@ -644,7 +662,7 @@ describe('AutoRun Save Path Correctness', () => {
         content: 'Plain',
       });
 
-      render(<AutoRun {...props} />);
+      renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
       const specialContent = '# Hello 🌍\n```js\nconst x = "test";\n```\n<div>HTML</div>';
@@ -666,7 +684,7 @@ describe('AutoRun Save Path Correctness', () => {
         content: 'Short',
       });
 
-      render(<AutoRun {...props} />);
+      renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
       // Reduced from 100,000 to 5,000 chars - still tests "long" content without excessive slowdown
@@ -695,7 +713,7 @@ describe('AutoRun Save Path Correctness', () => {
         },
       });
 
-      render(<AutoRun {...props} />);
+      renderWithProviders(<AutoRun {...props} />);
 
       // During batch run, mode switches to preview automatically
       // Save/Revert buttons should not be visible
@@ -716,7 +734,7 @@ describe('AutoRun Save Path Correctness', () => {
         },
       });
 
-      render(<AutoRun {...props} />);
+      renderWithProviders(<AutoRun {...props} />);
 
       // The textarea is read-only during batch run
       // Even if we could send keyDown, it should not trigger save
@@ -739,7 +757,7 @@ describe('AutoRun Save Path Correctness', () => {
         content: 'Content',
       });
 
-      render(<AutoRun {...props} ref={ref} />);
+      renderWithProviders(<AutoRun {...props} ref={ref} />);
 
       // With null folderPath, the main content area isn't rendered
       // But we can still try to save via ref
@@ -758,7 +776,7 @@ describe('AutoRun Save Path Correctness', () => {
         content: 'Content',
       });
 
-      render(<AutoRun {...props} ref={ref} />);
+      renderWithProviders(<AutoRun {...props} ref={ref} />);
 
       await act(async () => {
         await ref.current?.save();
@@ -789,7 +807,7 @@ describe('AutoRun savedContent state reset behavior', () => {
       content: 'Session A content',
     });
 
-    const { rerender } = render(<AutoRun {...propsA} ref={ref} />);
+    const { rerender } = renderWithProviders(<AutoRun {...propsA} ref={ref} />);
 
     const textarea = screen.getByRole('textbox');
 
@@ -824,7 +842,7 @@ describe('AutoRun savedContent state reset behavior', () => {
       content: 'Doc 1 content',
     });
 
-    const { rerender } = render(<AutoRun {...props} ref={ref} />);
+    const { rerender } = renderWithProviders(<AutoRun {...props} ref={ref} />);
 
     const textarea = screen.getByRole('textbox');
 
@@ -856,7 +874,7 @@ describe('AutoRun savedContent state reset behavior', () => {
       contentVersion: 1,
     });
 
-    const { rerender } = render(<AutoRun {...props} ref={ref} />);
+    const { rerender } = renderWithProviders(<AutoRun {...props} ref={ref} />);
 
     const textarea = screen.getByRole('textbox');
 

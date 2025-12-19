@@ -625,6 +625,7 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
             sessionCustomPath: freshSession.customPath,
             sessionCustomArgs: freshSession.customArgs,
             sessionCustomEnvVars: freshSession.customEnvVars,
+            sessionCustomModel: freshSession.customModel,
           });
         } catch (error) {
           console.error('Failed to spawn agent batch process:', error);

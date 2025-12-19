@@ -15,7 +15,17 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { AutoRunLightbox } from '../../../renderer/components/AutoRunLightbox';
+import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme } from '../../../renderer/types';
+
+// Helper to wrap component in LayerStackProvider
+const renderWithProviders = (component: React.ReactElement) => {
+  return render(
+    <LayerStackProvider>
+      {component}
+    </LayerStackProvider>
+  );
+};
 
 // Mock Lucide icons
 vi.mock('lucide-react', () => ({
@@ -132,7 +142,7 @@ describe('AutoRunLightbox', () => {
   describe('Basic Rendering', () => {
     it('should render the lightbox when lightboxFilename is provided', () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       // Should render the backdrop container
       const backdrop = document.querySelector('.fixed.inset-0.z-50');
@@ -141,7 +151,7 @@ describe('AutoRunLightbox', () => {
 
     it('should render the image with correct src from attachmentPreviews', () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const img = screen.getByRole('img');
       expect(img).toHaveAttribute('src', 'data:image/png;base64,mock-data-image1.png');
@@ -152,7 +162,7 @@ describe('AutoRunLightbox', () => {
       const props = createDefaultProps({
         lightboxExternalUrl: 'https://example.com/image.png',
       });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const img = screen.getByRole('img');
       expect(img).toHaveAttribute('src', 'https://example.com/image.png');
@@ -160,7 +170,7 @@ describe('AutoRunLightbox', () => {
 
     it('should render the close button', () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       expect(screen.getByTitle('Close (ESC)')).toBeInTheDocument();
       expect(screen.getByTestId('x-icon')).toBeInTheDocument();
@@ -168,7 +178,7 @@ describe('AutoRunLightbox', () => {
 
     it('should render the copy button', () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       expect(screen.getByTitle('Copy image to clipboard')).toBeInTheDocument();
       expect(screen.getByTestId('copy-icon')).toBeInTheDocument();
@@ -176,7 +186,7 @@ describe('AutoRunLightbox', () => {
 
     it('should render the delete button for local attachments', () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       expect(screen.getByTitle('Delete image (Delete key)')).toBeInTheDocument();
       expect(screen.getByTestId('trash2-icon')).toBeInTheDocument();
@@ -184,7 +194,7 @@ describe('AutoRunLightbox', () => {
 
     it('should NOT render delete button when onDelete is not provided', () => {
       const props = createDefaultProps({ onDelete: undefined });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       expect(screen.queryByTitle('Delete image (Delete key)')).not.toBeInTheDocument();
       expect(screen.queryByTestId('trash2-icon')).not.toBeInTheDocument();
@@ -194,7 +204,7 @@ describe('AutoRunLightbox', () => {
       const props = createDefaultProps({
         lightboxExternalUrl: 'https://example.com/image.png',
       });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       expect(screen.queryByTitle('Delete image (Delete key)')).not.toBeInTheDocument();
       expect(screen.queryByTestId('trash2-icon')).not.toBeInTheDocument();
@@ -202,7 +212,7 @@ describe('AutoRunLightbox', () => {
 
     it('should return null when lightboxFilename is null', () => {
       const props = createDefaultProps({ lightboxFilename: null });
-      const { container } = render(<AutoRunLightbox {...props} />);
+      const { container } = renderWithProviders(<AutoRunLightbox {...props} />);
 
       expect(container.firstChild).toBeNull();
     });
@@ -212,7 +222,7 @@ describe('AutoRunLightbox', () => {
         lightboxFilename: 'nonexistent.png',
         attachmentPreviews: new Map(),
       });
-      const { container } = render(<AutoRunLightbox {...props} />);
+      const { container } = renderWithProviders(<AutoRunLightbox {...props} />);
 
       expect(container.firstChild).toBeNull();
     });
@@ -224,7 +234,7 @@ describe('AutoRunLightbox', () => {
   describe('Navigation Buttons Rendering', () => {
     it('should render navigation buttons when multiple images exist', () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       expect(screen.getByTitle('Previous image (←)')).toBeInTheDocument();
       expect(screen.getByTitle('Next image (→)')).toBeInTheDocument();
@@ -238,7 +248,7 @@ describe('AutoRunLightbox', () => {
         attachmentsList: singleAttachment,
         attachmentPreviews: createMockPreviews(singleAttachment),
       });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       expect(screen.queryByTitle('Previous image (←)')).not.toBeInTheDocument();
       expect(screen.queryByTitle('Next image (→)')).not.toBeInTheDocument();
@@ -248,7 +258,7 @@ describe('AutoRunLightbox', () => {
       const props = createDefaultProps({
         lightboxExternalUrl: 'https://example.com/image.png',
       });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       expect(screen.queryByTitle('Previous image (←)')).not.toBeInTheDocument();
       expect(screen.queryByTitle('Next image (→)')).not.toBeInTheDocument();
@@ -262,7 +272,7 @@ describe('AutoRunLightbox', () => {
     it('should navigate to next image on next button click', () => {
       const onNavigate = vi.fn();
       const props = createDefaultProps({ onNavigate });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       fireEvent.click(screen.getByTitle('Next image (→)'));
 
@@ -275,7 +285,7 @@ describe('AutoRunLightbox', () => {
         onNavigate,
         lightboxFilename: 'image2.png',
       });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       fireEvent.click(screen.getByTitle('Previous image (←)'));
 
@@ -285,7 +295,7 @@ describe('AutoRunLightbox', () => {
     it('should wrap to last image when going previous from first', () => {
       const onNavigate = vi.fn();
       const props = createDefaultProps({ onNavigate });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       fireEvent.click(screen.getByTitle('Previous image (←)'));
 
@@ -298,7 +308,7 @@ describe('AutoRunLightbox', () => {
         onNavigate,
         lightboxFilename: 'image3.png',
       });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       fireEvent.click(screen.getByTitle('Next image (→)'));
 
@@ -309,7 +319,7 @@ describe('AutoRunLightbox', () => {
       const onNavigate = vi.fn();
       const onClose = vi.fn();
       const props = createDefaultProps({ onNavigate, onClose });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       fireEvent.click(screen.getByTitle('Next image (→)'));
 
@@ -326,7 +336,7 @@ describe('AutoRunLightbox', () => {
     it('should navigate to next image on ArrowRight key', () => {
       const onNavigate = vi.fn();
       const props = createDefaultProps({ onNavigate });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const backdrop = document.querySelector('.fixed.inset-0.z-50');
       fireEvent.keyDown(backdrop!, { key: 'ArrowRight' });
@@ -340,7 +350,7 @@ describe('AutoRunLightbox', () => {
         onNavigate,
         lightboxFilename: 'image2.png',
       });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const backdrop = document.querySelector('.fixed.inset-0.z-50');
       fireEvent.keyDown(backdrop!, { key: 'ArrowLeft' });
@@ -350,7 +360,7 @@ describe('AutoRunLightbox', () => {
 
     it('should prevent default on ArrowRight key', () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const backdrop = document.querySelector('.fixed.inset-0.z-50');
       const event = fireEvent.keyDown(backdrop!, { key: 'ArrowRight' });
@@ -361,7 +371,7 @@ describe('AutoRunLightbox', () => {
 
     it('should prevent default on ArrowLeft key', () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const backdrop = document.querySelector('.fixed.inset-0.z-50');
       const event = fireEvent.keyDown(backdrop!, { key: 'ArrowLeft' });
@@ -375,7 +385,7 @@ describe('AutoRunLightbox', () => {
         onNavigate,
         lightboxExternalUrl: 'https://example.com/image.png',
       });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const backdrop = document.querySelector('.fixed.inset-0.z-50');
       fireEvent.keyDown(backdrop!, { key: 'ArrowRight' });
@@ -391,7 +401,7 @@ describe('AutoRunLightbox', () => {
         attachmentsList: singleAttachment,
         attachmentPreviews: createMockPreviews(singleAttachment),
       });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const backdrop = document.querySelector('.fixed.inset-0.z-50');
       fireEvent.keyDown(backdrop!, { key: 'ArrowRight' });
@@ -401,38 +411,27 @@ describe('AutoRunLightbox', () => {
   });
 
   // ===========================================================================
-  // Escape Key - Close Lightbox
+  // Escape Key - Close Lightbox (via LayerStack)
   // ===========================================================================
   describe('Escape Key - Close Lightbox', () => {
-    it('should call onClose on Escape key', () => {
+    it('should call onClose on Escape key via LayerStack', () => {
       const onClose = vi.fn();
       const props = createDefaultProps({ onClose });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
-      const backdrop = document.querySelector('.fixed.inset-0.z-50');
-      fireEvent.keyDown(backdrop!, { key: 'Escape' });
+      // Escape is handled by LayerStack via window event listener
+      fireEvent.keyDown(window, { key: 'Escape' });
 
       expect(onClose).toHaveBeenCalled();
     });
 
-    it('should prevent default on Escape key', () => {
-      const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
-
-      const backdrop = document.querySelector('.fixed.inset-0.z-50');
-      const event = fireEvent.keyDown(backdrop!, { key: 'Escape' });
-
-      expect(event).toBe(false);
-    });
-
-    it('should stop propagation on Escape key', () => {
-      // We verify stopPropagation by ensuring the event handler executes
+    it('should close lightbox on Escape via LayerStack', () => {
       const onClose = vi.fn();
       const props = createDefaultProps({ onClose });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
-      const backdrop = document.querySelector('.fixed.inset-0.z-50');
-      fireEvent.keyDown(backdrop!, { key: 'Escape' });
+      // Escape is handled by LayerStack which calls the registered onEscape handler
+      fireEvent.keyDown(window, { key: 'Escape' });
 
       expect(onClose).toHaveBeenCalledTimes(1);
     });
@@ -445,7 +444,7 @@ describe('AutoRunLightbox', () => {
     it('should call onDelete on Delete key', () => {
       const onDelete = vi.fn();
       const props = createDefaultProps({ onDelete });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const backdrop = document.querySelector('.fixed.inset-0.z-50');
       fireEvent.keyDown(backdrop!, { key: 'Delete' });
@@ -456,7 +455,7 @@ describe('AutoRunLightbox', () => {
     it('should call onDelete on Backspace key', () => {
       const onDelete = vi.fn();
       const props = createDefaultProps({ onDelete });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const backdrop = document.querySelector('.fixed.inset-0.z-50');
       fireEvent.keyDown(backdrop!, { key: 'Backspace' });
@@ -466,7 +465,7 @@ describe('AutoRunLightbox', () => {
 
     it('should prevent default on Delete key', () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const backdrop = document.querySelector('.fixed.inset-0.z-50');
       const event = fireEvent.keyDown(backdrop!, { key: 'Delete' });
@@ -480,7 +479,7 @@ describe('AutoRunLightbox', () => {
         onDelete,
         lightboxExternalUrl: 'https://example.com/image.png',
       });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const backdrop = document.querySelector('.fixed.inset-0.z-50');
       fireEvent.keyDown(backdrop!, { key: 'Delete' });
@@ -490,7 +489,7 @@ describe('AutoRunLightbox', () => {
 
     it('should NOT call onDelete on Delete key when onDelete is not provided', () => {
       const props = createDefaultProps({ onDelete: undefined });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const backdrop = document.querySelector('.fixed.inset-0.z-50');
       // This should not throw or cause issues
@@ -506,7 +505,7 @@ describe('AutoRunLightbox', () => {
     it('should call onDelete when delete button is clicked', () => {
       const onDelete = vi.fn();
       const props = createDefaultProps({ onDelete });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       fireEvent.click(screen.getByTitle('Delete image (Delete key)'));
 
@@ -517,7 +516,7 @@ describe('AutoRunLightbox', () => {
       const onDelete = vi.fn();
       const onClose = vi.fn();
       const props = createDefaultProps({ onDelete, onClose });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       fireEvent.click(screen.getByTitle('Delete image (Delete key)'));
 
@@ -530,7 +529,7 @@ describe('AutoRunLightbox', () => {
       const onDelete = vi.fn();
       const onNavigate = vi.fn();
       const props = createDefaultProps({ onDelete, onNavigate });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       fireEvent.click(screen.getByTitle('Delete image (Delete key)'));
 
@@ -546,7 +545,7 @@ describe('AutoRunLightbox', () => {
         onNavigate,
         lightboxFilename: 'image3.png',
       });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       fireEvent.click(screen.getByTitle('Delete image (Delete key)'));
 
@@ -564,7 +563,7 @@ describe('AutoRunLightbox', () => {
         attachmentsList: singleAttachment,
         attachmentPreviews: createMockPreviews(singleAttachment),
       });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       fireEvent.click(screen.getByTitle('Delete image (Delete key)'));
 
@@ -588,7 +587,7 @@ describe('AutoRunLightbox', () => {
 
     it('should copy image to clipboard when copy button is clicked', async () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       fireEvent.click(screen.getByTitle('Copy image to clipboard'));
 
@@ -600,7 +599,7 @@ describe('AutoRunLightbox', () => {
 
     it('should show "Copied!" indicator after successful copy', async () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       // Initially shows copy icon
       expect(screen.getByTestId('copy-icon')).toBeInTheDocument();
@@ -617,7 +616,7 @@ describe('AutoRunLightbox', () => {
       vi.useFakeTimers();
 
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const copyButton = screen.getByTitle('Copy image to clipboard');
 
@@ -644,7 +643,7 @@ describe('AutoRunLightbox', () => {
     it('should stop propagation on copy button click', () => {
       const onClose = vi.fn();
       const props = createDefaultProps({ onClose });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       fireEvent.click(screen.getByTitle('Copy image to clipboard'));
 
@@ -657,7 +656,7 @@ describe('AutoRunLightbox', () => {
       mockClipboardWrite.mockRejectedValueOnce(new Error('Clipboard error'));
 
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       fireEvent.click(screen.getByTitle('Copy image to clipboard'));
 
@@ -678,7 +677,7 @@ describe('AutoRunLightbox', () => {
       const props = createDefaultProps({
         lightboxExternalUrl: 'https://example.com/image.png',
       });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       fireEvent.click(screen.getByTitle('Copy image to clipboard'));
 
@@ -690,7 +689,7 @@ describe('AutoRunLightbox', () => {
     it('should NOT copy when lightboxFilename is null', async () => {
       // This scenario shouldn't render, but test the guard
       const props = createDefaultProps({ lightboxFilename: null });
-      const { container } = render(<AutoRunLightbox {...props} />);
+      const { container } = renderWithProviders(<AutoRunLightbox {...props} />);
 
       // Component returns null, so no button to click
       expect(container.firstChild).toBeNull();
@@ -704,7 +703,7 @@ describe('AutoRunLightbox', () => {
     it('should call onClose when backdrop is clicked', () => {
       const onClose = vi.fn();
       const props = createDefaultProps({ onClose });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const backdrop = document.querySelector('.fixed.inset-0.z-50');
       fireEvent.click(backdrop!);
@@ -715,7 +714,7 @@ describe('AutoRunLightbox', () => {
     it('should NOT close when image is clicked', () => {
       const onClose = vi.fn();
       const props = createDefaultProps({ onClose });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const img = screen.getByRole('img');
       fireEvent.click(img);
@@ -732,7 +731,7 @@ describe('AutoRunLightbox', () => {
     it('should call onClose when close button is clicked', () => {
       const onClose = vi.fn();
       const props = createDefaultProps({ onClose });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       fireEvent.click(screen.getByTitle('Close (ESC)'));
 
@@ -742,7 +741,7 @@ describe('AutoRunLightbox', () => {
     it('should stop propagation on close button click', () => {
       const onClose = vi.fn();
       const props = createDefaultProps({ onClose });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       fireEvent.click(screen.getByTitle('Close (ESC)'));
 
@@ -757,35 +756,35 @@ describe('AutoRunLightbox', () => {
   describe('Bottom Info Display', () => {
     it('should display the current filename', () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       expect(screen.getByText('image1.png')).toBeInTheDocument();
     });
 
     it('should display image position when multiple images', () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       expect(screen.getByText(/Image 1 of 3/)).toBeInTheDocument();
     });
 
     it('should display navigation hint when multiple images', () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       expect(screen.getByText(/← → to navigate/)).toBeInTheDocument();
     });
 
     it('should display delete hint when onDelete is provided', () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       expect(screen.getByText(/Delete to remove/)).toBeInTheDocument();
     });
 
     it('should NOT display delete hint when onDelete is not provided', () => {
       const props = createDefaultProps({ onDelete: undefined });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       expect(screen.queryByText(/Delete to remove/)).not.toBeInTheDocument();
     });
@@ -794,14 +793,14 @@ describe('AutoRunLightbox', () => {
       const props = createDefaultProps({
         lightboxExternalUrl: 'https://example.com/image.png',
       });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       expect(screen.queryByText(/Delete to remove/)).not.toBeInTheDocument();
     });
 
     it('should always display ESC to close hint', () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       expect(screen.getByText(/ESC to close/)).toBeInTheDocument();
     });
@@ -812,7 +811,7 @@ describe('AutoRunLightbox', () => {
         attachmentsList: singleAttachment,
         attachmentPreviews: createMockPreviews(singleAttachment),
       });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       expect(screen.queryByText(/Image 1 of 1/)).not.toBeInTheDocument();
       expect(screen.queryByText(/← → to navigate/)).not.toBeInTheDocument();
@@ -825,7 +824,7 @@ describe('AutoRunLightbox', () => {
   describe('Focus Management', () => {
     it('should auto-focus the backdrop for keyboard events', () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const backdrop = document.querySelector('.fixed.inset-0.z-50');
       expect(backdrop).toHaveAttribute('tabIndex', '-1');
@@ -840,7 +839,7 @@ describe('AutoRunLightbox', () => {
   describe('Image Styling', () => {
     it('should apply max dimensions to image', () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const img = screen.getByRole('img');
       expect(img).toHaveClass('max-w-[90%]');
@@ -849,7 +848,7 @@ describe('AutoRunLightbox', () => {
 
     it('should apply rounded corners and shadow to image', () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const img = screen.getByRole('img');
       expect(img).toHaveClass('rounded');
@@ -863,7 +862,7 @@ describe('AutoRunLightbox', () => {
   describe('Button Styling', () => {
     it('should apply correct styling to navigation buttons', () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const prevButton = screen.getByTitle('Previous image (←)');
       expect(prevButton).toHaveClass('bg-white/10');
@@ -875,7 +874,7 @@ describe('AutoRunLightbox', () => {
 
     it('should apply red background to delete button', () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const deleteButton = screen.getByTitle('Delete image (Delete key)');
       expect(deleteButton).toHaveClass('bg-red-500/80');
@@ -884,7 +883,7 @@ describe('AutoRunLightbox', () => {
 
     it('should apply correct positioning to navigation buttons', () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const prevButton = screen.getByTitle('Previous image (←)');
       const nextButton = screen.getByTitle('Next image (→)');
@@ -905,7 +904,7 @@ describe('AutoRunLightbox', () => {
   describe('Overlay Styling', () => {
     it('should have dark semi-transparent background', () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const backdrop = document.querySelector('.fixed.inset-0.z-50');
       expect(backdrop).toHaveClass('bg-black/90');
@@ -913,7 +912,7 @@ describe('AutoRunLightbox', () => {
 
     it('should center content using flexbox', () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const backdrop = document.querySelector('.fixed.inset-0.z-50');
       expect(backdrop).toHaveClass('flex');
@@ -932,7 +931,7 @@ describe('AutoRunLightbox', () => {
         attachmentPreviews: new Map(),
         lightboxFilename: null,
       });
-      const { container } = render(<AutoRunLightbox {...props} />);
+      const { container } = renderWithProviders(<AutoRunLightbox {...props} />);
 
       expect(container.firstChild).toBeNull();
     });
@@ -941,7 +940,7 @@ describe('AutoRunLightbox', () => {
       const props = createDefaultProps({
         lightboxFilename: 'nonexistent.png',
       });
-      const { container } = render(<AutoRunLightbox {...props} />);
+      const { container } = renderWithProviders(<AutoRunLightbox {...props} />);
 
       // Should return null because preview doesn't exist
       expect(container.firstChild).toBeNull();
@@ -954,7 +953,7 @@ describe('AutoRunLightbox', () => {
         attachmentPreviews: createMockPreviews([longFilename]),
         lightboxFilename: longFilename,
       });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       // Should display with truncation class
       const filenameElement = screen.getByText(longFilename);
@@ -968,7 +967,7 @@ describe('AutoRunLightbox', () => {
         attachmentPreviews: createMockPreviews([specialFilename]),
         lightboxFilename: specialFilename,
       });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       expect(screen.getByText(specialFilename)).toBeInTheDocument();
     });
@@ -979,7 +978,7 @@ describe('AutoRunLightbox', () => {
         lightboxFilename: 'inline-image',
         lightboxExternalUrl: dataUrl,
       });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const img = screen.getByRole('img');
       expect(img).toHaveAttribute('src', dataUrl);
@@ -988,7 +987,7 @@ describe('AutoRunLightbox', () => {
     it('should handle rapid keyboard events', () => {
       const onNavigate = vi.fn();
       const props = createDefaultProps({ onNavigate });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const backdrop = document.querySelector('.fixed.inset-0.z-50');
 
@@ -1006,7 +1005,7 @@ describe('AutoRunLightbox', () => {
         onNavigate,
         lightboxFilename: 'image2.png',
       });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       // Check position display
       expect(screen.getByText(/Image 2 of 3/)).toBeInTheDocument();
@@ -1036,7 +1035,7 @@ describe('AutoRunLightbox', () => {
   describe('Accessibility', () => {
     it('should have accessible alt text on image', () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const img = screen.getByRole('img');
       expect(img).toHaveAttribute('alt', 'image1.png');
@@ -1044,7 +1043,7 @@ describe('AutoRunLightbox', () => {
 
     it('should have title attributes on all interactive buttons', () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       expect(screen.getByTitle('Previous image (←)')).toBeInTheDocument();
       expect(screen.getByTitle('Next image (→)')).toBeInTheDocument();
@@ -1055,7 +1054,7 @@ describe('AutoRunLightbox', () => {
 
     it('should have tabIndex for keyboard focus', () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const backdrop = document.querySelector('.fixed.inset-0.z-50');
       expect(backdrop).toHaveAttribute('tabIndex', '-1');
@@ -1068,7 +1067,7 @@ describe('AutoRunLightbox', () => {
   describe('Icon Sizes', () => {
     it('should render navigation icons with correct size class', () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const leftIcon = screen.getByTestId('chevron-left-icon');
       const rightIcon = screen.getByTestId('chevron-right-icon');
@@ -1081,7 +1080,7 @@ describe('AutoRunLightbox', () => {
 
     it('should render action icons with correct size class', () => {
       const props = createDefaultProps();
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       const copyIcon = screen.getByTestId('copy-icon');
       const deleteIcon = screen.getByTestId('trash2-icon');
@@ -1108,7 +1107,7 @@ describe('AutoRunLightbox', () => {
         onNavigate,
         lightboxFilename: 'image2.png',
       });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       fireEvent.click(screen.getByTitle('Delete image (Delete key)'));
 
@@ -1126,7 +1125,7 @@ describe('AutoRunLightbox', () => {
         // Add to previews but not to list
         attachmentPreviews: createMockPreviews(['image1.png', 'unknown.png']),
       });
-      render(<AutoRunLightbox {...props} />);
+      renderWithProviders(<AutoRunLightbox {...props} />);
 
       fireEvent.click(screen.getByTitle('Delete image (Delete key)'));
 

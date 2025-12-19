@@ -13,7 +13,25 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import React from 'react';
 import { AutoRun, AutoRunHandle } from '../../../renderer/components/AutoRun';
+import { LayerStackProvider } from '../../../renderer/contexts/LayerStackContext';
 import type { Theme, BatchRunState } from '../../../renderer/types';
+
+// Helper to wrap component in LayerStackProvider with custom rerender
+const renderWithProviders = (ui: React.ReactElement) => {
+  const result = render(
+    <LayerStackProvider>
+      {ui}
+    </LayerStackProvider>
+  );
+  return {
+    ...result,
+    rerender: (newUi: React.ReactElement) => result.rerender(
+      <LayerStackProvider>
+        {newUi}
+      </LayerStackProvider>
+    ),
+  };
+};
 
 // Mock the external dependencies
 vi.mock('react-markdown', () => ({
@@ -181,7 +199,7 @@ describe('AutoRun Session Isolation', () => {
         content: sessionAContent,
       });
 
-      const { rerender } = render(<AutoRun {...propsA} />);
+      const { rerender } = renderWithProviders(<AutoRun {...propsA} />);
 
       // Edit content in Session A
       const textarea = screen.getByRole('textbox');
@@ -217,7 +235,7 @@ describe('AutoRun Session Isolation', () => {
         content: sessionAContent,
       });
 
-      const { rerender } = render(<AutoRun {...propsA} />);
+      const { rerender } = renderWithProviders(<AutoRun {...propsA} />);
 
       const textarea = screen.getByRole('textbox');
 
@@ -249,7 +267,7 @@ describe('AutoRun Session Isolation', () => {
         content: 'Content A',
       });
 
-      const { rerender } = render(<AutoRun {...propsA} />);
+      const { rerender } = renderWithProviders(<AutoRun {...propsA} />);
 
       const textarea = screen.getByRole('textbox');
 
@@ -285,7 +303,7 @@ describe('AutoRun Session Isolation', () => {
         content: doc1Content,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
       expect(textarea).toHaveValue(doc1Content);
@@ -309,7 +327,7 @@ describe('AutoRun Session Isolation', () => {
         content: doc1Content,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
       fireEvent.change(textarea, { target: { value: 'Unsaved changes' } });
@@ -334,7 +352,7 @@ describe('AutoRun Session Isolation', () => {
         contentVersion: 1,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
       expect(textarea).toHaveValue(originalContent);
@@ -358,7 +376,7 @@ describe('AutoRun Session Isolation', () => {
         contentVersion: 1,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
       fireEvent.change(textarea, { target: { value: 'Local edits' } });
@@ -380,7 +398,7 @@ describe('AutoRun Session Isolation', () => {
         content: 'Original',
       });
 
-      render(<AutoRun {...props} />);
+      renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
       fireEvent.change(textarea, { target: { value: 'New content' } });
@@ -407,7 +425,7 @@ describe('AutoRun Session Isolation', () => {
         content: originalContent,
       });
 
-      render(<AutoRun {...props} />);
+      renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
 
@@ -434,7 +452,7 @@ describe('AutoRun Session Isolation', () => {
         content: 'Original',
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
 
@@ -457,7 +475,7 @@ describe('AutoRun Session Isolation', () => {
         content: 'Doc 1 content',
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox');
 
@@ -483,7 +501,7 @@ describe('AutoRun Session Isolation', () => {
 
       const baseProps = createDefaultProps();
 
-      const { rerender } = render(<AutoRun {...baseProps} sessionId={sessions[0].id} content={sessions[0].content} />);
+      const { rerender } = renderWithProviders(<AutoRun {...baseProps} sessionId={sessions[0].id} content={sessions[0].content} />);
 
       const textarea = screen.getByRole('textbox');
 
@@ -504,7 +522,7 @@ describe('AutoRun Session Isolation', () => {
     it('edits during rapid switches are isolated', async () => {
       const baseProps = createDefaultProps();
 
-      const { rerender } = render(<AutoRun {...baseProps} sessionId="session-1" content="Content 1" />);
+      const { rerender } = renderWithProviders(<AutoRun {...baseProps} sessionId="session-1" content="Content 1" />);
 
       const textarea = screen.getByRole('textbox');
 
@@ -530,7 +548,7 @@ describe('AutoRun Session Isolation', () => {
     it('focuses textarea after session switch in edit mode', async () => {
       const props = createDefaultProps({ mode: 'edit' });
 
-      const { rerender } = render(<AutoRun {...props} sessionId="session-1" />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} sessionId="session-1" />);
 
       // Switch session
       rerender(<AutoRun {...props} sessionId="session-2" content="Session 2 content" />);
@@ -550,7 +568,7 @@ describe('AutoRun Session Isolation', () => {
       const ref = React.createRef<AutoRunHandle>();
       const props = createDefaultProps({ content: 'Original' });
 
-      const { rerender } = render(<AutoRun {...props} ref={ref} sessionId="session-1" />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} ref={ref} sessionId="session-1" />);
 
       // Initially not dirty
       expect(ref.current?.isDirty()).toBe(false);
@@ -574,7 +592,7 @@ describe('AutoRun Session Isolation', () => {
         content: 'Original',
       });
 
-      render(<AutoRun {...props} ref={ref} />);
+      renderWithProviders(<AutoRun {...props} ref={ref} />);
 
       const textarea = screen.getByRole('textbox');
       fireEvent.change(textarea, { target: { value: 'Modified' } });
@@ -614,7 +632,7 @@ describe('AutoRun Folder Path Isolation', () => {
       content: 'Alpha project content',
     });
 
-    const { rerender } = render(<AutoRun {...propsA} />);
+    const { rerender } = renderWithProviders(<AutoRun {...propsA} />);
 
     const textarea = screen.getByRole('textbox');
     expect(textarea).toHaveValue('Alpha project content');
@@ -639,7 +657,7 @@ describe('AutoRun Folder Path Isolation', () => {
       content: 'Original',
     });
 
-    render(<AutoRun {...props} />);
+    renderWithProviders(<AutoRun {...props} />);
 
     const textarea = screen.getByRole('textbox');
     fireEvent.change(textarea, { target: { value: 'Changed' } });

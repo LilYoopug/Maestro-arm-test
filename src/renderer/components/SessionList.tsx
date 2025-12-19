@@ -396,6 +396,10 @@ export function SessionList(props: SessionListProps) {
     onGroupChatsExpandedChange,
   } = props;
 
+  // Debug: log AI session count for group chat visibility
+  const aiSessionCount = sessions.filter(s => s.toolType !== 'terminal').length;
+  console.log(`[SessionList] Total sessions: ${sessions.length}, AI sessions (non-terminal): ${aiSessionCount}, toolTypes:`, sessions.map(s => s.toolType));
+
   const [sessionFilter, setSessionFilter] = useState('');
   const [sessionFilterOpen, setSessionFilterOpen] = useState(false);
   const [preFilterGroupStates, setPreFilterGroupStates] = useState<Map<string, boolean>>(new Map());

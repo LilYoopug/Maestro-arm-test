@@ -6,6 +6,7 @@ import { logger } from './utils/logger';
 import { getOutputParser, type ParsedEvent, type AgentOutputParser } from './parsers';
 import { aggregateModelUsage } from './parsers/usage-aggregator';
 import type { AgentError } from '../shared/types';
+import { getAgentCapabilities } from './agent-capabilities';
 
 // Re-export parser types for consumers
 export type { ParsedEvent, AgentOutputParser } from './parsers';
@@ -46,7 +47,9 @@ interface ProcessConfig {
   args: string[];
   requiresPty?: boolean; // Whether this agent needs a pseudo-terminal
   prompt?: string; // For batch mode agents like Claude (passed as CLI argument)
-  shell?: string; // Shell to use for terminal sessions (e.g., 'zsh', 'bash', 'fish')
+  shell?: string; // Shell to use for terminal sessions (e.g., 'zsh', 'bash', 'fish', or full path)
+  shellArgs?: string; // Additional CLI arguments for shell sessions (e.g., '--login')
+  shellEnvVars?: Record<string, string>; // Environment variables for shell sessions
   images?: string[]; // Base64 data URLs for images (passed via stream-json input)
   contextWindow?: number; // Configured context window size (0 or undefined = not configured, hide UI)
   customEnvVars?: Record<string, string>; // Custom environment variables from user configuration
@@ -142,15 +145,16 @@ export class ProcessManager extends EventEmitter {
    * Spawn a new process for a session
    */
   spawn(config: ProcessConfig): { pid: number; success: boolean } {
-    const { sessionId, toolType, cwd, command, args, requiresPty, prompt, shell, images, contextWindow, customEnvVars } = config;
+    const { sessionId, toolType, cwd, command, args, requiresPty, prompt, shell, shellArgs, shellEnvVars, images, contextWindow, customEnvVars } = config;
 
     // For batch mode with images, use stream-json mode and send message via stdin
     // For batch mode without images, append prompt to args with -- separator
     const hasImages = images && images.length > 0;
+    const capabilities = getAgentCapabilities(toolType);
     let finalArgs: string[];
 
-    if (hasImages && prompt) {
-      // For images, add stream-json input format (output format and --verbose already in base args)
+    if (hasImages && prompt && capabilities.supportsStreamJsonInput) {
+      // For agents that support stream-json input (like Claude Code), add the flag
       // The prompt will be sent via stdin as a JSON message with image data
       finalArgs = [...args, '--input-format', 'stream-json'];
     } else if (prompt) {
@@ -186,7 +190,7 @@ export class ProcessManager extends EventEmitter {
 
         if (isTerminal) {
           // Full shell emulation for terminal mode
-          // Use the provided shell, or default based on platform
+          // Use the provided shell (can be a shell ID like 'zsh' or a full path like '/usr/local/bin/zsh')
           if (shell) {
             ptyCommand = shell;
           } else {
@@ -197,6 +201,22 @@ export class ProcessManager extends EventEmitter {
           // - Interactive shells source .zshrc/.bashrc (user customizations, aliases, functions)
           // Both are needed to match the user's regular terminal environment
           ptyArgs = process.platform === 'win32' ? [] : ['-l', '-i'];
+
+          // Append custom shell arguments from user configuration
+          if (shellArgs && shellArgs.trim()) {
+            const customShellArgsArray = shellArgs.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
+            // Remove surrounding quotes from quoted args
+            const cleanedArgs = customShellArgsArray.map(arg => {
+              if ((arg.startsWith('"') && arg.endsWith('"')) || (arg.startsWith("'") && arg.endsWith("'"))) {
+                return arg.slice(1, -1);
+              }
+              return arg;
+            });
+            if (cleanedArgs.length > 0) {
+              logger.debug('Appending custom shell args', 'ProcessManager', { shellArgs: cleanedArgs });
+              ptyArgs = [...ptyArgs, ...cleanedArgs];
+            }
+          }
         } else {
           // Spawn the AI agent directly with PTY support
           ptyCommand = command;
@@ -218,6 +238,16 @@ export class ProcessManager extends EventEmitter {
             // Provide base system PATH - shell startup files will prepend user paths
             PATH: '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
           };
+
+          // Apply custom shell environment variables from user configuration
+          if (shellEnvVars && Object.keys(shellEnvVars).length > 0) {
+            for (const [key, value] of Object.entries(shellEnvVars)) {
+              ptyEnv[key] = value;
+            }
+            logger.debug('Applied custom shell env vars to PTY', 'ProcessManager', {
+              keys: Object.keys(shellEnvVars)
+            });
+          }
         } else {
           // For AI agents in PTY mode: pass full env (they need NODE_PATH, etc.)
           ptyEnv = process.env;
@@ -863,16 +893,18 @@ export class ProcessManager extends EventEmitter {
    * @param command - The shell command to execute
    * @param cwd - Working directory
    * @param shell - Shell to use (default: bash)
+   * @param shellEnvVars - Additional environment variables for the shell
    * @returns Promise that resolves when command completes
    */
   runCommand(
     sessionId: string,
     command: string,
     cwd: string,
-    shell: string = 'bash'
+    shell: string = 'bash',
+    shellEnvVars?: Record<string, string>
   ): Promise<{ exitCode: number }> {
     return new Promise((resolve) => {
-      logger.debug('[ProcessManager] runCommand()', 'ProcessManager', { sessionId, command, cwd, shell });
+      logger.debug('[ProcessManager] runCommand()', 'ProcessManager', { sessionId, command, cwd, shell, hasEnvVars: !!shellEnvVars });
 
       // Build the command with shell config sourcing
       // This ensures PATH, aliases, and functions are available
@@ -909,6 +941,16 @@ export class ProcessManager extends EventEmitter {
         // Provide base system PATH - shell startup files will prepend user paths (homebrew, go, etc.)
         PATH: '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
       };
+
+      // Apply custom shell environment variables from user configuration
+      if (shellEnvVars && Object.keys(shellEnvVars).length > 0) {
+        for (const [key, value] of Object.entries(shellEnvVars)) {
+          env[key] = value;
+        }
+        logger.debug('[ProcessManager] Applied custom shell env vars to runCommand', 'ProcessManager', {
+          keys: Object.keys(shellEnvVars)
+        });
+      }
 
       // Resolve shell to full path - Electron's internal PATH may not include /bin
       // where common shells like zsh and bash are located

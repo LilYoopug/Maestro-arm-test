@@ -13,7 +13,25 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import React from 'react';
 import { AutoRun, AutoRunHandle } from '../../renderer/components/AutoRun';
 import { AutoRunDocumentSelector } from '../../renderer/components/AutoRunDocumentSelector';
+import { LayerStackProvider } from '../../renderer/contexts/LayerStackContext';
 import type { Theme, BatchRunState, SessionState } from '../../renderer/types';
+
+// Helper to wrap component in LayerStackProvider with custom rerender
+const renderWithProviders = (ui: React.ReactElement) => {
+  const result = render(
+    <LayerStackProvider>
+      {ui}
+    </LayerStackProvider>
+  );
+  return {
+    ...result,
+    rerender: (newUi: React.ReactElement) => result.rerender(
+      <LayerStackProvider>
+        {newUi}
+      </LayerStackProvider>
+    ),
+  };
+};
 
 // Mock dependencies
 vi.mock('react-markdown', () => ({
@@ -218,7 +236,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         folderPath: sessions[0].folderPath,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Rapid switching through sessions
       for (let i = 1; i < 10; i++) {
@@ -244,7 +262,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         folderPath: sessions[0].folderPath,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Rapid switching
       for (let i = 1; i < 50; i++) {
@@ -270,7 +288,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         folderPath: sessions[0].folderPath,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Switch back and forth 20 times (ends on last iteration i=19 => 19%2=1 => session 1)
       for (let i = 0; i < 20; i++) {
@@ -296,7 +314,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         folderPath: sessions[0].folderPath,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Make an edit to first session
       const textarea = screen.getByRole('textbox');
@@ -337,7 +355,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         contentVersion: version,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Switch sessions with version changes
       for (let i = 1; i < 3; i++) {
@@ -364,7 +382,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         folderPath: sessions[0].folderPath,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Focus the textarea
       const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
@@ -392,7 +410,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         folderPath: sessions[0].folderPath,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Simulate switching through sessions with occasional null folder paths
       for (let i = 0; i < 10; i++) {
@@ -421,7 +439,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         folderPath: sessions[0].folderPath,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Make edits in session 1
       const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
@@ -456,7 +474,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
       const onModeChange = vi.fn();
       const props = createDefaultProps({ mode: 'edit', onModeChange });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Rapid toggles
       for (let i = 0; i < 20; i++) {
@@ -477,7 +495,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
       const onModeChange = vi.fn();
       const props = createDefaultProps({ mode: 'edit', onModeChange });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       for (let i = 0; i < 50; i++) {
         const nextMode = i % 2 === 0 ? 'preview' : 'edit';
@@ -493,7 +511,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
       const content = '# Test\n\n- [ ] Task 1\n- [x] Task 2\n\nSome content here.';
       const props = createDefaultProps({ content, mode: 'edit' });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Verify initial content
       expect(screen.getByRole('textbox')).toHaveValue(content);
@@ -521,7 +539,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
       const onModeChange = vi.fn();
       const props = createDefaultProps({ mode: 'edit', onModeChange });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
 
@@ -549,7 +567,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
     it('dirty state persists correctly through rapid mode toggles', () => {
       const props = createDefaultProps({ mode: 'edit' });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Make an edit
       const textarea = screen.getByRole('textbox');
@@ -598,7 +616,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         } as BatchRunState,
       });
 
-      render(<AutoRun {...props} />);
+      renderWithProviders(<AutoRun {...props} />);
 
       // Try to click Edit button (it should be disabled during batch run)
       const editButton = screen.getByText('Edit');
@@ -612,7 +630,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
       const largeContent = '# Large Doc\n\n' + 'Line of content.\n'.repeat(5000);
       const props = createDefaultProps({ content: largeContent, mode: 'edit' });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Rapid mode toggles with large content
       for (let i = 0; i < 10; i++) {
@@ -635,7 +653,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         initialEditScrollPos: 500,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Rapid mode switches
       for (let i = 0; i < 5; i++) {
@@ -662,7 +680,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         onSelectDocument,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Rapid document changes
       for (let i = 1; i < 20; i++) {
@@ -686,7 +704,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         onSelectDocument,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Very rapid switching
       for (let i = 1; i < 100; i++) {
@@ -708,7 +726,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         content: '# Doc 0',
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Bounce between documents
       const pattern = [0, 4, 0, 4, 1, 3, 1, 3, 2, 2];
@@ -732,7 +750,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         content: '# Original Doc 0',
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Make an edit
       const textarea = screen.getByRole('textbox');
@@ -759,7 +777,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         contentVersion: version,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Switch documents with version increments
       for (let i = 1; i < 5; i++) {
@@ -783,7 +801,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         content: '# Doc 0',
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Make edits
       const textarea = screen.getByRole('textbox');
@@ -809,7 +827,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         mode: 'edit',
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Rapid switches while in edit mode
       for (let i = 1; i < 5; i++) {
@@ -833,7 +851,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         mode: 'preview',
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Rapid switches while in preview mode
       for (let i = 1; i < 5; i++) {
@@ -865,7 +883,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         documentTaskCounts: taskCounts,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Rapid document switches
       for (let i = 0; i < 10; i++) {
@@ -889,7 +907,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         content: '# Doc 0',
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Switch including null
       rerender(<AutoRun {...props} selectedFile={null} content="" />);
@@ -914,7 +932,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         mode: 'edit',
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Simulate complex interaction pattern
       for (let i = 0; i < 20; i++) {
@@ -971,7 +989,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         mode: 'preview', // Start in preview since batch run locks editing
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Rapid state changes
       for (let i = 0; i < 20; i++) {
@@ -996,7 +1014,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         mode: 'edit',
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Rapid mode toggles combined with content changes
       for (let i = 0; i < 10; i++) {
@@ -1021,7 +1039,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         contentVersion: 0,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Rapid version updates
       for (let i = 1; i <= 50; i++) {
@@ -1044,7 +1062,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         folderPath: sessions[0].folderPath,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Type and switch rapidly
       for (let i = 0; i < 10; i++) {
@@ -1080,7 +1098,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         contentVersion: version,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // 100 random-ish operations
       for (let i = 0; i < 100; i++) {
@@ -1118,7 +1136,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         folderPath: sessions[0].folderPath,
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       for (let i = 1; i < 200; i++) {
         rerender(<AutoRun
@@ -1136,7 +1154,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
       const onModeChange = vi.fn();
       const props = createDefaultProps({ mode: 'edit', onModeChange });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       for (let i = 0; i < 100; i++) {
         const mode = i % 2 === 0 ? 'preview' : 'edit';
@@ -1155,7 +1173,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         content: '# Doc 0',
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       for (let i = 1; i < 200; i++) {
         rerender(<AutoRun
@@ -1180,7 +1198,7 @@ describe('AutoRun Rapid User Interactions Performance', () => {
         mode: 'edit',
       });
 
-      const { rerender } = render(<AutoRun {...props} />);
+      const { rerender } = renderWithProviders(<AutoRun {...props} />);
 
       // Stress test
       for (let i = 0; i < 100; i++) {

@@ -245,10 +245,12 @@ function AttachmentImage({
     return null;
   }
 
+  // For lightbox, pass the original src (which is the relative path like "images/...")
+  // rather than just the extracted filename
   return (
     <span
       className="inline-block align-middle mx-1 my-1 cursor-pointer group relative"
-      onClick={() => onImageClick?.(filename || src || '')}
+      onClick={() => onImageClick?.(src || '')}
       title={filename ? `Click to enlarge: ${filename}` : 'Click to enlarge'}
     >
       <img

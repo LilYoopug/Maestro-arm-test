@@ -254,6 +254,7 @@ const RightPanelTestWrapper = ({
   };
 
   return (
+    <LayerStackProvider>
     <RightPanel
       session={session}
       theme={createMockTheme()}
@@ -298,6 +299,7 @@ const RightPanelTestWrapper = ({
       onAutoRunRefresh={() => {}}
       onAutoRunOpenSetup={() => {}}
     />
+    </LayerStackProvider>
   );
 };
 
@@ -360,6 +362,7 @@ describe('Auto Run + RightPanel Integration', () => {
         const fileTreeFilterInputRef = React.useRef<HTMLInputElement>(null);
 
         return (
+          <LayerStackProvider>
           <div>
             <button
               data-testid="external-change"
@@ -415,6 +418,7 @@ describe('Auto Run + RightPanel Integration', () => {
               onAutoRunOpenSetup={() => {}}
             />
           </div>
+          </LayerStackProvider>
         );
       };
 
@@ -701,6 +705,7 @@ describe('Auto Run + RightPanel Integration', () => {
         const fileTreeFilterInputRef = React.useRef<HTMLInputElement>(null);
 
         return (
+          <LayerStackProvider>
           <RightPanel
             ref={ref}
             session={session}
@@ -746,6 +751,7 @@ describe('Auto Run + RightPanel Integration', () => {
             onAutoRunRefresh={() => {}}
             onAutoRunOpenSetup={() => {}}
           />
+          </LayerStackProvider>
         );
       };
 
@@ -803,6 +809,7 @@ describe('Auto Run + RightPanel Integration', () => {
         const fileTreeFilterInputRef = React.useRef<HTMLInputElement>(null);
 
         return (
+          <LayerStackProvider>
           <div>
             <button
               data-testid="external-update"
@@ -858,6 +865,7 @@ describe('Auto Run + RightPanel Integration', () => {
               onAutoRunOpenSetup={() => {}}
             />
           </div>
+          </LayerStackProvider>
         );
       };
 
@@ -965,6 +973,7 @@ describe('Auto Run + RightPanel Integration', () => {
       const fileTreeFilterInputRef = React.createRef<HTMLInputElement>();
 
       render(
+        <LayerStackProvider>
         <RightPanel
           ref={ref}
           session={createMockSession()}
@@ -1010,6 +1019,7 @@ describe('Auto Run + RightPanel Integration', () => {
           onAutoRunRefresh={() => {}}
           onAutoRunOpenSetup={() => {}}
         />
+        </LayerStackProvider>
       );
 
       // Call focusAutoRun
@@ -1062,6 +1072,7 @@ describe('Auto Run + RightPanel Integration', () => {
         const fileTreeFilterInputRef = React.useRef<HTMLInputElement>(null);
 
         return (
+          <LayerStackProvider>
           <div>
             <button
               data-testid="simulate-save"
@@ -1117,6 +1128,7 @@ describe('Auto Run + RightPanel Integration', () => {
               onAutoRunOpenSetup={() => {}}
             />
           </div>
+          </LayerStackProvider>
         );
       };
 
@@ -1149,6 +1161,7 @@ describe('Auto Run + RightPanel Integration', () => {
         const fileTreeFilterInputRef = React.useRef<HTMLInputElement>(null);
 
         return (
+          <LayerStackProvider>
           <div>
             <button
               data-testid="switch-session"
@@ -1204,6 +1217,7 @@ describe('Auto Run + RightPanel Integration', () => {
               onAutoRunOpenSetup={() => {}}
             />
           </div>
+          </LayerStackProvider>
         );
       };
 
@@ -1420,6 +1434,7 @@ describe('Auto Run + RightPanel Integration', () => {
         };
 
         return (
+          <LayerStackProvider>
           <RightPanel
             session={createMockSession()}
             theme={createMockTheme()}
@@ -1465,6 +1480,7 @@ describe('Auto Run + RightPanel Integration', () => {
             onAutoRunOpenSetup={() => {}}
             currentSessionBatchState={batchRunState}
           />
+          </LayerStackProvider>
         );
       };
 

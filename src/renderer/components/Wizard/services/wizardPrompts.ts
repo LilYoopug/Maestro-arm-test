@@ -46,6 +46,16 @@ export interface ExistingDocument {
 }
 
 /**
+ * Project file info for context
+ */
+export interface ProjectFileInfo {
+  /** File name */
+  name: string;
+  /** Whether it's a directory */
+  isDirectory: boolean;
+}
+
+/**
  * Configuration for generating the system prompt
  */
 export interface SystemPromptConfig {
@@ -55,6 +65,8 @@ export interface SystemPromptConfig {
   agentPath: string;
   /** Existing Auto Run documents (when continuing from previous session) */
   existingDocs?: ExistingDocument[];
+  /** Files in the project directory for context */
+  projectFiles?: ProjectFileInfo[];
 }
 
 /**
@@ -100,13 +112,73 @@ const DEFAULT_CONFIDENCE = 20;
 export const READY_CONFIDENCE_THRESHOLD = 80;
 
 /**
+ * Build the project files context section for the system prompt
+ */
+function buildProjectFilesContext(projectFiles?: ProjectFileInfo[]): string {
+  if (!projectFiles || projectFiles.length === 0) {
+    return '## Project Directory\n\nThe project directory is empty or contains no files yet.';
+  }
+
+  // Filter out hidden files and common non-essential items for cleaner context
+  const relevantFiles = projectFiles.filter(f => !f.name.startsWith('.') ||
+    // Keep important dotfiles
+    ['.gitignore', '.env.example', '.eslintrc', '.prettierrc', '.editorconfig'].includes(f.name)
+  );
+
+  if (relevantFiles.length === 0) {
+    return '## Project Directory\n\nThe project directory contains only hidden files.';
+  }
+
+  // Separate directories and files
+  const dirs = relevantFiles.filter(f => f.isDirectory).map(f => f.name);
+  const files = relevantFiles.filter(f => !f.isDirectory).map(f => f.name);
+
+  let context = '## Project Directory\n\nThe project directory contains the following files and folders:\n\n';
+
+  if (dirs.length > 0) {
+    context += '**Directories:**\n';
+    context += dirs.map(d => `- ${d}/`).join('\n');
+    context += '\n\n';
+  }
+
+  if (files.length > 0) {
+    context += '**Files:**\n';
+    context += files.map(f => `- ${f}`).join('\n');
+    context += '\n';
+  }
+
+  // Add hints about what these files might indicate
+  const hints: string[] = [];
+  if (files.includes('package.json')) hints.push('Node.js/JavaScript project');
+  if (files.includes('Cargo.toml')) hints.push('Rust project');
+  if (files.includes('requirements.txt') || files.includes('pyproject.toml') || files.includes('setup.py')) hints.push('Python project');
+  if (files.includes('go.mod')) hints.push('Go project');
+  if (files.includes('pom.xml') || files.includes('build.gradle')) hints.push('Java project');
+  if (files.includes('Gemfile')) hints.push('Ruby project');
+  if (files.includes('composer.json')) hints.push('PHP project');
+  if (files.includes('pubspec.yaml')) hints.push('Dart/Flutter project');
+  if (files.includes('CMakeLists.txt') || files.includes('Makefile')) hints.push('C/C++ project');
+  if (dirs.includes('src')) hints.push('source code in src/');
+  if (dirs.includes('lib')) hints.push('library code');
+  if (dirs.includes('test') || dirs.includes('tests') || dirs.includes('__tests__')) hints.push('has test suite');
+  if (files.includes('README.md') || files.includes('README')) hints.push('has documentation');
+  if (files.includes('Dockerfile') || files.includes('docker-compose.yml')) hints.push('Docker containerized');
+
+  if (hints.length > 0) {
+    context += '\n**Indicators:** ' + hints.join(', ');
+  }
+
+  return context;
+}
+
+/**
  * Generate the system prompt for the wizard conversation
  *
  * @param config Configuration including agent name and path
  * @returns The complete system prompt for the agent
  */
 export function generateSystemPrompt(config: SystemPromptConfig): string {
-  const { agentName, agentPath, existingDocs } = config;
+  const { agentName, agentPath, existingDocs, projectFiles } = config;
   const projectName = agentName || 'this project';
 
   // Build existing docs section if continuing from previous session
@@ -116,15 +188,20 @@ export function generateSystemPrompt(config: SystemPromptConfig): string {
     existingDocsSection = wizardSystemContinuationPrompt.replace('{{EXISTING_DOCS}}', docsContent);
   }
 
+  // Build project files context
+  const projectFilesContext = buildProjectFilesContext(projectFiles);
+
   // First, handle wizard-specific variables that have different semantics
   // from the central template system. We do this BEFORE the central function
   // so they take precedence over central defaults.
   // - PROJECT_NAME: wizard uses user-provided agentName (or "this project"),
   //   not the path-derived name from the central system
   // - READY_CONFIDENCE_THRESHOLD: wizard-specific constant
+  // - PROJECT_FILES_CONTEXT: the directory listing for existing project detection
   let prompt = wizardSystemPrompt
     .replace(/\{\{PROJECT_NAME\}\}/gi, projectName)
-    .replace(/\{\{READY_CONFIDENCE_THRESHOLD\}\}/gi, String(READY_CONFIDENCE_THRESHOLD));
+    .replace(/\{\{READY_CONFIDENCE_THRESHOLD\}\}/gi, String(READY_CONFIDENCE_THRESHOLD))
+    .replace(/\{\{PROJECT_FILES_CONTEXT\}\}/gi, projectFilesContext);
 
   // Build template context for remaining variables (date/time, etc.)
   const templateContext: TemplateContext = {

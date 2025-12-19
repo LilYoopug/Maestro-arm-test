@@ -85,6 +85,12 @@ export interface UseSettingsReturn {
   // Shell settings
   defaultShell: string;
   setDefaultShell: (value: string) => void;
+  customShellPath: string;
+  setCustomShellPath: (value: string) => void;
+  shellArgs: string;
+  setShellArgs: (value: string) => void;
+  shellEnvVars: Record<string, string>;
+  setShellEnvVars: (value: Record<string, string>) => void;
 
   // GitHub CLI settings
   ghPath: string;
@@ -229,6 +235,9 @@ export function useSettings(): UseSettingsReturn {
 
   // Shell Config
   const [defaultShell, setDefaultShellState] = useState('zsh');
+  const [customShellPath, setCustomShellPathState] = useState('');
+  const [shellArgs, setShellArgsState] = useState('');
+  const [shellEnvVars, setShellEnvVarsState] = useState<Record<string, string>>({});
 
   // GitHub CLI Config
   const [ghPath, setGhPathState] = useState('');
@@ -325,6 +334,21 @@ export function useSettings(): UseSettingsReturn {
   const setDefaultShell = useCallback((value: string) => {
     setDefaultShellState(value);
     window.maestro.settings.set('defaultShell', value);
+  }, []);
+
+  const setCustomShellPath = useCallback((value: string) => {
+    setCustomShellPathState(value);
+    window.maestro.settings.set('customShellPath', value);
+  }, []);
+
+  const setShellArgs = useCallback((value: string) => {
+    setShellArgsState(value);
+    window.maestro.settings.set('shellArgs', value);
+  }, []);
+
+  const setShellEnvVars = useCallback((value: Record<string, string>) => {
+    setShellEnvVarsState(value);
+    window.maestro.settings.set('shellEnvVars', value);
   }, []);
 
   const setGhPath = useCallback((value: string) => {
@@ -865,6 +889,9 @@ export function useSettings(): UseSettingsReturn {
       const savedModelSlug = await window.maestro.settings.get('modelSlug');
       const savedApiKey = await window.maestro.settings.get('apiKey');
       const savedDefaultShell = await window.maestro.settings.get('defaultShell');
+      const savedCustomShellPath = await window.maestro.settings.get('customShellPath');
+      const savedShellArgs = await window.maestro.settings.get('shellArgs');
+      const savedShellEnvVars = await window.maestro.settings.get('shellEnvVars');
       const savedGhPath = await window.maestro.settings.get('ghPath');
       const savedFontSize = await window.maestro.settings.get('fontSize');
       const savedFontFamily = await window.maestro.settings.get('fontFamily');
@@ -908,6 +935,9 @@ export function useSettings(): UseSettingsReturn {
       if (savedModelSlug !== undefined) setModelSlugState(savedModelSlug);
       if (savedApiKey !== undefined) setApiKeyState(savedApiKey);
       if (savedDefaultShell !== undefined) setDefaultShellState(savedDefaultShell);
+      if (savedCustomShellPath !== undefined) setCustomShellPathState(savedCustomShellPath);
+      if (savedShellArgs !== undefined) setShellArgsState(savedShellArgs);
+      if (savedShellEnvVars !== undefined) setShellEnvVarsState(savedShellEnvVars);
       if (savedGhPath !== undefined) setGhPathState(savedGhPath);
       if (savedFontSize !== undefined) setFontSizeState(savedFontSize);
       if (savedFontFamily !== undefined) setFontFamilyState(savedFontFamily);
@@ -1070,6 +1100,12 @@ export function useSettings(): UseSettingsReturn {
     setApiKey,
     defaultShell,
     setDefaultShell,
+    customShellPath,
+    setCustomShellPath,
+    shellArgs,
+    setShellArgs,
+    shellEnvVars,
+    setShellEnvVars,
     ghPath,
     setGhPath,
     fontFamily,
@@ -1165,6 +1201,9 @@ export function useSettings(): UseSettingsReturn {
     modelSlug,
     apiKey,
     defaultShell,
+    customShellPath,
+    shellArgs,
+    shellEnvVars,
     ghPath,
     fontFamily,
     fontSize,
@@ -1204,6 +1243,9 @@ export function useSettings(): UseSettingsReturn {
     setModelSlug,
     setApiKey,
     setDefaultShell,
+    setCustomShellPath,
+    setShellArgs,
+    setShellEnvVars,
     setGhPath,
     setFontFamily,
     setFontSize,
