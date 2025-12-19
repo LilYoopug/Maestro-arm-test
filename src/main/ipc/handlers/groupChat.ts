@@ -62,6 +62,15 @@ import { AgentDetector } from '../../agent-detector';
 const LOG_CONTEXT = '[GroupChat]';
 
 /**
+ * Moderator usage stats for display in the moderator card.
+ */
+export interface ModeratorUsage {
+  contextUsage: number;
+  totalCost: number;
+  tokenCount: number;
+}
+
+/**
  * Module-level object to store emitter functions after initialization.
  * These can be used by other modules to emit messages and state changes.
  */
@@ -69,6 +78,7 @@ export const groupChatEmitters: {
   emitMessage?: (groupChatId: string, message: GroupChatMessage) => void;
   emitStateChange?: (groupChatId: string, state: GroupChatState) => void;
   emitParticipantsChanged?: (groupChatId: string, participants: GroupChatParticipant[]) => void;
+  emitModeratorUsage?: (groupChatId: string, usage: ModeratorUsage) => void;
 } = {};
 
 // Helper to create handler options with consistent context
@@ -381,6 +391,17 @@ export function registerGroupChatHandlers(deps: GroupChatHandlerDependencies): v
     const mainWindow = getMainWindow();
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('groupChat:participantsChanged', groupChatId, participants);
+    }
+  };
+
+  /**
+   * Emit moderator usage stats to the renderer.
+   * Called when the moderator process reports usage statistics.
+   */
+  groupChatEmitters.emitModeratorUsage = (groupChatId: string, usage: ModeratorUsage): void => {
+    const mainWindow = getMainWindow();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('groupChat:moderatorUsage', groupChatId, usage);
     }
   };
 

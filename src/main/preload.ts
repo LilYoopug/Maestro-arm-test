@@ -959,6 +959,15 @@ contextBridge.exposeInMainWorld('maestro', {
       ipcRenderer.on('groupChat:participantsChanged', handler);
       return () => ipcRenderer.removeListener('groupChat:participantsChanged', handler);
     },
+    onModeratorUsage: (callback: (groupChatId: string, usage: {
+      contextUsage: number;
+      totalCost: number;
+      tokenCount: number;
+    }) => void) => {
+      const handler = (_: any, groupChatId: string, usage: any) => callback(groupChatId, usage);
+      ipcRenderer.on('groupChat:moderatorUsage', handler);
+      return () => ipcRenderer.removeListener('groupChat:moderatorUsage', handler);
+    },
   },
 
   // Leaderboard API (runmaestro.ai integration)
@@ -1756,6 +1765,11 @@ export interface MaestroAPI {
       sessionId: string;
       addedAt: number;
     }>) => void) => () => void;
+    onModeratorUsage: (callback: (groupChatId: string, usage: {
+      contextUsage: number;
+      totalCost: number;
+      tokenCount: number;
+    }) => void) => () => void;
   };
   leaderboard: {
     submit: (data: {

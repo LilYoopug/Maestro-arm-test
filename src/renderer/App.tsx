@@ -218,6 +218,7 @@ export default function MaestroConsole() {
   const [groupChatStagedImages, setGroupChatStagedImages] = useState<string[]>([]);
   const [groupChatReadOnlyMode, setGroupChatReadOnlyMode] = useState(false);
   const [groupChatExecutionQueue, setGroupChatExecutionQueue] = useState<QueuedItem[]>([]);
+  const [moderatorUsage, setModeratorUsage] = useState<{ contextUsage: number; totalCost: number; tokenCount: number } | null>(null);
 
   // --- BATCHED SESSION UPDATES (reduces React re-renders during AI streaming) ---
   const batchedUpdater = useBatchedSessionUpdates(setSessions);
@@ -1551,10 +1552,17 @@ export default function MaestroConsole() {
       ));
     });
 
+    const unsubModeratorUsage = window.maestro.groupChat.onModeratorUsage((id, usage) => {
+      if (id === activeGroupChatId) {
+        setModeratorUsage(usage);
+      }
+    });
+
     return () => {
       unsubMessage();
       unsubState();
       unsubParticipants();
+      unsubModeratorUsage();
     };
   }, [activeGroupChatId]);
 
@@ -5656,6 +5664,10 @@ export default function MaestroConsole() {
             width={rightPanelWidth}
             setWidthState={setRightPanelWidth}
             shortcuts={shortcuts}
+            moderatorAgentId={groupChats.find(c => c.id === activeGroupChatId)?.moderatorAgentId || 'claude-code'}
+            moderatorSessionId={groupChats.find(c => c.id === activeGroupChatId)?.moderatorSessionId || ''}
+            moderatorState={groupChatState === 'moderator-thinking' ? 'busy' : 'idle'}
+            moderatorUsage={moderatorUsage}
           />
         </>
       )}

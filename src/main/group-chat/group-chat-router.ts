@@ -71,6 +71,44 @@ let getSessionsCallback: GetSessionsCallback | null = null;
 let getCustomEnvVarsCallback: GetCustomEnvVarsCallback | null = null;
 
 /**
+ * Tracks pending participant responses for each group chat.
+ * When all pending participants have responded, we spawn a moderator synthesis round.
+ * Maps groupChatId -> Set<participantName>
+ */
+const pendingParticipantResponses = new Map<string, Set<string>>();
+
+/**
+ * Gets the pending participants for a group chat.
+ */
+export function getPendingParticipants(groupChatId: string): Set<string> {
+  return pendingParticipantResponses.get(groupChatId) || new Set();
+}
+
+/**
+ * Clears all pending participants for a group chat.
+ */
+export function clearPendingParticipants(groupChatId: string): void {
+  pendingParticipantResponses.delete(groupChatId);
+}
+
+/**
+ * Marks a participant as having responded (removes from pending).
+ * Returns true if this was the last pending participant.
+ */
+export function markParticipantResponded(groupChatId: string, participantName: string): boolean {
+  const pending = pendingParticipantResponses.get(groupChatId);
+  if (!pending) return false;
+
+  pending.delete(participantName);
+
+  if (pending.size === 0) {
+    pendingParticipantResponses.delete(groupChatId);
+    return true; // Last participant responded
+  }
+  return false;
+}
+
+/**
  * Sets the callback for getting available sessions.
  * Called from index.ts during initialization.
  */
@@ -423,6 +461,9 @@ export async function routeModeratorResponse(
 
   const mentions = extractMentions(message, updatedChat.participants);
 
+  // Track participants that will need to respond for synthesis round
+  const participantsToRespond = new Set<string>();
+
   if (processManager) {
     for (const participantName of mentions) {
       if (isParticipantActive(groupChatId, participantName)) {
@@ -431,6 +472,8 @@ export async function routeModeratorResponse(
           try {
             // Send the full message to the mentioned participant
             processManager.write(sessionId, message + '\n');
+            // Track this participant as pending response
+            participantsToRespond.add(participantName);
           } catch (error) {
             console.error(`[GroupChatRouter] Failed to write to participant ${participantName}:`, error);
             // Continue with other participants even if one fails
@@ -438,6 +481,12 @@ export async function routeModeratorResponse(
         }
       }
     }
+  }
+
+  // Store pending participants for synthesis tracking
+  if (participantsToRespond.size > 0) {
+    pendingParticipantResponses.set(groupChatId, participantsToRespond);
+    console.log(`[GroupChatRouter] Waiting for ${participantsToRespond.size} participant(s) to respond: ${[...participantsToRespond].join(', ')}`);
   }
 }
 
@@ -503,18 +552,93 @@ export async function routeAgentResponse(
     // Don't throw - stats update failure shouldn't break the message flow
   }
 
-  // Notify moderator
-  if (processManager && isModeratorActive(groupChatId)) {
-    const sessionId = getModeratorSessionId(groupChatId);
-    if (sessionId) {
-      try {
-        // Format the notification to clearly indicate who responded
-        const notification = `[${participantName}]: ${message}`;
-        processManager.write(sessionId, notification + '\n');
-      } catch (error) {
-        console.error(`[GroupChatRouter] Failed to notify moderator from ${participantName}:`, error);
-        // Don't throw - the message was already logged
-      }
+  // Note: The moderator runs in batch mode (one-shot per message), so we can't write to it.
+  // Instead, we track pending responses and spawn a synthesis round after all participants respond.
+  // The synthesis is triggered from index.ts when the last pending participant exits.
+}
+
+/**
+ * Spawns a moderator synthesis round to summarize participant responses.
+ * Called from index.ts when the last pending participant has responded.
+ *
+ * @param groupChatId - The ID of the group chat
+ * @param processManager - The process manager for spawning
+ * @param agentDetector - The agent detector for resolving agent commands
+ */
+export async function spawnModeratorSynthesis(
+  groupChatId: string,
+  processManager: IProcessManager,
+  agentDetector: AgentDetector
+): Promise<void> {
+  const chat = await loadGroupChat(groupChatId);
+  if (!chat) {
+    console.error(`[GroupChatRouter] Cannot spawn synthesis - chat not found: ${groupChatId}`);
+    return;
+  }
+
+  if (!isModeratorActive(groupChatId)) {
+    console.error(`[GroupChatRouter] Cannot spawn synthesis - moderator not active for: ${groupChatId}`);
+    return;
+  }
+
+  const sessionIdPrefix = getModeratorSessionId(groupChatId);
+  if (!sessionIdPrefix) {
+    console.error(`[GroupChatRouter] Cannot spawn synthesis - no moderator session ID for: ${groupChatId}`);
+    return;
+  }
+
+  // Create a unique session ID for this synthesis round
+  const sessionId = `${sessionIdPrefix}-${Date.now()}`;
+
+  // Resolve the agent configuration
+  const agent = await agentDetector.getAgent(chat.moderatorAgentId);
+  if (!agent || !agent.available) {
+    console.error(`[GroupChatRouter] Agent '${chat.moderatorAgentId}' is not available for synthesis`);
+    return;
+  }
+
+  // Use custom path from moderator config if set
+  const command = chat.moderatorConfig?.customPath || agent.path || agent.command;
+  const args = [...agent.args];
+  if (chat.moderatorConfig?.customArgs) {
+    const customArgsStr = chat.moderatorConfig.customArgs.trim();
+    if (customArgsStr) {
+      const customArgsArray = customArgsStr.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
+      args.push(...customArgsArray.map(arg => arg.replace(/^["']|["']$/g, '')));
     }
+  }
+
+  // Build the synthesis prompt with recent chat history
+  const chatHistory = await readLog(chat.logPath);
+  const historyContext = chatHistory.slice(-30).map(m =>
+    `[${m.from}]: ${m.content}`
+  ).join('\n');
+
+  const synthesisPrompt = `${MODERATOR_SYSTEM_PROMPT}
+
+## Context
+You previously delegated tasks to participants and they have now responded. Please synthesize their responses into a coherent summary for the user.
+
+## Recent Chat History (including participant responses):
+${historyContext}
+
+## Your Task:
+Provide a brief synthesis of the participant responses above. Highlight key findings, agreements, or differences between the participants. Be concise.`;
+
+  // Spawn the synthesis process
+  try {
+    console.log(`[GroupChatRouter] Spawning moderator synthesis for ${groupChatId}`);
+    processManager.spawn({
+      sessionId,
+      toolType: chat.moderatorAgentId,
+      cwd: process.env.HOME || '/tmp',
+      command,
+      args,
+      readOnlyMode: true,
+      prompt: synthesisPrompt,
+      customEnvVars: chat.moderatorConfig?.customEnvVars,
+    });
+  } catch (error) {
+    console.error(`[GroupChatRouter] Failed to spawn moderator synthesis for ${groupChatId}:`, error);
   }
 }

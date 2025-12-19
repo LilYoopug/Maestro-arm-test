@@ -14,7 +14,7 @@ import Store from 'electron-store';
 import { getHistoryManager } from './history-manager';
 import { registerGitHandlers, registerAutorunHandlers, registerPlaybooksHandlers, registerHistoryHandlers, registerAgentsHandlers, registerProcessHandlers, registerPersistenceHandlers, registerSystemHandlers, registerClaudeHandlers, registerAgentSessionsHandlers, registerGroupChatHandlers, setupLoggerEventForwarding } from './ipc/handlers';
 import { groupChatEmitters } from './ipc/handlers/groupChat';
-import { routeModeratorResponse, routeAgentResponse, setGetSessionsCallback, setGetCustomEnvVarsCallback } from './group-chat/group-chat-router';
+import { routeModeratorResponse, routeAgentResponse, setGetSessionsCallback, setGetCustomEnvVarsCallback, markParticipantResponded, spawnModeratorSynthesis } from './group-chat/group-chat-router';
 import { updateParticipant, loadGroupChat } from './group-chat/group-chat-storage';
 import { initializeSessionStorages } from './storage';
 import { initializeOutputParsers } from './parsers';
@@ -1825,8 +1825,19 @@ function setupProcessListeners() {
           });
           groupChatOutputBuffers.delete(sessionId);
         }
-        // Emit state change back to idle for the group chat
-        groupChatEmitters.emitStateChange?.(groupChatId, 'idle');
+
+        // Mark participant as responded and check if we should spawn synthesis
+        const isLastParticipant = markParticipantResponded(groupChatId, participantName);
+        if (isLastParticipant && processManager && agentDetector) {
+          // All participants have responded - spawn moderator synthesis round
+          logger.info('[GroupChat] All participants responded, spawning moderator synthesis', 'ProcessListener', { groupChatId });
+          spawnModeratorSynthesis(groupChatId, processManager, agentDetector).catch(err => {
+            logger.error('[GroupChat] Failed to spawn moderator synthesis', 'ProcessListener', { error: String(err), groupChatId });
+          });
+        } else {
+          // More participants pending, set state back to idle temporarily
+          groupChatEmitters.emitStateChange?.(groupChatId, 'idle');
+        }
         // Don't send to regular exit handler
         return;
       }
@@ -1894,6 +1905,56 @@ function setupProcessListeners() {
       contextWindow: number;
       reasoningTokens?: number;  // Separate reasoning tokens (Codex o3/o4-mini)
     }) => {
+      // Handle group chat participant usage - update participant stats
+      const participantMatch = sessionId.match(/^group-chat-(.+)-participant-([^-]+)-/);
+      if (participantMatch) {
+        const groupChatId = participantMatch[1];
+        const participantName = participantMatch[2];
+
+        // Calculate context usage percentage
+        const totalTokens = usageStats.inputTokens + usageStats.outputTokens;
+        const contextUsage = usageStats.contextWindow > 0
+          ? Math.round((totalTokens / usageStats.contextWindow) * 100)
+          : 0;
+
+        // Update participant with usage stats
+        updateParticipant(groupChatId, participantName, {
+          contextUsage,
+          tokenCount: totalTokens,
+          totalCost: usageStats.totalCostUsd,
+        }).then(async () => {
+          // Emit participants changed so UI updates
+          const chat = await loadGroupChat(groupChatId);
+          if (chat) {
+            groupChatEmitters.emitParticipantsChanged?.(groupChatId, chat.participants);
+          }
+        }).catch(err => {
+          logger.error('[GroupChat] Failed to update participant usage', 'ProcessListener', {
+            error: String(err),
+            participant: participantName,
+          });
+        });
+        // Still send to renderer for consistency
+      }
+
+      // Handle group chat moderator usage - emit for UI
+      const moderatorMatch = sessionId.match(/^group-chat-(.+)-moderator-/);
+      if (moderatorMatch) {
+        const groupChatId = moderatorMatch[1];
+        // Calculate context usage percentage for moderator display
+        const totalTokens = usageStats.inputTokens + usageStats.outputTokens;
+        const contextUsage = usageStats.contextWindow > 0
+          ? Math.round((totalTokens / usageStats.contextWindow) * 100)
+          : 0;
+
+        // Emit moderator usage for the moderator card
+        groupChatEmitters.emitModeratorUsage?.(groupChatId, {
+          contextUsage,
+          totalCost: usageStats.totalCostUsd,
+          tokenCount: totalTokens,
+        });
+      }
+
       mainWindow?.webContents.send('process:usage', sessionId, usageStats);
     });
 

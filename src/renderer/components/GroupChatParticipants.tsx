@@ -26,6 +26,10 @@ interface GroupChatParticipantsProps {
   moderatorAgentId: string;
   /** Moderator session ID */
   moderatorSessionId: string;
+  /** Moderator state for status indicator */
+  moderatorState: SessionState;
+  /** Moderator usage stats (context, cost, tokens) */
+  moderatorUsage?: { contextUsage: number; totalCost: number; tokenCount: number } | null;
 }
 
 export function GroupChatParticipants({
@@ -39,7 +43,9 @@ export function GroupChatParticipants({
   shortcuts,
   moderatorAgentId,
   moderatorSessionId,
-}: GroupChatParticipantsProps): JSX.Element {
+  moderatorState,
+  moderatorUsage,
+}: GroupChatParticipantsProps): JSX.Element | null {
   // Generate consistent colors for all participants (including "Moderator" for the moderator card)
   const participantColors = useMemo(() => {
     return buildParticipantColorMap(['Moderator', ...participants.map(p => p.name)], theme);
@@ -51,7 +57,10 @@ export function GroupChatParticipants({
     agentId: moderatorAgentId,
     sessionId: moderatorSessionId,
     addedAt: Date.now(),
-  }), [moderatorAgentId, moderatorSessionId]);
+    contextUsage: moderatorUsage?.contextUsage,
+    tokenCount: moderatorUsage?.tokenCount,
+    totalCost: moderatorUsage?.totalCost,
+  }), [moderatorAgentId, moderatorSessionId, moderatorUsage]);
 
   // Sort participants alphabetically by name
   const sortedParticipants = useMemo(() => {
@@ -115,7 +124,25 @@ export function GroupChatParticipants({
         </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
-        {participants.length === 0 ? (
+        {/* Moderator card always at top */}
+        <ParticipantCard
+          key="moderator"
+          theme={theme}
+          participant={moderatorParticipant}
+          state={moderatorState}
+          color={participantColors['Moderator']}
+        />
+
+        {/* Separator between moderator and participants */}
+        {sortedParticipants.length > 0 && (
+          <div
+            className="border-t my-2"
+            style={{ borderColor: theme.colors.border }}
+          />
+        )}
+
+        {/* Participants sorted alphabetically */}
+        {sortedParticipants.length === 0 ? (
           <div
             className="text-sm text-center py-4"
             style={{ color: theme.colors.textDim }}
@@ -125,7 +152,7 @@ export function GroupChatParticipants({
             Ask the moderator to add agents.
           </div>
         ) : (
-          participants.map((participant) => (
+          sortedParticipants.map((participant) => (
             <ParticipantCard
               key={participant.sessionId}
               theme={theme}
