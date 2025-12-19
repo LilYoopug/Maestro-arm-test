@@ -239,6 +239,14 @@ const mockMaestro = {
   shell: {
     openExternal: vi.fn().mockResolvedValue(undefined),
   },
+  sync: {
+    getDefaultPath: vi.fn().mockResolvedValue('/default/path'),
+    getSettings: vi.fn().mockResolvedValue({ customSyncPath: undefined }),
+    getCurrentStoragePath: vi.fn().mockResolvedValue('/current/path'),
+    setCustomPath: vi.fn().mockResolvedValue(undefined),
+    migrateStorage: vi.fn().mockResolvedValue({ success: true, migratedCount: 0 }),
+    resetToDefault: vi.fn().mockResolvedValue({ success: true }),
+  },
 };
 
 Object.defineProperty(window, 'maestro', {

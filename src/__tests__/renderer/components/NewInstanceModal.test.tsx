@@ -36,6 +36,9 @@ vi.mock('lucide-react', () => ({
   Trash2: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
     <span data-testid="trash-icon" className={className} style={style}>🗑</span>
   ),
+  HelpCircle: ({ className, style }: { className?: string; style?: React.CSSProperties }) => (
+    <span data-testid="help-circle-icon" className={className} style={style}>?</span>
+  ),
 }));
 
 // Mock layer stack context
@@ -713,7 +716,7 @@ describe('NewInstanceModal', () => {
         fireEvent.click(createButton);
       });
 
-      expect(onCreate).toHaveBeenCalledWith('claude-code', '/home/testuser/projects', 'My Session', undefined);
+      expect(onCreate).toHaveBeenCalledWith('claude-code', '/home/testuser/projects', 'My Session', undefined, undefined, undefined, undefined);
     });
 
     it('should expand lone tilde to home directory', async () => {
@@ -747,7 +750,7 @@ describe('NewInstanceModal', () => {
         fireEvent.click(createButton);
       });
 
-      expect(onCreate).toHaveBeenCalledWith('claude-code', '/home/testuser', 'Home Session', undefined);
+      expect(onCreate).toHaveBeenCalledWith('claude-code', '/home/testuser', 'Home Session', undefined, undefined, undefined, undefined);
     });
 
     it('should not expand tilde in middle of path', async () => {
@@ -781,7 +784,7 @@ describe('NewInstanceModal', () => {
         fireEvent.click(createButton);
       });
 
-      expect(onCreate).toHaveBeenCalledWith('claude-code', '/path/with~tilde', 'Tilde Test', undefined);
+      expect(onCreate).toHaveBeenCalledWith('claude-code', '/path/with~tilde', 'Tilde Test', undefined, undefined, undefined, undefined);
     });
   });
 
@@ -816,7 +819,7 @@ describe('NewInstanceModal', () => {
         fireEvent.click(createButton);
       });
 
-      expect(onCreate).toHaveBeenCalledWith('claude-code', '/my/project', 'My Session', undefined);
+      expect(onCreate).toHaveBeenCalledWith('claude-code', '/my/project', 'My Session', undefined, undefined, undefined, undefined);
       expect(onClose).toHaveBeenCalled();
     });
 
@@ -1259,13 +1262,10 @@ describe('NewInstanceModal', () => {
       });
     });
 
-    it('should load existing custom paths on open', async () => {
+    it('should pass custom path to onCreate when creating agent', async () => {
       vi.mocked(window.maestro.agents.detect).mockResolvedValue([
         createAgentConfig({ id: 'claude-code', name: 'Claude Code', available: true }),
       ]);
-      vi.mocked(window.maestro.agents.getAllCustomPaths).mockResolvedValue({
-        'claude-code': '/custom/path/to/claude',
-      });
 
       render(
         <NewInstanceModal
@@ -1273,7 +1273,7 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-        existingSessions={[]}
+          existingSessions={[]}
         />
       );
 
@@ -1283,13 +1283,40 @@ describe('NewInstanceModal', () => {
       });
       fireEvent.click(screen.getByText('Claude Code'));
 
+      // Fill in required fields
+      const nameInput = screen.getByLabelText('Agent Name');
+      fireEvent.change(nameInput, { target: { value: 'My Session' } });
+
+      const dirInput = screen.getByPlaceholderText('Select directory...');
+      fireEvent.change(dirInput, { target: { value: '/my/project' } });
+
       await waitFor(() => {
-        const customPathInput = screen.getByPlaceholderText('/path/to/claude');
-        expect(customPathInput).toHaveValue('/custom/path/to/claude');
+        expect(screen.getByPlaceholderText('/path/to/claude')).toBeInTheDocument();
       });
+
+      // Set custom path
+      const customPathInput = screen.getByPlaceholderText('/path/to/claude');
+      fireEvent.change(customPathInput, { target: { value: '/custom/path/to/claude' } });
+
+      // Create agent
+      const createButton = screen.getByText('Create Agent');
+      await act(async () => {
+        fireEvent.click(createButton);
+      });
+
+      // Custom path should be passed to onCreate
+      expect(onCreate).toHaveBeenCalledWith(
+        'claude-code',
+        '/my/project',
+        'My Session',
+        undefined,
+        '/custom/path/to/claude',
+        undefined,
+        undefined
+      );
     });
 
-    it('should save custom path on blur', async () => {
+    it('should clear custom path in local state when clear button is clicked', async () => {
       vi.mocked(window.maestro.agents.detect).mockResolvedValue([
         createAgentConfig({ id: 'claude-code', name: 'Claude Code', available: true }),
       ]);
@@ -1300,7 +1327,7 @@ describe('NewInstanceModal', () => {
           onClose={onClose}
           onCreate={onCreate}
           theme={theme}
-        existingSessions={[]}
+          existingSessions={[]}
         />
       );
 
@@ -1314,40 +1341,15 @@ describe('NewInstanceModal', () => {
         expect(screen.getByPlaceholderText('/path/to/claude')).toBeInTheDocument();
       });
 
+      // Set custom path first
       const customPathInput = screen.getByPlaceholderText('/path/to/claude');
-      fireEvent.change(customPathInput, { target: { value: '/new/custom/path' } });
+      fireEvent.change(customPathInput, { target: { value: '/custom/path' } });
 
-      await act(async () => {
-        fireEvent.blur(customPathInput);
-      });
-
-      expect(window.maestro.agents.setCustomPath).toHaveBeenCalledWith('claude-code', '/new/custom/path');
-    });
-
-    it('should clear custom path when clear button is clicked', async () => {
-      vi.mocked(window.maestro.agents.detect).mockResolvedValue([
-        createAgentConfig({ id: 'claude-code', name: 'Claude Code', available: true }),
-      ]);
-      vi.mocked(window.maestro.agents.getAllCustomPaths).mockResolvedValue({
-        'claude-code': '/existing/path',
-      });
-
-      render(
-        <NewInstanceModal
-          isOpen={true}
-          onClose={onClose}
-          onCreate={onCreate}
-          theme={theme}
-        existingSessions={[]}
-        />
-      );
-
-      // Wait for agents to load, then click to expand
       await waitFor(() => {
-        expect(screen.getByText('Claude Code')).toBeInTheDocument();
+        expect(customPathInput).toHaveValue('/custom/path');
       });
-      fireEvent.click(screen.getByText('Claude Code'));
 
+      // Clear button should appear when there's a value
       await waitFor(() => {
         expect(screen.getByText('Clear')).toBeInTheDocument();
       });
@@ -1356,46 +1358,8 @@ describe('NewInstanceModal', () => {
         fireEvent.click(screen.getByText('Clear'));
       });
 
-      expect(window.maestro.agents.setCustomPath).toHaveBeenCalledWith('claude-code', null);
-    });
-
-    it('should refresh agents after setting custom path', async () => {
-      vi.mocked(window.maestro.agents.detect).mockResolvedValue([
-        createAgentConfig({ id: 'claude-code', name: 'Claude Code', available: false }),
-      ]);
-
-      render(
-        <NewInstanceModal
-          isOpen={true}
-          onClose={onClose}
-          onCreate={onCreate}
-          theme={theme}
-        existingSessions={[]}
-        />
-      );
-
-      // Wait for agents to load, then click to expand
-      await waitFor(() => {
-        expect(screen.getByText('Claude Code')).toBeInTheDocument();
-      });
-      fireEvent.click(screen.getByText('Claude Code'));
-
-      await waitFor(() => {
-        expect(screen.getByPlaceholderText('/path/to/claude')).toBeInTheDocument();
-      });
-
-      const customPathInput = screen.getByPlaceholderText('/path/to/claude');
-      fireEvent.change(customPathInput, { target: { value: '/custom/claude' } });
-
-      // Clear initial call count
-      vi.mocked(window.maestro.agents.detect).mockClear();
-
-      await act(async () => {
-        fireEvent.blur(customPathInput);
-      });
-
-      // Should refresh agents after setting custom path
-      expect(window.maestro.agents.detect).toHaveBeenCalled();
+      // Custom path should be cleared in local state
+      expect(customPathInput).toHaveValue('');
     });
   });
 

@@ -46,6 +46,9 @@ interface GroupChatPanelProps {
   onToggleMarkdownEditMode?: () => void;
   // Output collapsing
   maxOutputLines?: number;
+  // Input send behavior
+  enterToSendAI?: boolean;
+  setEnterToSendAI?: (value: boolean) => void;
 }
 
 export function GroupChatPanel({
@@ -76,6 +79,8 @@ export function GroupChatPanel({
   markdownEditMode,
   onToggleMarkdownEditMode,
   maxOutputLines,
+  enterToSendAI,
+  setEnterToSendAI,
 }: GroupChatPanelProps): JSX.Element {
   return (
     <div
@@ -124,6 +129,8 @@ export function GroupChatPanel({
         executionQueue={executionQueue}
         onRemoveQueuedItem={onRemoveQueuedItem}
         onReorderQueuedItems={onReorderQueuedItems}
+        enterToSendAI={enterToSendAI}
+        setEnterToSendAI={setEnterToSendAI}
       />
     </div>
   );

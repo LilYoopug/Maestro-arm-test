@@ -305,7 +305,7 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
     { id: 'goToAutoRun', label: 'Go to Auto Run Tab', shortcut: shortcuts.goToAutoRun, action: () => { setRightPanelOpen(true); setActiveRightTab('autorun'); setQuickActionOpen(false); } },
     ...(setFuzzyFileSearchOpen ? [{ id: 'fuzzyFileSearch', label: 'Fuzzy File Search', shortcut: shortcuts.fuzzyFileSearch, action: () => { setFuzzyFileSearchOpen(true); setQuickActionOpen(false); } }] : []),
     // Group Chat commands
-    ...(onNewGroupChat ? [{ id: 'newGroupChat', label: 'New Group Chat', shortcut: shortcuts.newGroupChat, action: () => { onNewGroupChat(); setQuickActionOpen(false); } }] : []),
+    ...(onNewGroupChat ? [{ id: 'newGroupChat', label: 'New Group Chat', action: () => { onNewGroupChat(); setQuickActionOpen(false); } }] : []),
     ...(activeGroupChatId && onCloseGroupChat ? [{ id: 'closeGroupChat', label: 'Close Group Chat', action: () => { onCloseGroupChat(); setQuickActionOpen(false); } }] : []),
     // Debug commands - only visible when user types "debug"
     { id: 'debugResetBusy', label: 'Debug: Reset Busy State', subtext: 'Clear stuck thinking/busy state for all sessions', action: () => {

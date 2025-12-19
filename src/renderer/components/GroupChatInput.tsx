@@ -48,6 +48,9 @@ interface GroupChatInputProps {
   executionQueue?: QueuedItem[];
   onRemoveQueuedItem?: (itemId: string) => void;
   onReorderQueuedItems?: (fromIndex: number, toIndex: number) => void;
+  // Input send behavior (synced with global settings)
+  enterToSendAI?: boolean;
+  setEnterToSendAI?: (value: boolean) => void;
 }
 
 export function GroupChatInput({
@@ -70,6 +73,8 @@ export function GroupChatInput({
   executionQueue,
   onRemoveQueuedItem,
   onReorderQueuedItems,
+  enterToSendAI: enterToSendAIProp,
+  setEnterToSendAI: setEnterToSendAIProp,
 }: GroupChatInputProps): JSX.Element {
   const [message, setMessage] = useState(draftMessage || '');
   const [showMentions, setShowMentions] = useState(false);
@@ -79,7 +84,10 @@ export function GroupChatInput({
   const [localReadOnlyMode, setLocalReadOnlyMode] = useState(false);
   const readOnlyMode = readOnlyModeProp ?? localReadOnlyMode;
   const setReadOnlyMode = setReadOnlyModeProp ?? setLocalReadOnlyMode;
-  const [enterToSend, setEnterToSend] = useState(true);
+  // Use global setting if provided, otherwise fall back to local state (default false = Cmd+Enter to send)
+  const [localEnterToSend, setLocalEnterToSend] = useState(false);
+  const enterToSend = enterToSendAIProp ?? localEnterToSend;
+  const setEnterToSend = setEnterToSendAIProp ?? setLocalEnterToSend;
   const [localStagedImages, setLocalStagedImages] = useState<string[]>([]);
   const stagedImages = stagedImagesProp ?? localStagedImages;
   const setStagedImages = setStagedImagesProp ?? setLocalStagedImages;

@@ -97,6 +97,12 @@ export interface WizardState {
   availableAgents: AgentConfig[];
   /** User-provided project name */
   agentName: string;
+  /** Per-agent custom path */
+  customPath?: string;
+  /** Per-agent custom CLI arguments */
+  customArgs?: string;
+  /** Per-agent custom environment variables */
+  customEnvVars?: Record<string, string>;
 
   // Directory Selection (Step 2)
   /** Selected directory path */
@@ -160,6 +166,9 @@ const initialState: WizardState = {
   selectedAgent: null,
   availableAgents: [],
   agentName: '',
+  customPath: undefined,
+  customArgs: undefined,
+  customEnvVars: undefined,
 
   // Directory Selection
   directoryPath: '',
@@ -205,6 +214,9 @@ type WizardAction =
   | { type: 'SET_SELECTED_AGENT'; agent: ToolType | null }
   | { type: 'SET_AVAILABLE_AGENTS'; agents: AgentConfig[] }
   | { type: 'SET_AGENT_NAME'; name: string }
+  | { type: 'SET_CUSTOM_PATH'; path: string | undefined }
+  | { type: 'SET_CUSTOM_ARGS'; args: string | undefined }
+  | { type: 'SET_CUSTOM_ENV_VARS'; envVars: Record<string, string> | undefined }
   | { type: 'SET_DIRECTORY_PATH'; path: string }
   | { type: 'SET_IS_GIT_REPO'; isGitRepo: boolean }
   | { type: 'SET_DETECTED_AGENT_PATH'; path: string | null }
@@ -279,6 +291,15 @@ function wizardReducer(state: WizardState, action: WizardAction): WizardState {
 
     case 'SET_AGENT_NAME':
       return { ...state, agentName: action.name };
+
+    case 'SET_CUSTOM_PATH':
+      return { ...state, customPath: action.path };
+
+    case 'SET_CUSTOM_ARGS':
+      return { ...state, customArgs: action.args };
+
+    case 'SET_CUSTOM_ENV_VARS':
+      return { ...state, customEnvVars: action.envVars };
 
     case 'SET_DIRECTORY_PATH':
       return { ...state, directoryPath: action.path, directoryError: null };
@@ -408,6 +429,12 @@ export interface WizardContextAPI {
   setAvailableAgents: (agents: AgentConfig[]) => void;
   /** Set the project/agent name */
   setAgentName: (name: string) => void;
+  /** Set custom path for the agent */
+  setCustomPath: (path: string | undefined) => void;
+  /** Set custom CLI arguments for the agent */
+  setCustomArgs: (args: string | undefined) => void;
+  /** Set custom environment variables for the agent */
+  setCustomEnvVars: (envVars: Record<string, string> | undefined) => void;
 
   // Directory Selection
   /** Set the directory path */
@@ -571,6 +598,18 @@ export function WizardProvider({ children }: WizardProviderProps) {
 
   const setAgentName = useCallback((name: string) => {
     dispatch({ type: 'SET_AGENT_NAME', name });
+  }, []);
+
+  const setCustomPath = useCallback((path: string | undefined) => {
+    dispatch({ type: 'SET_CUSTOM_PATH', path });
+  }, []);
+
+  const setCustomArgs = useCallback((args: string | undefined) => {
+    dispatch({ type: 'SET_CUSTOM_ARGS', args });
+  }, []);
+
+  const setCustomEnvVars = useCallback((envVars: Record<string, string> | undefined) => {
+    dispatch({ type: 'SET_CUSTOM_ENV_VARS', envVars });
   }, []);
 
   // Directory Selection
@@ -792,6 +831,9 @@ export function WizardProvider({ children }: WizardProviderProps) {
     setSelectedAgent,
     setAvailableAgents,
     setAgentName,
+    setCustomPath,
+    setCustomArgs,
+    setCustomEnvVars,
 
     // Directory Selection
     setDirectoryPath,
@@ -843,6 +885,9 @@ export function WizardProvider({ children }: WizardProviderProps) {
     setSelectedAgent,
     setAvailableAgents,
     setAgentName,
+    setCustomPath,
+    setCustomArgs,
+    setCustomEnvVars,
     setDirectoryPath,
     setIsGitRepo,
     setDetectedAgentPath,

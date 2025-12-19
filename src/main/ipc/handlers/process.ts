@@ -82,6 +82,10 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
       readOnlyMode?: boolean;   // For read-only/plan mode
       modelId?: string;         // For model selection
       yoloMode?: boolean;       // For YOLO/full-access mode (bypasses confirmations)
+      // Per-session overrides (take precedence over agent-level config)
+      sessionCustomPath?: string;     // Session-specific custom path
+      sessionCustomArgs?: string;     // Session-specific custom args
+      sessionCustomEnvVars?: Record<string, string>; // Session-specific env vars
     }) => {
       const processManager = requireProcessManager(getProcessManager);
       const agentDetector = requireDependency(getAgentDetector, 'Agent detector');
@@ -181,12 +185,14 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
 
       // ========================================================================
       // Append custom CLI arguments from user configuration
+      // Session-level overrides take precedence over agent-level config
       // ========================================================================
       const allConfigs = agentConfigsStore.get('configs', {});
-      const agentCustomArgs = allConfigs[config.toolType]?.customArgs;
-      if (agentCustomArgs && typeof agentCustomArgs === 'string') {
+      // Use session-level custom args if provided, otherwise fall back to agent-level
+      const effectiveCustomArgs = config.sessionCustomArgs ?? allConfigs[config.toolType]?.customArgs;
+      if (effectiveCustomArgs && typeof effectiveCustomArgs === 'string') {
         // Parse the custom args string - split on whitespace but respect quoted strings
-        const customArgsArray = agentCustomArgs.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
+        const customArgsArray = effectiveCustomArgs.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
         // Remove surrounding quotes from quoted args
         const cleanedArgs = customArgsArray.map(arg => {
           if ((arg.startsWith('"') && arg.endsWith('"')) || (arg.startsWith("'") && arg.endsWith("'"))) {
@@ -195,17 +201,21 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
           return arg;
         });
         if (cleanedArgs.length > 0) {
-          logger.debug(`Appending custom args for agent ${config.toolType}`, LOG_CONTEXT, { customArgs: cleanedArgs });
+          const source = config.sessionCustomArgs ? 'session' : 'agent';
+          logger.debug(`Appending custom args for ${config.toolType} (${source}-level)`, LOG_CONTEXT, { customArgs: cleanedArgs });
           finalArgs = [...finalArgs, ...cleanedArgs];
         }
       }
 
       // ========================================================================
       // Get custom environment variables from user configuration
+      // Session-level overrides take precedence over agent-level config
       // ========================================================================
-      const agentCustomEnvVars = allConfigs[config.toolType]?.customEnvVars as Record<string, string> | undefined;
-      if (agentCustomEnvVars && Object.keys(agentCustomEnvVars).length > 0) {
-        logger.debug(`Custom env vars configured for agent ${config.toolType}`, LOG_CONTEXT, { keys: Object.keys(agentCustomEnvVars) });
+      // Use session-level env vars if provided, otherwise fall back to agent-level
+      const effectiveCustomEnvVars = config.sessionCustomEnvVars ?? allConfigs[config.toolType]?.customEnvVars as Record<string, string> | undefined;
+      if (effectiveCustomEnvVars && Object.keys(effectiveCustomEnvVars).length > 0) {
+        const source = config.sessionCustomEnvVars ? 'session' : 'agent';
+        logger.debug(`Custom env vars configured for ${config.toolType} (${source}-level)`, LOG_CONTEXT, { keys: Object.keys(effectiveCustomEnvVars) });
       }
 
       // If no shell is specified and this is a terminal session, use the default shell from settings
@@ -250,7 +260,7 @@ export function registerProcessHandlers(deps: ProcessHandlerDependencies): void 
         prompt: config.prompt,
         shell: shellToUse,
         contextWindow, // Pass configured context window to process manager
-        customEnvVars: agentCustomEnvVars, // Pass custom env vars from user configuration
+        customEnvVars: effectiveCustomEnvVars, // Pass custom env vars (session-level or agent-level)
       });
 
       logger.info(`Process spawned successfully`, LOG_CONTEXT, {

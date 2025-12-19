@@ -210,10 +210,6 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
         e.preventDefault();
         ctx.openWizardModal();
       }
-      else if (ctx.isShortcut(e, 'newGroupChat')) {
-        e.preventDefault();
-        ctx.setShowNewGroupChatModal(true);
-      }
       else if (ctx.isShortcut(e, 'focusInput')) {
         e.preventDefault();
         // Use group chat input ref when group chat is active

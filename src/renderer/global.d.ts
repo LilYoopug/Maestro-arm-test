@@ -18,6 +18,15 @@ interface ProcessConfig {
   prompt?: string;
   shell?: string;
   images?: string[];
+  // Agent-specific spawn options (used to build args via agent config)
+  agentSessionId?: string;
+  readOnlyMode?: boolean;
+  modelId?: string;
+  yoloMode?: boolean;
+  // Per-session overrides (take precedence over agent-level config)
+  sessionCustomPath?: string;
+  sessionCustomArgs?: string;
+  sessionCustomEnvVars?: Record<string, string>;
 }
 
 interface AgentConfigOption {

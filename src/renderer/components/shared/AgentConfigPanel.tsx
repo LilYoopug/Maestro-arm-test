@@ -262,58 +262,53 @@ export function AgentConfigPanel({
         <div className="space-y-2">
           {/* Built-in env vars (read-only, shown when showBuiltInEnvVars is true) */}
           {showBuiltInEnvVars && BUILT_IN_ENV_VARS.map((envVar) => (
-            <div key={envVar.key} className="relative">
+            <div
+              key={envVar.key}
+              className="flex gap-2 items-center rounded px-2 py-1.5"
+              style={{ backgroundColor: theme.colors.bgActivity }}
+            >
               <div
-                className="flex gap-2 rounded px-2 py-1.5"
-                style={{ backgroundColor: theme.colors.bgActivity }}
+                className="p-2 rounded text-xs font-mono flex items-center gap-1 whitespace-nowrap"
+                style={{ color: theme.colors.textDim }}
               >
-                <div
-                  className="flex-1 p-2 rounded text-xs font-mono flex items-center gap-1"
-                  style={{ color: theme.colors.textDim }}
-                >
-                  <span>{envVar.key}</span>
-                  <div className="relative inline-block">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShowingTooltip(showingTooltip === envVar.key ? null : envVar.key);
+                <span>{envVar.key}</span>
+                <div className="relative inline-block">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowingTooltip(showingTooltip === envVar.key ? null : envVar.key);
+                    }}
+                    onBlur={() => setTimeout(() => setShowingTooltip(null), 150)}
+                    className="p-0.5 rounded hover:bg-white/10 transition-colors"
+                    title="What is this?"
+                    style={{ color: theme.colors.accent }}
+                  >
+                    <HelpCircle className="w-3 h-3" />
+                  </button>
+                  {/* Tooltip */}
+                  {showingTooltip === envVar.key && (
+                    <div
+                      className="absolute left-1/2 bottom-full mb-1 z-50 p-3 rounded shadow-lg text-xs whitespace-normal leading-relaxed"
+                      style={{
+                        backgroundColor: theme.colors.bgMain,
+                        border: `1px solid ${theme.colors.border}`,
+                        color: theme.colors.textMain,
+                        width: '320px',
+                        transform: 'translateX(-50%)',
                       }}
-                      onBlur={() => setTimeout(() => setShowingTooltip(null), 150)}
-                      className="p-0.5 rounded hover:bg-white/10 transition-colors"
-                      title="What is this?"
-                      style={{ color: theme.colors.accent }}
                     >
-                      <HelpCircle className="w-3 h-3" />
-                    </button>
-                    {/* Tooltip */}
-                    {showingTooltip === envVar.key && (
-                      <div
-                        className="absolute left-1/2 bottom-full mb-1 z-50 p-3 rounded shadow-lg text-xs whitespace-normal leading-relaxed"
-                        style={{
-                          backgroundColor: theme.colors.bgMain,
-                          border: `1px solid ${theme.colors.border}`,
-                          color: theme.colors.textMain,
-                          width: '320px',
-                          transform: 'translateX(-50%)',
-                        }}
-                      >
-                        {envVar.description}
-                      </div>
-                    )}
-                  </div>
+                      {envVar.description}
+                    </div>
+                  )}
                 </div>
-                <span className="flex items-center text-xs" style={{ color: theme.colors.textDim }}>=</span>
-                <div
-                  className="flex-[2] p-2 rounded text-xs font-mono italic"
-                  style={{ color: theme.colors.textDim }}
-                >
-                  {envVar.value}
-                </div>
-                <div className="w-8" /> {/* Spacer to align with delete button column */}
               </div>
-              <span className="text-[10px] ml-2" style={{ color: theme.colors.textDim }}>
-                Built-in (set by Maestro)
-              </span>
+              <span className="text-xs" style={{ color: theme.colors.textDim }}>=</span>
+              <div
+                className="p-2 rounded text-xs font-mono italic whitespace-nowrap"
+                style={{ color: theme.colors.textDim }}
+              >
+                {envVar.value}
+              </div>
             </div>
           ))}
           {/* User-defined env vars */}

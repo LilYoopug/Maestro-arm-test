@@ -3131,7 +3131,15 @@ export default function MaestroConsole() {
     setNewInstanceModalOpen(true);
   };
 
-  const createNewSession = async (agentId: string, workingDir: string, name: string, nudgeMessage?: string) => {
+  const createNewSession = async (
+    agentId: string,
+    workingDir: string,
+    name: string,
+    nudgeMessage?: string,
+    customPath?: string,
+    customArgs?: string,
+    customEnvVars?: Record<string, string>
+  ) => {
     // Validate uniqueness before creating
     const validation = validateNewSession(name, workingDir, agentId as ToolType, sessions);
     if (!validation.valid) {
@@ -3245,7 +3253,11 @@ export default function MaestroConsole() {
         activeTabId: initialTabId,
         closedTabHistory: [],
         // Nudge message - appended to every interactive user message
-        nudgeMessage
+        nudgeMessage,
+        // Per-agent config (path, args, env vars)
+        customPath,
+        customArgs,
+        customEnvVars
       };
       setSessions(prev => [...prev, newSession]);
       setActiveSessionId(newId);
@@ -3267,7 +3279,7 @@ export default function MaestroConsole() {
    */
   const handleWizardLaunchSession = useCallback(async (wantsTour: boolean) => {
     // Get wizard state
-    const { selectedAgent, directoryPath, agentName, generatedDocuments } = wizardState;
+    const { selectedAgent, directoryPath, agentName, generatedDocuments, customPath, customArgs, customEnvVars } = wizardState;
 
     if (!selectedAgent || !directoryPath) {
       console.error('Wizard launch failed: missing agent or directory');
@@ -3303,7 +3315,11 @@ export default function MaestroConsole() {
         toolType: selectedAgent,
         cwd: directoryPath,
         command: agent.path || agent.command,
-        args: agent.args || []
+        args: agent.args || [],
+        // Per-session config from wizard
+        sessionCustomPath: customPath,
+        sessionCustomArgs: customArgs,
+        sessionCustomEnvVars: customEnvVars,
       });
 
       if (!aiSpawnResult.success || aiSpawnResult.pid <= 0) {
@@ -3383,6 +3399,10 @@ export default function MaestroConsole() {
       // Auto Run configuration from wizard
       autoRunFolderPath,
       autoRunSelectedFile,
+      // Per-session agent configuration from wizard
+      customPath,
+      customArgs,
+      customEnvVars,
     };
 
     // Add session and make it active
@@ -3852,6 +3872,10 @@ export default function MaestroConsole() {
           // Generic spawn options - main process builds agent-specific args
           agentSessionId: tabAgentSessionId,
           readOnlyMode: isReadOnly,
+          // Per-session config overrides (if set)
+          sessionCustomPath: session.customPath,
+          sessionCustomArgs: session.customArgs,
+          sessionCustomEnvVars: session.customEnvVars,
         });
 
         console.log(`[Remote] ${session.toolType} spawn initiated successfully`);
@@ -4023,6 +4047,10 @@ export default function MaestroConsole() {
           // Generic spawn options - main process builds agent-specific args
           agentSessionId: tabAgentSessionId,
           readOnlyMode: isReadOnly,
+          // Per-session config overrides (if set)
+          sessionCustomPath: session.customPath,
+          sessionCustomArgs: session.customArgs,
+          sessionCustomEnvVars: session.customEnvVars,
         });
       } else if (item.type === 'command' && item.command) {
         // Process a slash command - find the matching custom AI command
@@ -4088,6 +4116,10 @@ export default function MaestroConsole() {
             // Generic spawn options - main process builds agent-specific args
             agentSessionId: tabAgentSessionId,
             readOnlyMode: isReadOnly,
+            // Per-session config overrides (if set)
+            sessionCustomPath: session.customPath,
+            sessionCustomArgs: session.customArgs,
+            sessionCustomEnvVars: session.customEnvVars,
           });
         } else {
           // Unknown command - add error log
@@ -5618,6 +5650,8 @@ export default function MaestroConsole() {
               markdownEditMode={markdownEditMode}
               onToggleMarkdownEditMode={() => setMarkdownEditMode(!markdownEditMode)}
               maxOutputLines={maxOutputLines}
+              enterToSendAI={enterToSendAI}
+              setEnterToSendAI={setEnterToSendAI}
             />
           </div>
           <GroupChatParticipants
@@ -6436,10 +6470,10 @@ export default function MaestroConsole() {
           setEditAgentModalOpen(false);
           setEditAgentSession(null);
         }}
-        onSave={(sessionId, name, nudgeMessage) => {
+        onSave={(sessionId, name, nudgeMessage, customPath, customArgs, customEnvVars) => {
           setSessions(prev => prev.map(s => {
             if (s.id !== sessionId) return s;
-            return { ...s, name, nudgeMessage };
+            return { ...s, name, nudgeMessage, customPath, customArgs, customEnvVars };
           }));
         }}
         theme={theme}

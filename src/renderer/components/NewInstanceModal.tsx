@@ -25,7 +25,15 @@ interface AgentDebugInfo {
 interface NewInstanceModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreate: (agentId: string, workingDir: string, name: string, nudgeMessage?: string) => void;
+  onCreate: (
+    agentId: string,
+    workingDir: string,
+    name: string,
+    nudgeMessage?: string,
+    customPath?: string,
+    customArgs?: string,
+    customEnvVars?: Record<string, string>
+  ) => void;
   theme: any;
   existingSessions: Session[];
 }
@@ -33,7 +41,14 @@ interface NewInstanceModalProps {
 interface EditAgentModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (sessionId: string, name: string, nudgeMessage?: string) => void;
+  onSave: (
+    sessionId: string,
+    name: string,
+    nudgeMessage?: string,
+    customPath?: string,
+    customArgs?: string,
+    customEnvVars?: Record<string, string>
+  ) => void;
   theme: any;
   session: Session | null;
   existingSessions: Session[];
@@ -92,15 +107,13 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, existingSes
       const detectedAgents = await window.maestro.agents.detect();
       setAgents(detectedAgents);
 
-      // Load custom paths, args, and env vars for agents
-      const paths = await window.maestro.agents.getAllCustomPaths();
-      setCustomAgentPaths(paths);
-      const args = await window.maestro.agents.getAllCustomArgs();
-      setCustomAgentArgs(args);
-      const envVars = await window.maestro.agents.getAllCustomEnvVars();
-      setCustomAgentEnvVars(envVars);
+      // Per-agent config (path, args, env vars) starts empty - each agent gets its own config
+      // No provider-level loading - config is set per-agent during creation
+      setCustomAgentPaths({});
+      setCustomAgentArgs({});
+      setCustomAgentEnvVars({});
 
-      // Load configurations for all agents
+      // Load configurations for all agents (model, contextWindow - these are provider-level)
       const configs: Record<string, Record<string, any>> = {};
       for (const agent of detectedAgents) {
         const config = await window.maestro.agents.getConfig(agent.id);
@@ -173,14 +186,33 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, existingSes
     const result = validateNewSession(name, expandedWorkingDir, selectedAgent as ToolType, existingSessions);
     if (!result.valid) return;
 
-    onCreate(selectedAgent, expandedWorkingDir, name, nudgeMessage.trim() || undefined);
+    // Get per-agent config values
+    const agentCustomPath = customAgentPaths[selectedAgent]?.trim() || undefined;
+    const agentCustomArgs = customAgentArgs[selectedAgent]?.trim() || undefined;
+    const agentCustomEnvVars = customAgentEnvVars[selectedAgent] && Object.keys(customAgentEnvVars[selectedAgent]).length > 0
+      ? customAgentEnvVars[selectedAgent]
+      : undefined;
+
+    onCreate(
+      selectedAgent,
+      expandedWorkingDir,
+      name,
+      nudgeMessage.trim() || undefined,
+      agentCustomPath,
+      agentCustomArgs,
+      agentCustomEnvVars
+    );
     onClose();
 
     // Reset
     setInstanceName('');
     setWorkingDir('');
     setNudgeMessage('');
-  }, [instanceName, selectedAgent, workingDir, nudgeMessage, onCreate, onClose, expandTilde, existingSessions]);
+    // Reset per-agent config for selected agent
+    setCustomAgentPaths(prev => ({ ...prev, [selectedAgent]: '' }));
+    setCustomAgentArgs(prev => ({ ...prev, [selectedAgent]: '' }));
+    setCustomAgentEnvVars(prev => ({ ...prev, [selectedAgent]: {} }));
+  }, [instanceName, selectedAgent, workingDir, nudgeMessage, customAgentPaths, customAgentArgs, customAgentEnvVars, onCreate, onClose, expandTilde, existingSessions]);
 
   // Check if form is valid for submission
   const isFormValid = useMemo(() => {
@@ -325,16 +357,16 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, existingSes
                             />
                           )}
                           <span className="font-medium">{agent.name}</span>
-                          {/* "New" badge for Codex and OpenCode */}
+                          {/* "Beta" badge for Codex and OpenCode */}
                           {(agent.id === 'codex' || agent.id === 'opencode') && (
                             <span
-                              className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                              className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase"
                               style={{
-                                backgroundColor: '#22c55e30',
-                                color: '#22c55e',
+                                backgroundColor: theme.colors.warning + '30',
+                                color: theme.colors.warning,
                               }}
                             >
-                              New
+                              Beta
                             </span>
                           )}
                         </div>
@@ -371,6 +403,7 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, existingSes
                       </div>
 
                       {/* Expanded details for supported agents */}
+                      {/* Per-agent config (path, args, env vars) is local state only - saved to agent on create */}
                       {isSupported && isExpanded && (
                         <div className="px-3 pb-3 pt-2">
                           <AgentConfigPanel
@@ -380,31 +413,25 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, existingSes
                             onCustomPathChange={(value) => {
                               setCustomAgentPaths(prev => ({ ...prev, [agent.id]: value }));
                             }}
-                            onCustomPathBlur={async () => {
-                              const path = customAgentPaths[agent.id]?.trim() || null;
-                              await window.maestro.agents.setCustomPath(agent.id, path);
-                              loadAgents();
-                            }}
-                            onCustomPathClear={async () => {
-                              const newPaths = { ...customAgentPaths };
-                              delete newPaths[agent.id];
-                              setCustomAgentPaths(newPaths);
-                              await window.maestro.agents.setCustomPath(agent.id, null);
-                              loadAgents();
+                            onCustomPathBlur={() => {/* Saved on agent create */}}
+                            onCustomPathClear={() => {
+                              setCustomAgentPaths(prev => {
+                                const newPaths = { ...prev };
+                                delete newPaths[agent.id];
+                                return newPaths;
+                              });
                             }}
                             customArgs={customAgentArgs[agent.id] || ''}
                             onCustomArgsChange={(value) => {
                               setCustomAgentArgs(prev => ({ ...prev, [agent.id]: value }));
                             }}
-                            onCustomArgsBlur={async () => {
-                              const args = customAgentArgs[agent.id]?.trim() || null;
-                              await window.maestro.agents.setCustomArgs(agent.id, args);
-                            }}
-                            onCustomArgsClear={async () => {
-                              const newArgs = { ...customAgentArgs };
-                              delete newArgs[agent.id];
-                              setCustomAgentArgs(newArgs);
-                              await window.maestro.agents.setCustomArgs(agent.id, null);
+                            onCustomArgsBlur={() => {/* Saved on agent create */}}
+                            onCustomArgsClear={() => {
+                              setCustomAgentArgs(prev => {
+                                const newArgs = { ...prev };
+                                delete newArgs[agent.id];
+                                return newArgs;
+                              });
                             }}
                             customEnvVars={customAgentEnvVars[agent.id] || {}}
                             onEnvVarKeyChange={(oldKey, newKey, value) => {
@@ -425,7 +452,7 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, existingSes
                                 }
                               }));
                             }}
-                            onEnvVarRemove={async (key) => {
+                            onEnvVarRemove={(key) => {
                               const currentVars = { ...customAgentEnvVars[agent.id] };
                               delete currentVars[key];
                               if (Object.keys(currentVars).length > 0) {
@@ -433,14 +460,12 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, existingSes
                                   ...prev,
                                   [agent.id]: currentVars
                                 }));
-                                await window.maestro.agents.setCustomEnvVars(agent.id, currentVars);
                               } else {
                                 setCustomAgentEnvVars(prev => {
                                   const newVars = { ...prev };
                                   delete newVars[agent.id];
                                   return newVars;
                                 });
-                                await window.maestro.agents.setCustomEnvVars(agent.id, null);
                               }
                             }}
                             onEnvVarAdd={() => {
@@ -459,12 +484,7 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, existingSes
                                 }
                               }));
                             }}
-                            onEnvVarsBlur={async () => {
-                              const vars = customAgentEnvVars[agent.id];
-                              if (vars && Object.keys(vars).length > 0) {
-                                await window.maestro.agents.setCustomEnvVars(agent.id, vars);
-                              }
-                            }}
+                            onEnvVarsBlur={() => {/* Saved on agent create */}}
                             agentConfig={agentConfigs[agent.id] || {}}
                             onConfigChange={(key, value) => {
                               setAgentConfigs(prev => ({
@@ -484,6 +504,7 @@ export function NewInstanceModal({ isOpen, onClose, onCreate, theme, existingSes
                             onRefreshModels={() => loadModelsForAgent(agent.id, true)}
                             onRefreshAgent={() => handleRefreshAgent(agent.id)}
                             refreshingAgent={refreshingAgent === agent.id}
+                            showBuiltInEnvVars
                           />
                         </div>
                       )}
@@ -636,14 +657,14 @@ export function EditAgentModal({ isOpen, onClose, onSave, theme, session, existi
             .finally(() => setLoadingModels(false));
         }
       });
-      // Load agent config
+      // Load agent config (for agent-specific options like model, contextWindow)
       window.maestro.agents.getConfig(session.toolType).then(setAgentConfig);
-      // Load custom path
-      window.maestro.agents.getCustomPath(session.toolType).then((path) => setCustomPath(path || ''));
-      // Load custom args
-      window.maestro.agents.getCustomArgs(session.toolType).then((args) => setCustomArgs(args || ''));
-      // Load custom env vars
-      window.maestro.agents.getCustomEnvVars(session.toolType).then((vars) => setCustomEnvVars(vars || {}));
+
+      // Load per-agent config (stored on the session/agent instance)
+      // No provider-level fallback - each agent has its own config
+      setCustomPath(session.customPath ?? '');
+      setCustomArgs(session.customArgs ?? '');
+      setCustomEnvVars(session.customEnvVars ?? {});
     }
   }, [isOpen, session]);
 
@@ -673,9 +694,17 @@ export function EditAgentModal({ isOpen, onClose, onSave, theme, session, existi
     const result = validateEditSession(name, session.id, existingSessions);
     if (!result.valid) return;
 
-    onSave(session.id, name, nudgeMessage.trim() || undefined);
+    // Save with per-session config fields
+    onSave(
+      session.id,
+      name,
+      nudgeMessage.trim() || undefined,
+      customPath.trim() || undefined,
+      customArgs.trim() || undefined,
+      Object.keys(customEnvVars).length > 0 ? customEnvVars : undefined
+    );
     onClose();
-  }, [session, instanceName, nudgeMessage, onSave, onClose, existingSessions]);
+  }, [session, instanceName, nudgeMessage, customPath, customArgs, customEnvVars, onSave, onClose, existingSessions]);
 
   // Refresh available models
   const refreshModels = useCallback(async () => {
@@ -832,6 +861,7 @@ export function EditAgentModal({ isOpen, onClose, onSave, theme, session, existi
           </div>
 
           {/* Agent Configuration (custom path, args, env vars, agent-specific settings) */}
+          {/* Per-session config (path, args, env vars) saved on modal save, not on blur */}
           {agent && (
             <div>
               <label className="block text-xs font-bold opacity-70 uppercase mb-2" style={{ color: theme.colors.textMain }}>
@@ -842,24 +872,12 @@ export function EditAgentModal({ isOpen, onClose, onSave, theme, session, existi
                 agent={agent}
                 customPath={customPath}
                 onCustomPathChange={setCustomPath}
-                onCustomPathBlur={async () => {
-                  const path = customPath.trim() || null;
-                  await window.maestro.agents.setCustomPath(session.toolType, path);
-                }}
-                onCustomPathClear={async () => {
-                  setCustomPath('');
-                  await window.maestro.agents.setCustomPath(session.toolType, null);
-                }}
+                onCustomPathBlur={() => {/* Saved on modal save */}}
+                onCustomPathClear={() => setCustomPath('')}
                 customArgs={customArgs}
                 onCustomArgsChange={setCustomArgs}
-                onCustomArgsBlur={async () => {
-                  const args = customArgs.trim() || null;
-                  await window.maestro.agents.setCustomArgs(session.toolType, args);
-                }}
-                onCustomArgsClear={async () => {
-                  setCustomArgs('');
-                  await window.maestro.agents.setCustomArgs(session.toolType, null);
-                }}
+                onCustomArgsBlur={() => {/* Saved on modal save */}}
+                onCustomArgsClear={() => setCustomArgs('')}
                 customEnvVars={customEnvVars}
                 onEnvVarKeyChange={(oldKey, newKey, value) => {
                   const newVars = { ...customEnvVars };
@@ -870,15 +888,10 @@ export function EditAgentModal({ isOpen, onClose, onSave, theme, session, existi
                 onEnvVarValueChange={(key, value) => {
                   setCustomEnvVars(prev => ({ ...prev, [key]: value }));
                 }}
-                onEnvVarRemove={async (key) => {
+                onEnvVarRemove={(key) => {
                   const newVars = { ...customEnvVars };
                   delete newVars[key];
                   setCustomEnvVars(newVars);
-                  if (Object.keys(newVars).length > 0) {
-                    await window.maestro.agents.setCustomEnvVars(session.toolType, newVars);
-                  } else {
-                    await window.maestro.agents.setCustomEnvVars(session.toolType, null);
-                  }
                 }}
                 onEnvVarAdd={() => {
                   let newKey = 'NEW_VAR';
@@ -889,16 +902,13 @@ export function EditAgentModal({ isOpen, onClose, onSave, theme, session, existi
                   }
                   setCustomEnvVars(prev => ({ ...prev, [newKey]: '' }));
                 }}
-                onEnvVarsBlur={async () => {
-                  if (Object.keys(customEnvVars).length > 0) {
-                    await window.maestro.agents.setCustomEnvVars(session.toolType, customEnvVars);
-                  }
-                }}
+                onEnvVarsBlur={() => {/* Saved on modal save */}}
                 agentConfig={agentConfig}
                 onConfigChange={(key, value) => {
                   setAgentConfig(prev => ({ ...prev, [key]: value }));
                 }}
                 onConfigBlur={() => {
+                  // Agent-specific config (model, contextWindow) still saved at agent level
                   window.maestro.agents.setConfig(session.toolType, agentConfig);
                 }}
                 availableModels={availableModels}

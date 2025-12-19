@@ -72,7 +72,7 @@ interface UseBatchProcessorProps {
   onUpdateSession: (sessionId: string, updates: Partial<Session>) => void;
   onSpawnAgent: (sessionId: string, prompt: string, cwdOverride?: string) => Promise<{ success: boolean; response?: string; agentSessionId?: string; usageStats?: UsageStats }>;
   onSpawnSynopsis: (sessionId: string, cwd: string, agentSessionId: string, prompt: string, toolType?: ToolType) => Promise<{ success: boolean; response?: string }>;
-  onAddHistoryEntry: (entry: Omit<HistoryEntry, 'id'>) => void;
+  onAddHistoryEntry: (entry: Omit<HistoryEntry, 'id'>) => void | Promise<void>;
   onComplete?: (info: BatchCompleteInfo) => void;
   // Callback for PR creation results (success or failure)
   onPRResult?: (info: PRResultInfo) => void;
@@ -1261,7 +1261,7 @@ ${docList}
       }
     }
 
-    // Add final Auto Run summary entry (no sessionId - this is a standalone synopsis)
+    // Add final Auto Run summary entry
     // Calculate visibility-aware elapsed time (excludes time when laptop was sleeping/suspended)
     const finalAccumulatedTime = accumulatedTimeRefs.current[sessionId] || 0;
     const finalLastActive = lastActiveTimestampRefs.current[sessionId];
@@ -1269,6 +1269,8 @@ ${docList}
       ? finalAccumulatedTime + (Date.now() - finalLastActive)
       : finalAccumulatedTime;
     const loopsCompleted = loopEnabled ? loopIteration + 1 : 1;
+
+    console.log('[BatchProcessor] Creating final Auto Run summary:', { sessionId, totalElapsedMs, totalCompletedTasks, stalledCount: stalledDocuments.size });
 
     // Determine status based on stalled documents and completion
     const stalledCount = stalledDocuments.size;
@@ -1345,25 +1347,31 @@ ${docList}
 
     // Success is true if not stopped and at least some documents completed without stalling
     const isSuccess = !wasStopped && !allDocsStalled;
-    onAddHistoryEntry({
-      type: 'AUTO',
-      timestamp: Date.now(),
-      summary: finalSummary,
-      fullResponse: finalDetails,
-      projectPath: session.cwd,
-      sessionId, // Include sessionId so the summary appears in session's history
-      success: isSuccess,
-      elapsedTimeMs: totalElapsedMs,
-      usageStats: totalInputTokens > 0 || totalOutputTokens > 0 ? {
-        inputTokens: totalInputTokens,
-        outputTokens: totalOutputTokens,
-        cacheReadInputTokens: 0,
-        cacheCreationInputTokens: 0,
-        totalCostUsd: totalCost,
-        contextWindow: 0
-      } : undefined,
-      achievementAction: 'openAbout'  // Enable clickable link to achievements panel
-    });
+
+    try {
+      await onAddHistoryEntry({
+        type: 'AUTO',
+        timestamp: Date.now(),
+        summary: finalSummary,
+        fullResponse: finalDetails,
+        projectPath: session.cwd,
+        sessionId, // Include sessionId so the summary appears in session's history
+        success: isSuccess,
+        elapsedTimeMs: totalElapsedMs,
+        usageStats: totalInputTokens > 0 || totalOutputTokens > 0 ? {
+          inputTokens: totalInputTokens,
+          outputTokens: totalOutputTokens,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          totalCostUsd: totalCost,
+          contextWindow: 0
+        } : undefined,
+        achievementAction: 'openAbout'  // Enable clickable link to achievements panel
+      });
+      console.log('[BatchProcessor] Final Auto Run summary added to history successfully');
+    } catch (historyError) {
+      console.error('[BatchProcessor] Failed to add final Auto Run summary to history:', historyError);
+    }
 
     // Reset state for this session (clear worktree tracking)
     updateBatchStateAndBroadcast(sessionId, prev => ({

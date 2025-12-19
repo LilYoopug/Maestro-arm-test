@@ -283,6 +283,9 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
     setSelectedAgent,
     setAvailableAgents,
     setAgentName,
+    setCustomPath: setWizardCustomPath,
+    setCustomArgs: setWizardCustomArgs,
+    setCustomEnvVars: setWizardCustomEnvVars,
     nextStep,
     canProceedToNext,
   } = useWizard();
@@ -302,10 +305,14 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
   const [configuringAgentId, setConfiguringAgentId] = useState<string | null>(null);
   const [isTransitioning, setIsTransitioning] = useState(false);
 
-  // Configuration form state
-  const [customPath, setCustomPath] = useState('');
-  const [customArgs, setCustomArgs] = useState('');
-  const [customEnvVars, setCustomEnvVars] = useState<Record<string, string>>({});
+  // Configuration form state (uses wizard state for customPath/Args/EnvVars)
+  const customPath = state.customPath ?? '';
+  const customArgs = state.customArgs ?? '';
+  const customEnvVars = state.customEnvVars ?? {};
+  const setCustomPath = (val: string) => setWizardCustomPath(val || undefined);
+  const setCustomArgs = (val: string) => setWizardCustomArgs(val || undefined);
+  const setCustomEnvVars = (val: Record<string, string>) =>
+    setWizardCustomEnvVars(Object.keys(val).length > 0 ? val : undefined);
   const [agentConfig, setAgentConfig] = useState<Record<string, any>>({});
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
@@ -543,19 +550,11 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
 
   /**
    * Open the configuration panel for an agent
+   * Uses wizard state for customPath/Args/EnvVars - no provider-level storage
    */
   const handleOpenConfig = useCallback(async (agentId: string) => {
-    // Load current config for this agent
-    const [path, args, envVars, config] = await Promise.all([
-      window.maestro.agents.getCustomPath(agentId),
-      window.maestro.agents.getCustomArgs(agentId),
-      window.maestro.agents.getCustomEnvVars(agentId),
-      window.maestro.agents.getConfig(agentId),
-    ]);
-
-    setCustomPath(path || '');
-    setCustomArgs(args || '');
-    setCustomEnvVars(envVars || {});
+    // Load agent config (model selection only - per-agent path/args/envVars are in wizard state)
+    const config = await window.maestro.agents.getConfig(agentId);
     setAgentConfig(config || {});
     setConfiguringAgentId(agentId);
 
@@ -716,24 +715,20 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
               customPath={customPath}
               onCustomPathChange={setCustomPath}
               onCustomPathBlur={async () => {
-                const path = customPath.trim() || null;
-                await window.maestro.agents.setCustomPath(configuringAgentId!, path);
+                // Wizard state is already updated via setCustomPath - just refresh detection
                 await refreshAgentDetection();
               }}
               onCustomPathClear={async () => {
                 setCustomPath('');
-                await window.maestro.agents.setCustomPath(configuringAgentId!, null);
                 await refreshAgentDetection();
               }}
               customArgs={customArgs}
               onCustomArgsChange={setCustomArgs}
-              onCustomArgsBlur={async () => {
-                const args = customArgs.trim() || null;
-                await window.maestro.agents.setCustomArgs(configuringAgentId!, args);
+              onCustomArgsBlur={() => {
+                // Wizard state is already updated via setCustomArgs - no provider-level save
               }}
-              onCustomArgsClear={async () => {
+              onCustomArgsClear={() => {
                 setCustomArgs('');
-                await window.maestro.agents.setCustomArgs(configuringAgentId!, null);
               }}
               customEnvVars={customEnvVars}
               onEnvVarKeyChange={(oldKey, newKey, value) => {
@@ -743,17 +738,12 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
                 setCustomEnvVars(newVars);
               }}
               onEnvVarValueChange={(key, value) => {
-                setCustomEnvVars(prev => ({ ...prev, [key]: value }));
+                setCustomEnvVars({ ...customEnvVars, [key]: value });
               }}
-              onEnvVarRemove={async (key) => {
+              onEnvVarRemove={(key) => {
                 const newVars = { ...customEnvVars };
                 delete newVars[key];
                 setCustomEnvVars(newVars);
-                if (Object.keys(newVars).length > 0) {
-                  await window.maestro.agents.setCustomEnvVars(configuringAgentId!, newVars);
-                } else {
-                  await window.maestro.agents.setCustomEnvVars(configuringAgentId!, null);
-                }
               }}
               onEnvVarAdd={() => {
                 let newKey = 'NEW_VAR';
@@ -762,12 +752,10 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
                   newKey = `NEW_VAR_${counter}`;
                   counter++;
                 }
-                setCustomEnvVars(prev => ({ ...prev, [newKey]: '' }));
+                setCustomEnvVars({ ...customEnvVars, [newKey]: '' });
               }}
-              onEnvVarsBlur={async () => {
-                if (Object.keys(customEnvVars).length > 0) {
-                  await window.maestro.agents.setCustomEnvVars(configuringAgentId!, customEnvVars);
-                }
+              onEnvVarsBlur={() => {
+                // Wizard state is already updated via setCustomEnvVars - no provider-level save
               }}
               agentConfig={agentConfig}
               onConfigChange={(key, value) => {
@@ -782,6 +770,7 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
               onRefreshAgent={handleRefreshAgent}
               refreshingAgent={refreshingAgent}
               compact
+              showBuiltInEnvVars
             />
           </div>
         </div>
@@ -949,16 +938,16 @@ export function AgentSelectionScreen({ theme }: AgentSelectionScreenProps): JSX.
                   </span>
                 )}
 
-                {/* "New" badge for Codex and OpenCode */}
+                {/* "Beta" badge for Codex and OpenCode */}
                 {isSupported && (tile.id === 'codex' || tile.id === 'opencode') && (
                   <span
-                    className="absolute top-2 left-2 px-1.5 py-0.5 text-[10px] rounded-full font-medium"
+                    className="absolute top-2 left-2 px-1.5 py-0.5 text-[9px] rounded font-bold uppercase"
                     style={{
-                      backgroundColor: '#22c55e30',
-                      color: '#22c55e',
+                      backgroundColor: theme.colors.warning + '30',
+                      color: theme.colors.warning,
                     }}
                   >
-                    New
+                    Beta
                   </span>
                 )}
 

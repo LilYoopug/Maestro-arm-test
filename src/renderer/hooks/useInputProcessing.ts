@@ -621,6 +621,10 @@ export function useInputProcessing(deps: UseInputProcessingDeps): UseInputProces
             // Generic spawn options - main process builds agent-specific args
             agentSessionId: tabAgentSessionId,
             readOnlyMode: isReadOnly,
+            // Per-session config overrides (if set)
+            sessionCustomPath: freshSession.customPath,
+            sessionCustomArgs: freshSession.customArgs,
+            sessionCustomEnvVars: freshSession.customEnvVars,
           });
         } catch (error) {
           console.error('Failed to spawn agent batch process:', error);
