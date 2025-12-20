@@ -13,8 +13,6 @@ export default defineConfig({
     testTimeout: 10000,
     hookTimeout: 10000,
     teardownTimeout: 5000,
-    // Force exit after tests complete to avoid hanging on unresolved promises
-    forceExit: true,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'text-summary', 'json', 'html'],
