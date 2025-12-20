@@ -20,6 +20,7 @@ import { registerSystemHandlers, setupLoggerEventForwarding, SystemHandlerDepend
 import { registerClaudeHandlers, ClaudeHandlerDependencies } from './claude';
 import { registerAgentSessionsHandlers, AgentSessionsHandlerDependencies } from './agentSessions';
 import { registerGroupChatHandlers, GroupChatHandlerDependencies } from './groupChat';
+import { registerDebugHandlers, DebugHandlerDependencies } from './debug';
 import { AgentDetector } from '../../agent-detector';
 import { ProcessManager } from '../../process-manager';
 import { WebServer } from '../../web-server';
@@ -40,6 +41,7 @@ export { registerSystemHandlers, setupLoggerEventForwarding };
 export { registerClaudeHandlers };
 export { registerAgentSessionsHandlers };
 export { registerGroupChatHandlers };
+export { registerDebugHandlers };
 export type { AgentsHandlerDependencies };
 export type { ProcessHandlerDependencies };
 export type { PersistenceHandlerDependencies };
@@ -47,6 +49,7 @@ export type { SystemHandlerDependencies };
 export type { ClaudeHandlerDependencies };
 export type { AgentSessionsHandlerDependencies };
 export type { GroupChatHandlerDependencies };
+export type { DebugHandlerDependencies };
 export type { MaestroSettings, SessionsData, GroupsData };
 
 /**
@@ -133,6 +136,16 @@ export function registerAllHandlers(deps: HandlerDependencies): void {
     // ProcessManager is structurally compatible with the group chat's IProcessManager interface
     getProcessManager: deps.getProcessManager as unknown as GroupChatHandlerDependencies['getProcessManager'],
     getAgentDetector: deps.getAgentDetector,
+  });
+  registerDebugHandlers({
+    getMainWindow: deps.getMainWindow,
+    getAgentDetector: deps.getAgentDetector,
+    getProcessManager: deps.getProcessManager,
+    getWebServer: deps.getWebServer,
+    settingsStore: deps.settingsStore,
+    sessionsStore: deps.sessionsStore,
+    groupsStore: deps.groupsStore,
+    // bootstrapStore is optional - not available in HandlerDependencies
   });
   // Setup logger event forwarding to renderer
   setupLoggerEventForwarding(deps.getMainWindow);

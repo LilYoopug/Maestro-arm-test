@@ -891,6 +891,18 @@ contextBridge.exposeInMainWorld('maestro', {
       ipcRenderer.invoke('playbooks:import', sessionId, autoRunFolderPath),
   },
 
+  // Debug Package API (generate support bundles for bug reporting)
+  debug: {
+    createPackage: (options?: {
+      includeLogs?: boolean;
+      includeErrors?: boolean;
+      includeSessions?: boolean;
+      includeGroupChats?: boolean;
+      includeBatchState?: boolean;
+    }) => ipcRenderer.invoke('debug:createPackage', options),
+    previewPackage: () => ipcRenderer.invoke('debug:previewPackage'),
+  },
+
   // Group Chat API (multi-agent coordination)
   groupChat: {
     // Storage
@@ -1704,6 +1716,32 @@ export interface MaestroAPI {
     }>;
     delete: (sessionId: string, playbookId: string) => Promise<{
       success: boolean;
+      error?: string;
+    }>;
+  };
+  debug: {
+    createPackage: (options?: {
+      includeLogs?: boolean;
+      includeErrors?: boolean;
+      includeSessions?: boolean;
+      includeGroupChats?: boolean;
+      includeBatchState?: boolean;
+    }) => Promise<{
+      success: boolean;
+      path?: string;
+      filesIncluded: string[];
+      totalSizeBytes: number;
+      cancelled?: boolean;
+      error?: string;
+    }>;
+    previewPackage: () => Promise<{
+      success: boolean;
+      categories: Array<{
+        id: string;
+        name: string;
+        included: boolean;
+        sizeEstimate: string;
+      }>;
       error?: string;
     }>;
   };
