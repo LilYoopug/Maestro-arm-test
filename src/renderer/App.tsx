@@ -1892,6 +1892,11 @@ export default function MaestroConsole() {
     [agentErrorModalSessionId, sessions]
   );
 
+  // Handler to close the agent error modal without clearing the error
+  const handleCloseAgentErrorModal = useCallback(() => {
+    setAgentErrorModalSessionId(null);
+  }, []);
+
   // Handler to clear agent error and resume operations
   const handleClearAgentError = useCallback((sessionId: string) => {
     setSessions(prev => prev.map(s => {
@@ -3392,10 +3397,8 @@ export default function MaestroConsole() {
         setActiveGroupChatId(null);
         setActiveSessionIdInternal(firstItem.id);
       } else {
-        // When switching to a group chat via cycling, restore its state from the per-chat maps
-        setActiveGroupChatId(firstItem.id);
-        setGroupChatState(groupChatStates.get(firstItem.id) ?? 'idle');
-        setParticipantStates(allGroupChatParticipantStates.get(firstItem.id) ?? new Map());
+        // When switching to a group chat via cycling, use handleOpenGroupChat to load messages
+        handleOpenGroupChat(firstItem.id);
       }
       return;
     }
@@ -3414,10 +3417,8 @@ export default function MaestroConsole() {
       setActiveGroupChatId(null);
       setActiveSessionIdInternal(nextItem.id);
     } else {
-      // When switching to a group chat via cycling, restore its state from the per-chat maps
-      setActiveGroupChatId(nextItem.id);
-      setGroupChatState(groupChatStates.get(nextItem.id) ?? 'idle');
-      setParticipantStates(allGroupChatParticipantStates.get(nextItem.id) ?? new Map());
+      // When switching to a group chat via cycling, use handleOpenGroupChat to load messages
+      handleOpenGroupChat(nextItem.id);
     }
   };
 
@@ -5807,7 +5808,7 @@ export default function MaestroConsole() {
           agentName={errorSession.toolType === 'claude-code' ? 'Claude Code' : errorSession.toolType}
           sessionName={errorSession.name}
           recoveryActions={recoveryActions}
-          onDismiss={() => handleClearAgentError(errorSession.id)}
+          onDismiss={handleCloseAgentErrorModal}
           dismissible={errorSession.agentError.recoverable}
         />
       )}
