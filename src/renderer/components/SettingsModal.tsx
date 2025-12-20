@@ -1153,7 +1153,7 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
                     <p className="text-[10px] uppercase font-bold opacity-40 mb-1">Default Location</p>
                     <div
                       className="text-xs p-2 rounded font-mono truncate"
-                      style={{ backgroundColor: theme.colors.bgPanel }}
+                      style={{ backgroundColor: theme.colors.bgActivity }}
                       title={defaultStoragePath}
                     >
                       {defaultStoragePath || 'Loading...'}

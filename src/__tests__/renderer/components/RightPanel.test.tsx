@@ -786,8 +786,8 @@ describe('RightPanel', () => {
       const { container } = render(<RightPanel {...props} />);
 
       const panel = container.firstChild as HTMLElement;
-      // ringColor is a custom property, may not be normalized
-      expect(panel.style.ringColor).toBe('#bd93f9');
+      // --tw-ring-color is a CSS custom property for Tailwind ring utility
+      expect(panel.style.getPropertyValue('--tw-ring-color')).toBe('#bd93f9');
     });
 
     it('should apply correct width based on rightPanelWidth', () => {

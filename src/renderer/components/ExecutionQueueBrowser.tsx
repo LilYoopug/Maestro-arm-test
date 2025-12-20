@@ -86,6 +86,9 @@ export function ExecutionQueueBrowser({
       const id = registerLayer({
         type: 'modal',
         priority: MODAL_PRIORITIES.EXECUTION_QUEUE_BROWSER || 50,
+        blocksLowerLayers: true,
+        capturesFocus: true,
+        focusTrap: 'strict',
         onEscape: () => onCloseRef.current()
       });
       return () => unregisterLayer(id);

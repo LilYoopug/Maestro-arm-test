@@ -338,8 +338,8 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
         width: rightPanelOpen ? `${rightPanelWidth}px` : '0',
         backgroundColor: theme.colors.bgSidebar,
         borderColor: theme.colors.border,
-        ringColor: theme.colors.accent
-      }}
+        '--tw-ring-color': theme.colors.accent
+      } as React.CSSProperties}
       onClick={() => setActiveFocus('right')}
       onFocus={() => setActiveFocus('right')}
     >

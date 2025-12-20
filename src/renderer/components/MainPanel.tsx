@@ -433,7 +433,7 @@ export const MainPanel = forwardRef<MainPanelHandle, MainPanelProps>(function Ma
       <ErrorBoundary>
         <div
           className={`flex-1 flex flex-col min-w-0 relative ${activeFocus === 'main' ? 'ring-1 ring-inset z-10' : ''}`}
-          style={{ backgroundColor: theme.colors.bgMain, ringColor: theme.colors.accent }}
+          style={{ backgroundColor: theme.colors.bgMain, '--tw-ring-color': theme.colors.accent } as React.CSSProperties}
           onClick={() => setActiveFocus('main')}
         >
           {/* Top Bar (hidden in mobile landscape for focused reading) */}

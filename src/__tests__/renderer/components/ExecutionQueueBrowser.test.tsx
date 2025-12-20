@@ -155,6 +155,9 @@ describe('ExecutionQueueBrowser', () => {
       expect(mockRegisterLayer).toHaveBeenCalledWith({
         type: 'modal',
         priority: expect.any(Number),
+        blocksLowerLayers: true,
+        capturesFocus: true,
+        focusTrap: 'strict',
         onEscape: expect.any(Function),
       });
     });
