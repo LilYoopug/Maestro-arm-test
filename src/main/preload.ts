@@ -869,10 +869,12 @@ contextBridge.exposeInMainWorld('maestro', {
         name: string;
         documents: Array<{ filename: string; resetOnCompletion: boolean }>;
         loopEnabled: boolean;
+        maxLoops?: number | null;
         prompt: string;
         worktreeSettings?: {
           branchNameTemplate: string;
           createPROnCompletion: boolean;
+          prTargetBranch?: string;
         };
       }
     ) => ipcRenderer.invoke('playbooks:create', sessionId, playbook),
@@ -883,10 +885,13 @@ contextBridge.exposeInMainWorld('maestro', {
         name: string;
         documents: Array<{ filename: string; resetOnCompletion: boolean }>;
         loopEnabled: boolean;
+        maxLoops?: number | null;
         prompt: string;
+        updatedAt: number;
         worktreeSettings?: {
           branchNameTemplate: string;
           createPROnCompletion: boolean;
+          prTargetBranch?: string;
         };
       }>
     ) => ipcRenderer.invoke('playbooks:update', sessionId, playbookId, updates),
@@ -1692,7 +1697,13 @@ export interface MaestroAPI {
         updatedAt: number;
         documents: Array<{ filename: string; resetOnCompletion: boolean }>;
         loopEnabled: boolean;
+        maxLoops?: number | null;
         prompt: string;
+        worktreeSettings?: {
+          branchNameTemplate: string;
+          createPROnCompletion: boolean;
+          prTargetBranch?: string;
+        };
       }>;
       error?: string;
     }>;
@@ -1702,7 +1713,13 @@ export interface MaestroAPI {
         name: string;
         documents: Array<{ filename: string; resetOnCompletion: boolean }>;
         loopEnabled: boolean;
+        maxLoops?: number | null;
         prompt: string;
+        worktreeSettings?: {
+          branchNameTemplate: string;
+          createPROnCompletion: boolean;
+          prTargetBranch?: string;
+        };
       }
     ) => Promise<{
       success: boolean;
@@ -1713,7 +1730,13 @@ export interface MaestroAPI {
         updatedAt: number;
         documents: Array<{ filename: string; resetOnCompletion: boolean }>;
         loopEnabled: boolean;
+        maxLoops?: number | null;
         prompt: string;
+        worktreeSettings?: {
+          branchNameTemplate: string;
+          createPROnCompletion: boolean;
+          prTargetBranch?: string;
+        };
       };
       error?: string;
     }>;
@@ -1724,7 +1747,14 @@ export interface MaestroAPI {
         name: string;
         documents: Array<{ filename: string; resetOnCompletion: boolean }>;
         loopEnabled: boolean;
+        maxLoops?: number | null;
         prompt: string;
+        updatedAt: number;
+        worktreeSettings?: {
+          branchNameTemplate: string;
+          createPROnCompletion: boolean;
+          prTargetBranch?: string;
+        };
       }>
     ) => Promise<{
       success: boolean;
@@ -1735,7 +1765,13 @@ export interface MaestroAPI {
         updatedAt: number;
         documents: Array<{ filename: string; resetOnCompletion: boolean }>;
         loopEnabled: boolean;
+        maxLoops?: number | null;
         prompt: string;
+        worktreeSettings?: {
+          branchNameTemplate: string;
+          createPROnCompletion: boolean;
+          prTargetBranch?: string;
+        };
       };
       error?: string;
     }>;

@@ -579,19 +579,38 @@ interface MaestroAPI {
       updatedAt: number;
       documents: Array<{ filename: string; resetOnCompletion: boolean }>;
       loopEnabled: boolean;
+      maxLoops?: number | null;
       prompt: string;
+      worktreeSettings?: {
+        branchNameTemplate: string;
+        createPROnCompletion: boolean;
+        prTargetBranch?: string;
+      };
     }>; error?: string }>;
     create: (sessionId: string, playbook: {
       name: string;
       documents: Array<{ filename: string; resetOnCompletion: boolean }>;
       loopEnabled: boolean;
+      maxLoops?: number | null;
       prompt: string;
+      worktreeSettings?: {
+        branchNameTemplate: string;
+        createPROnCompletion: boolean;
+        prTargetBranch?: string;
+      };
     }) => Promise<{ success: boolean; playbook?: any; error?: string }>;
     update: (sessionId: string, playbookId: string, updates: Partial<{
       name: string;
       documents: Array<{ filename: string; resetOnCompletion: boolean }>;
       loopEnabled: boolean;
+      maxLoops?: number | null;
       prompt: string;
+      updatedAt: number;
+      worktreeSettings?: {
+        branchNameTemplate: string;
+        createPROnCompletion: boolean;
+        prTargetBranch?: string;
+      };
     }>) => Promise<{ success: boolean; playbook?: any; error?: string }>;
     delete: (sessionId: string, playbookId: string) => Promise<{ success: boolean; error?: string }>;
     export: (sessionId: string, playbookId: string, autoRunFolderPath: string) => Promise<{ success: boolean; filePath?: string; error?: string }>;

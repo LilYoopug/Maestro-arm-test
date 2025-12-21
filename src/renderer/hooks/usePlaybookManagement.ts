@@ -24,7 +24,6 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useClickOutside } from './useClickOutside';
 import type {
   Playbook,
-  PlaybookDocumentEntry,
   BatchDocumentEntry,
 } from '../types';
 
@@ -54,17 +53,8 @@ export interface UsePlaybookManagementDeps {
   allDocuments: string[];
   /** Current configuration state for modification detection */
   config: PlaybookConfigState;
-  /** Callback to apply loaded playbook configuration */
-  onApplyPlaybook: (data: {
-    documents: BatchDocumentEntry[];
-    loopEnabled: boolean;
-    maxLoops: number | null;
-    prompt: string;
-    worktreeEnabled: boolean;
-    branchName: string;
-    createPROnCompletion: boolean;
-    prTargetBranch: string;
-  }) => void;
+  /** Callback to apply loaded playbook configuration (receives same shape as config) */
+  onApplyPlaybook: (data: PlaybookConfigState) => void;
 }
 
 /**

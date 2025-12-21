@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import { useRef } from 'react';
 import { Trash2 } from 'lucide-react';
 import type { Theme } from '../types';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
