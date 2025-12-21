@@ -707,6 +707,41 @@ ${docList}
     // Track stalled documents (document filename -> stall reason)
     const stalledDocuments: Map<string, string> = new Map();
 
+    // Track which reset documents have active backups (for cleanup on interruption)
+    const activeBackups: Set<string> = new Set();
+
+    // Track the current document being processed (for interruption handling)
+    let currentResetDocFilename: string | null = null;
+
+    // Helper to clean up all backups
+    const cleanupBackups = async () => {
+      if (activeBackups.size > 0) {
+        console.log(`[BatchProcessor] Cleaning up ${activeBackups.size} backup(s)`);
+        try {
+          await window.maestro.autorun.deleteBackups(folderPath);
+          activeBackups.clear();
+        } catch (err) {
+          console.error('[BatchProcessor] Failed to clean up backups:', err);
+        }
+      }
+    };
+
+    // Helper to restore current reset doc and clean up (for interruption)
+    const handleInterruptionCleanup = async () => {
+      // If we were mid-processing a reset doc, restore it from backup
+      if (currentResetDocFilename && activeBackups.has(currentResetDocFilename)) {
+        console.log(`[BatchProcessor] Restoring interrupted reset document: ${currentResetDocFilename}`);
+        try {
+          await window.maestro.autorun.restoreBackup(folderPath, currentResetDocFilename);
+          activeBackups.delete(currentResetDocFilename);
+        } catch (err) {
+          console.error(`[BatchProcessor] Failed to restore backup for ${currentResetDocFilename}:`, err);
+        }
+      }
+      // Clean up any remaining backups
+      await cleanupBackups();
+    };
+
     // Helper to add final loop summary (defined here so it has access to tracking vars)
     const addFinalLoopSummary = (exitReason: string) => {
       // AUTORUN LOG: Exit
@@ -794,6 +829,19 @@ ${docList}
 
         // Reset stall detection counter for each new document
         consecutiveNoChangeCount = 0;
+
+        // Create backup for reset-on-completion documents before processing
+        if (docEntry.resetOnCompletion) {
+          console.log(`[BatchProcessor] Creating backup for reset document: ${docEntry.filename}`);
+          try {
+            await window.maestro.autorun.createBackup(folderPath, docEntry.filename);
+            activeBackups.add(docEntry.filename);
+            currentResetDocFilename = docEntry.filename;
+          } catch (err) {
+            console.error(`[BatchProcessor] Failed to create backup for ${docEntry.filename}:`, err);
+            // Continue without backup - will fall back to uncheckAllTasks behavior
+          }
+        }
 
         console.log(`[BatchProcessor] Processing document ${docEntry.filename} with ${remainingTasks} tasks`);
 
@@ -1085,12 +1133,34 @@ ${docList}
 
         // Skip document reset if this document stalled (it didn't complete normally)
         if (stalledDocuments.has(docEntry.filename)) {
+          // If this was a reset doc that stalled, restore from backup
+          if (docEntry.resetOnCompletion && activeBackups.has(docEntry.filename)) {
+            console.log(`[BatchProcessor] Restoring stalled reset document: ${docEntry.filename}`);
+            try {
+              await window.maestro.autorun.restoreBackup(folderPath, docEntry.filename);
+              activeBackups.delete(docEntry.filename);
+            } catch (err) {
+              console.error(`[BatchProcessor] Failed to restore backup for stalled doc ${docEntry.filename}:`, err);
+            }
+          }
+          currentResetDocFilename = null;
           // Reset consecutive no-change counter for next document
           consecutiveNoChangeCount = 0;
           continue;
         }
 
         if (skipCurrentDocumentAfterError) {
+          // If this was a reset doc that errored, restore from backup
+          if (docEntry.resetOnCompletion && activeBackups.has(docEntry.filename)) {
+            console.log(`[BatchProcessor] Restoring error-skipped reset document: ${docEntry.filename}`);
+            try {
+              await window.maestro.autorun.restoreBackup(folderPath, docEntry.filename);
+              activeBackups.delete(docEntry.filename);
+            } catch (err) {
+              console.error(`[BatchProcessor] Failed to restore backup for errored doc ${docEntry.filename}:`, err);
+            }
+          }
+          currentResetDocFilename = null;
           continue;
         }
 
@@ -1110,41 +1180,79 @@ ${docList}
             }
           );
 
-          // Read the current content and uncheck all tasks
-          const { content: currentContent } = await readDocAndCountTasks(folderPath, docEntry.filename);
+          // Restore from backup if available, otherwise fall back to uncheckAllTasks
+          if (activeBackups.has(docEntry.filename)) {
+            console.log(`[BatchProcessor] Restoring document ${docEntry.filename} from backup`);
+            try {
+              await window.maestro.autorun.restoreBackup(folderPath, docEntry.filename);
+              activeBackups.delete(docEntry.filename);
+              currentResetDocFilename = null;
 
-          // Count checked tasks before reset
-          const checkedMatches = currentContent.match(CHECKED_TASK_REGEX) || [];
-          const checkedBefore = checkedMatches.length;
-          console.log(`[BatchProcessor] Document ${docEntry.filename} has ${checkedBefore} checked tasks before reset`);
-          console.log(`[BatchProcessor] Checked task matches:`, checkedMatches);
-
-          const resetContent = uncheckAllTasks(currentContent);
-
-          // Count unchecked tasks after reset
-          const uncheckedAfter = countUnfinishedTasks(resetContent);
-          console.log(`[BatchProcessor] Document ${docEntry.filename} has ${uncheckedAfter} unchecked tasks after reset`);
-
-          // Log first 500 chars of content before/after for debugging
-          console.log(`[BatchProcessor] Content before reset (first 500):`, currentContent.substring(0, 500));
-          console.log(`[BatchProcessor] Content after reset (first 500):`, resetContent.substring(0, 500));
-
-          // Write the reset content back
-          const writeResult = await window.maestro.autorun.writeDoc(folderPath, docEntry.filename + '.md', resetContent);
-          console.log(`[BatchProcessor] Write result for ${docEntry.filename}:`, writeResult);
-
-          // If loop is enabled, add the reset tasks back to the total
-          if (loopEnabled) {
-            const resetTaskCount = countUnfinishedTasks(resetContent);
-            updateBatchStateAndBroadcast(sessionId, prev => ({
-              ...prev,
-              [sessionId]: {
-                ...prev[sessionId],
-                totalTasksAcrossAllDocs: prev[sessionId].totalTasksAcrossAllDocs + resetTaskCount,
-                totalTasks: prev[sessionId].totalTasks + resetTaskCount
+              // Count tasks in restored content for loop mode
+              if (loopEnabled) {
+                const { taskCount: resetTaskCount } = await readDocAndCountTasks(folderPath, docEntry.filename);
+                console.log(`[BatchProcessor] Restored document has ${resetTaskCount} tasks`);
+                updateBatchStateAndBroadcast(sessionId, prev => ({
+                  ...prev,
+                  [sessionId]: {
+                    ...prev[sessionId],
+                    totalTasksAcrossAllDocs: prev[sessionId].totalTasksAcrossAllDocs + resetTaskCount,
+                    totalTasks: prev[sessionId].totalTasks + resetTaskCount
+                  }
+                }));
               }
-            }));
+            } catch (err) {
+              console.error(`[BatchProcessor] Failed to restore backup for ${docEntry.filename}, falling back to uncheckAllTasks:`, err);
+              // Fall back to uncheckAllTasks behavior
+              const { content: currentContent } = await readDocAndCountTasks(folderPath, docEntry.filename);
+              const resetContent = uncheckAllTasks(currentContent);
+              await window.maestro.autorun.writeDoc(folderPath, docEntry.filename + '.md', resetContent);
+              activeBackups.delete(docEntry.filename);
+              currentResetDocFilename = null;
+
+              if (loopEnabled) {
+                const resetTaskCount = countUnfinishedTasks(resetContent);
+                updateBatchStateAndBroadcast(sessionId, prev => ({
+                  ...prev,
+                  [sessionId]: {
+                    ...prev[sessionId],
+                    totalTasksAcrossAllDocs: prev[sessionId].totalTasksAcrossAllDocs + resetTaskCount,
+                    totalTasks: prev[sessionId].totalTasks + resetTaskCount
+                  }
+                }));
+              }
+            }
+          } else {
+            // No backup available - use legacy uncheckAllTasks behavior
+            console.log(`[BatchProcessor] No backup found for ${docEntry.filename}, using uncheckAllTasks`);
+            const { content: currentContent } = await readDocAndCountTasks(folderPath, docEntry.filename);
+            const resetContent = uncheckAllTasks(currentContent);
+            await window.maestro.autorun.writeDoc(folderPath, docEntry.filename + '.md', resetContent);
+
+            if (loopEnabled) {
+              const resetTaskCount = countUnfinishedTasks(resetContent);
+              updateBatchStateAndBroadcast(sessionId, prev => ({
+                ...prev,
+                [sessionId]: {
+                  ...prev[sessionId],
+                  totalTasksAcrossAllDocs: prev[sessionId].totalTasksAcrossAllDocs + resetTaskCount,
+                  totalTasks: prev[sessionId].totalTasks + resetTaskCount
+                }
+              }));
+            }
           }
+        } else if (docEntry.resetOnCompletion) {
+          // Document had reset enabled but no tasks were completed - clean up backup
+          if (activeBackups.has(docEntry.filename)) {
+            console.log(`[BatchProcessor] Cleaning up unused backup for ${docEntry.filename}`);
+            try {
+              // Delete just this backup by restoring (which deletes) or we can just delete it
+              // Actually, let's leave it for now and clean up at the end
+            } catch {
+              // Ignore errors
+            }
+          }
+          currentResetDocFilename = null;
         }
       }
 
@@ -1287,6 +1395,14 @@ ${docList}
           totalTasks: newTotalTasks + prev[sessionId].completedTasks
         }
       }));
+    }
+
+    // Handle backup cleanup - if we were stopped mid-document, restore the reset doc first
+    if (stopRequestedRefs.current[sessionId]) {
+      await handleInterruptionCleanup();
+    } else {
+      // Normal completion - just clean up any remaining backups
+      await cleanupBackups();
     }
 
     // Create PR if worktree was used, PR creation is enabled, and not stopped

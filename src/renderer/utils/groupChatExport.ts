@@ -2,38 +2,16 @@
  * @file groupChatExport.ts
  * @description Export utility for Group Chat conversations.
  *
- * Generates a self-contained HTML file with embedded JSON data.
- * - Human use: Double-click to open in browser with nice formatting
- * - Machine use: Extract JSON via grep/sed for programmatic access
- *
- * JSON extraction example:
- *   sed -n '/<script type="application\/json" id="group-chat-export">/,/<\/script>/p' export.html | sed '1d;$d' | jq .
+ * Generates a self-contained HTML file with the user's current theme colors
+ * and properly rendered markdown content.
  */
 
 import type {
   GroupChat,
   GroupChatMessage,
   GroupChatHistoryEntry,
+  Theme,
 } from '../types';
-
-/**
- * Export data structure embedded in HTML
- */
-export interface GroupChatExportData {
-  exportedAt: string;
-  version: string;
-  metadata: GroupChat;
-  messages: GroupChatMessage[];
-  history: GroupChatHistoryEntry[];
-  images: Record<string, string>;
-  stats: {
-    participantCount: number;
-    totalMessages: number;
-    agentMessages: number;
-    userMessages: number;
-    duration: string;
-  };
-}
 
 /**
  * Escape HTML special characters
@@ -77,19 +55,20 @@ function formatDuration(messages: GroupChatMessage[]): string {
  */
 function getParticipantColor(
   groupChat: GroupChat,
-  from: string
+  from: string,
+  theme: Theme
 ): string {
-  if (from === 'user') return '#8b5cf6'; // Purple for user
-  if (from === 'moderator') return '#f59e0b'; // Amber for moderator
+  if (from === 'user') return theme.colors.accent;
+  if (from === 'moderator') return theme.colors.warning;
 
   const participant = groupChat.participants.find(
     (p) => p.name.toLowerCase() === from.toLowerCase()
   );
-  return participant?.color || '#6b7280'; // Gray default
+  return participant?.color || theme.colors.textDim;
 }
 
 /**
- * Convert markdown-style formatting to HTML (basic support)
+ * Convert markdown-style formatting to HTML
  */
 function formatContent(content: string): string {
   let html = escapeHtml(content);
@@ -105,20 +84,39 @@ function formatContent(content: string): string {
   // Bold (**)
   html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 
-  // Newlines to <br>
-  html = html.replace(/\n/g, '<br>');
+  // Italic (*)
+  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+
+  // Headers (# ## ###)
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+  // Bullet lists
+  html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+
+  // Numbered lists
+  html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+
+  // Links [text](url)
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+
+  // Newlines to <br> (but not inside code blocks or after block elements)
+  html = html.replace(/\n(?!<\/?(pre|ul|ol|li|h[1-3]))/g, '<br>');
 
   return html;
 }
 
 /**
- * Generate the HTML export content
+ * Generate the HTML export content with theme colors
  */
 export function generateGroupChatExportHtml(
   groupChat: GroupChat,
   messages: GroupChatMessage[],
-  history: GroupChatHistoryEntry[],
-  images: Record<string, string>
+  _history: GroupChatHistoryEntry[],
+  images: Record<string, string>,
+  theme: Theme
 ): string {
   // Calculate stats
   const userMessages = messages.filter((m) => m.from === 'user').length;
@@ -134,23 +132,27 @@ export function generateGroupChatExportHtml(
     duration: formatDuration(messages),
   };
 
-  // Build export data object
-  const exportData: GroupChatExportData = {
-    exportedAt: new Date().toISOString(),
-    version: '1.0',
-    metadata: groupChat,
-    messages,
-    history,
-    images,
-    stats,
-  };
-
-  // Generate messages HTML
+  // Generate messages HTML with embedded images
   const messagesHtml = messages
     .map((msg) => {
-      const color = getParticipantColor(groupChat, msg.from);
+      const color = getParticipantColor(groupChat, msg.from, theme);
       const isUser = msg.from === 'user';
-      const formattedContent = formatContent(msg.content);
+
+      // Replace image references with actual base64 data
+      let content = msg.content;
+      for (const [filename, dataUrl] of Object.entries(images)) {
+        // Replace various image reference patterns
+        content = content.replace(
+          new RegExp(`!\\[([^\\]]*)\\]\\([^)]*${escapeRegExp(filename)}[^)]*\\)`, 'g'),
+          `<img src="${dataUrl}" alt="$1" class="embedded-image" />`
+        );
+        content = content.replace(
+          new RegExp(`\\[Image: [^\\]]*${escapeRegExp(filename)}[^\\]]*\\]`, 'gi'),
+          `<img src="${dataUrl}" alt="${filename}" class="embedded-image" />`
+        );
+      }
+
+      const formattedContent = formatContent(content);
 
       return `
       <div class="message ${isUser ? 'message-user' : 'message-agent'}">
@@ -169,14 +171,16 @@ export function generateGroupChatExportHtml(
     .map((p) => {
       return `
       <div class="participant">
-        <span class="participant-color" style="background-color: ${p.color || '#6b7280'}"></span>
+        <span class="participant-color" style="background-color: ${p.color || theme.colors.textDim}"></span>
         <span class="participant-name">${escapeHtml(p.name)}</span>
         <span class="participant-agent">${escapeHtml(p.agentId)}</span>
       </div>`;
     })
     .join('\n');
 
-  // Build HTML document
+  // Build HTML document with theme colors
+  const colors = theme.colors;
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -185,15 +189,18 @@ export function generateGroupChatExportHtml(
   <title>${escapeHtml(groupChat.name)} - Group Chat Export</title>
   <style>
     :root {
-      --bg-primary: #1a1a2e;
-      --bg-secondary: #16213e;
-      --bg-tertiary: #0f0f23;
-      --text-primary: #e4e4e7;
-      --text-secondary: #a1a1aa;
-      --text-dim: #71717a;
-      --border: #27273a;
-      --accent: #8b5cf6;
-      --accent-dim: rgba(139, 92, 246, 0.1);
+      --bg-primary: ${colors.bgMain};
+      --bg-secondary: ${colors.bgSidebar};
+      --bg-tertiary: ${colors.bgActivity};
+      --text-primary: ${colors.textMain};
+      --text-secondary: ${colors.textDim};
+      --text-dim: ${colors.textDim};
+      --border: ${colors.border};
+      --accent: ${colors.accent};
+      --accent-dim: ${colors.accentDim};
+      --success: ${colors.success};
+      --warning: ${colors.warning};
+      --error: ${colors.error};
     }
 
     * {
@@ -357,7 +364,7 @@ export function generateGroupChatExportHtml(
 
     .read-only-badge {
       background-color: rgba(251, 191, 36, 0.2);
-      color: #fbbf24;
+      color: var(--warning);
       font-size: 0.625rem;
       padding: 0.125rem 0.375rem;
       border-radius: 0.25rem;
@@ -368,6 +375,39 @@ export function generateGroupChatExportHtml(
     .message-content {
       font-size: 0.9375rem;
       color: var(--text-primary);
+    }
+
+    .message-content h1 {
+      font-size: 1.5rem;
+      margin: 1rem 0 0.5rem;
+    }
+
+    .message-content h2 {
+      font-size: 1.25rem;
+      margin: 1rem 0 0.5rem;
+    }
+
+    .message-content h3 {
+      font-size: 1.1rem;
+      margin: 0.75rem 0 0.5rem;
+    }
+
+    .message-content ul, .message-content ol {
+      margin: 0.5rem 0;
+      padding-left: 1.5rem;
+    }
+
+    .message-content li {
+      margin: 0.25rem 0;
+    }
+
+    .message-content a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .message-content a:hover {
+      text-decoration: underline;
     }
 
     .code-block {
@@ -388,6 +428,13 @@ export function generateGroupChatExportHtml(
       font-size: 0.875em;
     }
 
+    .embedded-image {
+      max-width: 100%;
+      height: auto;
+      border-radius: 0.5rem;
+      margin: 0.5rem 0;
+    }
+
     .footer {
       margin-top: 3rem;
       padding-top: 1.5rem;
@@ -404,23 +451,6 @@ export function generateGroupChatExportHtml(
 
     .footer a:hover {
       text-decoration: underline;
-    }
-
-    .json-note {
-      background-color: var(--bg-secondary);
-      border: 1px solid var(--border);
-      border-radius: 0.5rem;
-      padding: 1rem;
-      margin-top: 1rem;
-      font-size: 0.8125rem;
-      color: var(--text-secondary);
-    }
-
-    .json-note code {
-      background-color: var(--bg-tertiary);
-      padding: 0.125rem 0.375rem;
-      border-radius: 0.25rem;
-      font-family: 'SF Mono', Monaco, 'Courier New', monospace;
     }
 
     @media (max-width: 640px) {
@@ -510,19 +540,18 @@ export function generateGroupChatExportHtml(
 
     <footer class="footer">
       <p>Exported from <a href="https://maestro.sh" target="_blank">Maestro</a> on ${formatTimestamp(Date.now())}</p>
-      <div class="json-note">
-        <strong>Tip:</strong> This file contains embedded JSON data for programmatic access.<br>
-        Extract with: <code>sed -n '/&lt;script.*group-chat-export/,/&lt;\\/script&gt;/p' export.html | sed '1d;$d' | jq .</code>
-      </div>
+      <p style="margin-top: 0.5rem;">Theme: ${escapeHtml(theme.name)}</p>
     </footer>
   </div>
-
-  <!-- Embedded JSON for programmatic extraction -->
-  <script type="application/json" id="group-chat-export">
-${JSON.stringify(exportData, null, 2)}
-  </script>
 </body>
 </html>`;
+}
+
+/**
+ * Escape special regex characters in a string
+ */
+function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /**
@@ -531,7 +560,8 @@ ${JSON.stringify(exportData, null, 2)}
 export async function downloadGroupChatExport(
   groupChat: GroupChat,
   messages: GroupChatMessage[],
-  history: GroupChatHistoryEntry[]
+  history: GroupChatHistoryEntry[],
+  theme: Theme
 ): Promise<void> {
   // Fetch images from the main process
   let images: Record<string, string> = {};
@@ -542,7 +572,7 @@ export async function downloadGroupChatExport(
   }
 
   // Generate HTML
-  const html = generateGroupChatExportHtml(groupChat, messages, history, images);
+  const html = generateGroupChatExportHtml(groupChat, messages, history, images, theme);
 
   // Create blob and download
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });

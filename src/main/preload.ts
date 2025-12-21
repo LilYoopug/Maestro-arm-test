@@ -860,6 +860,13 @@ contextBridge.exposeInMainWorld('maestro', {
       ipcRenderer.on('autorun:fileChanged', wrappedHandler);
       return () => ipcRenderer.removeListener('autorun:fileChanged', wrappedHandler);
     },
+    // Backup operations for reset-on-completion documents
+    createBackup: (folderPath: string, filename: string) =>
+      ipcRenderer.invoke('autorun:createBackup', folderPath, filename),
+    restoreBackup: (folderPath: string, filename: string) =>
+      ipcRenderer.invoke('autorun:restoreBackup', folderPath, filename),
+    deleteBackups: (folderPath: string) =>
+      ipcRenderer.invoke('autorun:deleteBackups', folderPath),
   },
 
   // Playbooks API (saved batch run configurations)
@@ -1693,6 +1700,9 @@ export interface MaestroAPI {
     watchFolder: (folderPath: string) => Promise<{ success: boolean; error?: string }>;
     unwatchFolder: (folderPath: string) => Promise<{ success: boolean; error?: string }>;
     onFileChanged: (handler: (data: { folderPath: string; filename: string; eventType: string }) => void) => () => void;
+    createBackup: (folderPath: string, filename: string) => Promise<{ success: boolean; backupFilename?: string; error?: string }>;
+    restoreBackup: (folderPath: string, filename: string) => Promise<{ success: boolean; error?: string }>;
+    deleteBackups: (folderPath: string) => Promise<{ success: boolean; deletedCount?: number; error?: string }>;
   };
   playbooks: {
     list: (sessionId: string) => Promise<{
