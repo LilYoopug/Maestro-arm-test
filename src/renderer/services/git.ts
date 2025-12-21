@@ -71,7 +71,10 @@ export const gitService = {
           return { diff: result.stdout };
         }
         // Otherwise get diff for specific files
-        return window.maestro.git.diff(cwd, files);
+        const results = await Promise.all(
+          files.map(file => window.maestro.git.diff(cwd, file))
+        );
+        return { diff: results.map(result => result.stdout).join('\n') };
       },
       errorContext: 'Git diff',
       defaultValue: { diff: '' },
