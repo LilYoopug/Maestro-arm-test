@@ -325,6 +325,8 @@ export class AgentDetector {
         path.join(localAppData, 'npm'),
         // Claude Code CLI install location (npm global)
         path.join(appData, 'npm', 'node_modules', '@anthropic-ai', 'claude-code', 'cli'),
+        // User local bin (Claude Code standalone installer)
+        path.join(home, '.local', 'bin'),
         // User local programs
         path.join(localAppData, 'Programs'),
         path.join(localAppData, 'Microsoft', 'WindowsApps'),
@@ -384,6 +386,7 @@ export class AgentDetector {
 
   /**
    * Check if a binary exists in PATH
+   * On Windows, this also handles .cmd and .exe extensions properly
    */
   private async checkBinaryExists(binaryName: string): Promise<{ exists: boolean; path?: string }> {
     try {
@@ -396,9 +399,56 @@ export class AgentDetector {
       const result = await execFileNoThrow(command, [binaryName], undefined, env);
 
       if (result.exitCode === 0 && result.stdout.trim()) {
+        // Get all matches (Windows 'where' can return multiple)
+        const matches = result.stdout.trim().split('\n').map(p => p.trim()).filter(p => p);
+
+        if (process.platform === 'win32' && matches.length > 0) {
+          // On Windows, prefer .exe over .cmd over extensionless
+          // This helps with proper execution handling
+          const exeMatch = matches.find(p => p.toLowerCase().endsWith('.exe'));
+          const cmdMatch = matches.find(p => p.toLowerCase().endsWith('.cmd'));
+
+          // Return the best match: .exe > .cmd > first result
+          let bestMatch = exeMatch || cmdMatch || matches[0];
+
+          // If the first match doesn't have an extension, check if .cmd or .exe version exists
+          // This handles cases where 'where' returns a path without extension
+          if (!bestMatch.toLowerCase().endsWith('.exe') && !bestMatch.toLowerCase().endsWith('.cmd')) {
+            const cmdPath = bestMatch + '.cmd';
+            const exePath = bestMatch + '.exe';
+
+            // Check if the .exe or .cmd version exists
+            try {
+              await fs.promises.access(exePath, fs.constants.F_OK);
+              bestMatch = exePath;
+              logger.debug(`Found .exe version of ${binaryName}`, 'AgentDetector', { path: exePath });
+            } catch {
+              try {
+                await fs.promises.access(cmdPath, fs.constants.F_OK);
+                bestMatch = cmdPath;
+                logger.debug(`Found .cmd version of ${binaryName}`, 'AgentDetector', { path: cmdPath });
+              } catch {
+                // Neither .exe nor .cmd exists, use the original path
+              }
+            }
+          }
+
+          logger.debug(`Windows binary detection for ${binaryName}`, 'AgentDetector', {
+            allMatches: matches,
+            selectedMatch: bestMatch,
+            isCmd: bestMatch.toLowerCase().endsWith('.cmd'),
+            isExe: bestMatch.toLowerCase().endsWith('.exe'),
+          });
+
+          return {
+            exists: true,
+            path: bestMatch,
+          };
+        }
+
         return {
           exists: true,
-          path: result.stdout.trim().split('\n')[0], // First match
+          path: matches[0], // First match for Unix
         };
       }
 

@@ -537,10 +537,26 @@ export class ProcessManager extends EventEmitter {
           hasStdio: 'default (pipe)'
         });
 
-        const childProcess = spawn(command, finalArgs, {
+        // On Windows, .cmd files (npm-installed CLIs) need special handling
+        // They must be executed through cmd.exe since spawn() with shell:false
+        // cannot execute batch scripts directly
+        let spawnCommand = command;
+        let spawnArgs = finalArgs;
+        let useShell = false;
+
+        if (isWindows && command.toLowerCase().endsWith('.cmd')) {
+          // For .cmd files, we need to use shell:true to execute them properly
+          // This is safe because we're executing a specific file path, not user input
+          useShell = true;
+          logger.debug('[ProcessManager] Using shell=true for Windows .cmd file', 'ProcessManager', {
+            command,
+          });
+        }
+
+        const childProcess = spawn(spawnCommand, spawnArgs, {
           cwd,
           env,
-          shell: false, // Explicitly disable shell to prevent injection
+          shell: useShell, // Enable shell only for .cmd files on Windows
           stdio: ['pipe', 'pipe', 'pipe'], // Explicitly set stdio to pipe
         });
 

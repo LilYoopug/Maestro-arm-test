@@ -15,6 +15,9 @@ export interface ExecResult {
 /**
  * Safely execute a command without shell injection vulnerabilities
  * Uses execFile instead of exec to prevent shell interpretation
+ *
+ * On Windows, .cmd files (npm-installed CLIs) are handled by enabling shell mode,
+ * since execFile cannot directly execute batch scripts without the shell.
  */
 export async function execFileNoThrow(
   command: string,
@@ -23,11 +26,17 @@ export async function execFileNoThrow(
   env?: NodeJS.ProcessEnv
 ): Promise<ExecResult> {
   try {
+    // On Windows, .cmd files need shell execution
+    // This is safe because we're executing a specific file path, not user input
+    const isWindows = process.platform === 'win32';
+    const needsShell = isWindows && command.toLowerCase().endsWith('.cmd');
+
     const { stdout, stderr } = await execFileAsync(command, args, {
       cwd,
       env,
       encoding: 'utf8',
       maxBuffer: EXEC_MAX_BUFFER,
+      shell: needsShell,
     });
 
     return {
