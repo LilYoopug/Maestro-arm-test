@@ -62,7 +62,7 @@ interface InputAreaProps {
   setAtMentionFilter?: (filter: string) => void;
   atMentionStartIndex?: number;
   setAtMentionStartIndex?: (index: number) => void;
-  atMentionSuggestions?: Array<{ value: string; type: 'file' | 'folder'; displayText: string; fullPath: string }>;
+  atMentionSuggestions?: Array<{ value: string; type: 'file' | 'folder'; displayText: string; fullPath: string; source?: 'project' | 'autorun' }>;
   selectedAtMentionIndex?: number;
   setSelectedAtMentionIndex?: (index: number) => void;
   // ThinkingStatusPill props
@@ -524,6 +524,17 @@ export const InputArea = React.memo(function InputArea(props: InputAreaProps) {
                     color: suggestion.type === 'folder' ? theme.colors.warning : theme.colors.textDim
                   }} />
                   <span className="flex-1 truncate">{suggestion.fullPath}</span>
+                  {suggestion.source === 'autorun' && (
+                    <span
+                      className="text-[9px] px-1 py-0.5 rounded flex-shrink-0"
+                      style={{
+                        backgroundColor: `${theme.colors.accent}30`,
+                        color: theme.colors.accent
+                      }}
+                    >
+                      Auto Run
+                    </span>
+                  )}
                   <span className="text-[10px] opacity-40 flex-shrink-0">{suggestion.type}</span>
                 </div>
               );

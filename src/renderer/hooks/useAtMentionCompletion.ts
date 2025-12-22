@@ -1,6 +1,7 @@
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useState, useEffect } from 'react';
 import type { Session } from '../types';
 import type { FileNode } from '../types/fileTree';
+import type { AutoRunTreeNode } from './useAutoRunHandlers';
 import { fuzzyMatchWithScore } from '../utils/search';
 
 export interface AtMentionSuggestion {
@@ -9,6 +10,7 @@ export interface AtMentionSuggestion {
   displayText: string; // Display name (filename)
   fullPath: string;    // Full relative path
   score: number;       // For sorting by relevance
+  source?: 'project' | 'autorun'; // Source of the file for disambiguation
 }
 
 export interface UseAtMentionCompletionReturn {
@@ -17,11 +19,79 @@ export interface UseAtMentionCompletionReturn {
 
 /**
  * Hook for providing @ mention file completion in AI mode.
- * Uses fuzzy matching to find files in the project tree.
+ * Uses fuzzy matching to find files in the project tree and Auto Run folder.
  */
 export function useAtMentionCompletion(session: Session | null): UseAtMentionCompletionReturn {
+  // State for Auto Run folder files (fetched asynchronously)
+  const [autoRunFiles, setAutoRunFiles] = useState<{ name: string; type: 'file' | 'folder'; path: string }[]>([]);
+
+  // Fetch Auto Run folder files when the path changes
+  const autoRunFolderPath = session?.autoRunFolderPath;
+  const sessionCwd = session?.cwd;
+
+  useEffect(() => {
+    // Clear if no Auto Run folder configured
+    if (!autoRunFolderPath) {
+      setAutoRunFiles([]);
+      return;
+    }
+
+    // Check if Auto Run folder is already within the project tree
+    // If so, skip fetching since those files are already in fileTree
+    if (sessionCwd && autoRunFolderPath.startsWith(sessionCwd + '/')) {
+      setAutoRunFiles([]);
+      return;
+    }
+
+    // Fetch the Auto Run folder contents
+    let cancelled = false;
+
+    const fetchAutoRunFiles = async () => {
+      try {
+        const result = await window.maestro.autorun.listDocs(autoRunFolderPath);
+        if (cancelled) return;
+
+        if (result.success && result.tree) {
+          const files: { name: string; type: 'file' | 'folder'; path: string }[] = [];
+
+          // Traverse the Auto Run tree (similar to fileTree traversal)
+          const traverse = (nodes: AutoRunTreeNode[], currentPath = '') => {
+            for (const node of nodes) {
+              // Auto Run tree already has the path property, but we need to add .md extension for files
+              const displayPath = node.type === 'file' ? `${node.path}.md` : node.path;
+              files.push({
+                name: node.type === 'file' ? `${node.name}.md` : node.name,
+                type: node.type,
+                path: displayPath
+              });
+              if (node.type === 'folder' && node.children) {
+                traverse(node.children, displayPath);
+              }
+            }
+          };
+
+          traverse(result.tree);
+          setAutoRunFiles(files);
+        } else {
+          setAutoRunFiles([]);
+        }
+      } catch {
+        // Silently fail - folder might not exist yet
+        if (!cancelled) {
+          setAutoRunFiles([]);
+        }
+      }
+    };
+
+    fetchAutoRunFiles();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [autoRunFolderPath, sessionCwd]);
+
   // Build a flat list of all files/folders from the file tree
-  const allFiles = useMemo(() => {
+  const projectFiles = useMemo(() => {
     if (!session?.fileTree) return [];
 
     const files: { name: string; type: 'file' | 'folder'; path: string }[] = [];
@@ -43,6 +113,22 @@ export function useAtMentionCompletion(session: Session | null): UseAtMentionCom
     traverse(session.fileTree);
     return files;
   }, [session?.fileTree]);
+
+  // Combine project files with Auto Run files
+  const allFiles = useMemo(() => {
+    // If no Auto Run files, just return project files
+    if (autoRunFiles.length === 0) {
+      return projectFiles.map(f => ({ ...f, source: 'project' as const }));
+    }
+
+    // Combine both, marking Auto Run files with their source
+    const combined = [
+      ...projectFiles.map(f => ({ ...f, source: 'project' as const })),
+      ...autoRunFiles.map(f => ({ ...f, source: 'autorun' as const }))
+    ];
+
+    return combined;
+  }, [projectFiles, autoRunFiles]);
 
   // PERF: Only depend on allFiles, NOT session - session dependency causes
   // this callback to be recreated on every session state change, which
@@ -67,7 +153,8 @@ export function useAtMentionCompletion(session: Session | null): UseAtMentionCom
           type: file.type,
           displayText: file.name,
           fullPath: file.path,
-          score: bestMatch.score
+          score: bestMatch.score,
+          source: file.source
         });
       }
     }
