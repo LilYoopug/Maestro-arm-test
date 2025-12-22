@@ -1,4 +1,4 @@
-import { FolderOpen, FileText, CheckSquare, Play, Settings, History, Eye, Square, Keyboard, Repeat, RotateCcw, BookMarked, GitBranch, Image, Variable } from 'lucide-react';
+import { FolderOpen, FileText, CheckSquare, Play, Settings, History, Eye, Square, Keyboard, Repeat, RotateCcw, BookMarked, Image, Variable } from 'lucide-react';
 import type { Theme } from '../types';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { Modal } from './ui/Modal';
@@ -379,39 +379,12 @@ export function AutoRunnerHelpModal({ theme, onClose }: AutoRunnerHelpModalProps
               </p>
               <p>
                 The input shows a <span style={{ color: theme.colors.warning }}>READ-ONLY</span> indicator
-                as a reminder. This prevents conflicts between manual and automated work...
+                as a reminder. This prevents conflicts between manual and automated work.
               </p>
               <p>
-                <em style={{ color: theme.colors.textMain }}>Unless</em> you enable Git Worktree:
-              </p>
-            </div>
-          </section>
-
-          {/* Git Worktree */}
-          <section>
-            <div className="flex items-center gap-2 mb-3">
-              <GitBranch className="w-5 h-5" style={{ color: theme.colors.accent }} />
-              <h3 className="font-bold">Git Worktree (Parallel Work)</h3>
-            </div>
-            <div
-              className="text-sm space-y-2 pl-7"
-              style={{ color: theme.colors.textDim }}
-            >
-              <p>
-                For Git repositories, enable <strong style={{ color: theme.colors.textMain }}>Git Worktree</strong> to
-                run Auto Run in an isolated working directory. This allows you to{' '}
-                <strong style={{ color: theme.colors.textMain }}>continue making changes interactively</strong>{' '}
-                in the main repository while Auto Run processes tasks in the background—no read-only restrictions,
-                no yellow border, no waiting.
-              </p>
-              <p>
-                Select a worktree directory and branch name. The worktree will be created as a subdirectory
-                using the branch name. Optionally enable <strong style={{ color: theme.colors.textMain }}>"Create PR on completion"</strong> to
-                automatically open a pull request when all tasks finish.
-              </p>
-              <p>
-                When running in a worktree, a <GitBranch className="w-3 h-3 inline mx-1" style={{ color: theme.colors.accent }} />
-                icon appears in the AUTO badge, right panel, and status pill to indicate parallel operation.
+                <strong style={{ color: theme.colors.textMain }}>Tip:</strong> For parallel work without read-only restrictions,
+                create a worktree session from the git branch menu in the session list. Worktree sessions operate
+                in isolated directories, allowing Auto Run and manual work to happen simultaneously.
               </p>
             </div>
           </section>

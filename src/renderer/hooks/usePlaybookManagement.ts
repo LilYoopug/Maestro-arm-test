@@ -15,7 +15,9 @@
  * - sessionId: For playbook storage scope
  * - folderPath: For export/import operations
  * - allDocuments: For detecting missing documents when loading playbooks
- * - Current configuration state (documents, loop, prompt, worktree) for modification detection
+ * - Current configuration state (documents, loop, prompt) for modification detection
+ *
+ * Note: Worktree configuration has been moved to WorktreeConfigModal (git branch overlay)
  */
 
 import { generateId } from '../utils/ids';
@@ -29,16 +31,13 @@ import type {
 
 /**
  * Configuration passed to the hook for modification detection
+ * Note: Worktree configuration has been moved to WorktreeConfigModal
  */
 export interface PlaybookConfigState {
   documents: BatchDocumentEntry[];
   loopEnabled: boolean;
   maxLoops: number | null;
   prompt: string;
-  worktreeEnabled: boolean;
-  branchName: string;
-  createPROnCompletion: boolean;
-  prTargetBranch: string;
 }
 
 /**
@@ -141,7 +140,7 @@ export function usePlaybookManagement(
   const isPlaybookModified = useMemo(() => {
     if (!loadedPlaybook) return false;
 
-    const { documents, loopEnabled, maxLoops, prompt, worktreeEnabled, branchName, createPROnCompletion, prTargetBranch } = config;
+    const { documents, loopEnabled, maxLoops, prompt } = config;
 
     // Compare documents
     const currentDocs = documents.map((d) => ({
@@ -170,20 +169,6 @@ export function usePlaybookManagement(
     // Compare prompt
     if (prompt !== loadedPlaybook.prompt) return true;
 
-    // Compare worktree settings
-    const savedWorktree = loadedPlaybook.worktreeSettings;
-    if (savedWorktree) {
-      // Playbook has worktree settings - check if current state differs
-      if (!worktreeEnabled) return true;
-      if (branchName !== savedWorktree.branchNameTemplate) return true;
-      if (createPROnCompletion !== savedWorktree.createPROnCompletion) return true;
-      if (savedWorktree.prTargetBranch && prTargetBranch !== savedWorktree.prTargetBranch)
-        return true;
-    } else {
-      // Playbook doesn't have worktree settings - modified if worktree is now enabled with a branch
-      if (worktreeEnabled && branchName) return true;
-    }
-
     return false;
   }, [config, loadedPlaybook]);
 
@@ -205,15 +190,12 @@ export function usePlaybookManagement(
       }));
 
       // Apply configuration through callback
+      // Note: Worktree settings are no longer managed here - see WorktreeConfigModal
       onApplyPlaybook({
         documents: entries,
         loopEnabled: playbook.loopEnabled,
         maxLoops: playbook.maxLoops ?? null,
         prompt: playbook.prompt,
-        worktreeEnabled: !!playbook.worktreeSettings,
-        branchName: playbook.worktreeSettings?.branchNameTemplate ?? '',
-        createPROnCompletion: playbook.worktreeSettings?.createPROnCompletion ?? false,
-        prTargetBranch: playbook.worktreeSettings?.prTargetBranch ?? 'main',
       });
 
       setLoadedPlaybook(playbook);
@@ -295,9 +277,10 @@ export function usePlaybookManagement(
 
       setSavingPlaybook(true);
       try {
-        const { documents, loopEnabled, maxLoops, prompt, worktreeEnabled, branchName, createPROnCompletion, prTargetBranch } = config;
+        const { documents, loopEnabled, maxLoops, prompt } = config;
 
-        // Build playbook data, including worktree settings if enabled
+        // Build playbook data
+        // Note: Worktree settings are no longer stored in playbooks - see WorktreeConfigModal
         const playbookData: Parameters<typeof window.maestro.playbooks.create>[1] = {
           name,
           documents: documents.map((d) => ({
@@ -308,16 +291,6 @@ export function usePlaybookManagement(
           maxLoops,
           prompt,
         };
-
-        // Include worktree settings if worktree is enabled
-        // Note: We store branchName as the template - users can modify it when loading
-        if (worktreeEnabled && branchName) {
-          playbookData.worktreeSettings = {
-            branchNameTemplate: branchName,
-            createPROnCompletion,
-            prTargetBranch,
-          };
-        }
 
         const result = await window.maestro.playbooks.create(sessionId, playbookData);
 
@@ -340,9 +313,10 @@ export function usePlaybookManagement(
 
     setSavingPlaybook(true);
     try {
-      const { documents, loopEnabled, maxLoops, prompt, worktreeEnabled, branchName, createPROnCompletion, prTargetBranch } = config;
+      const { documents, loopEnabled, maxLoops, prompt } = config;
 
-      // Build update data, including worktree settings if enabled
+      // Build update data
+      // Note: Worktree settings are no longer stored in playbooks - see WorktreeConfigModal
       const updateData: Parameters<typeof window.maestro.playbooks.update>[2] = {
         documents: documents.map((d) => ({
           filename: d.filename,
@@ -353,18 +327,6 @@ export function usePlaybookManagement(
         prompt,
         updatedAt: Date.now(),
       };
-
-      // Include worktree settings if worktree is enabled, otherwise clear them
-      if (worktreeEnabled && branchName) {
-        updateData.worktreeSettings = {
-          branchNameTemplate: branchName,
-          createPROnCompletion,
-          prTargetBranch,
-        };
-      } else {
-        // Explicitly set to undefined to clear previous worktree settings
-        updateData.worktreeSettings = undefined;
-      }
 
       const result = await window.maestro.playbooks.update(sessionId, loadedPlaybook.id, updateData);
 

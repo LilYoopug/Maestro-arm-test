@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react';
-import { Wand2, ExternalLink, Columns, Copy, Loader2, GitBranch, ArrowUp, ArrowDown, FileEdit, List, AlertCircle, X } from 'lucide-react';
+import { Wand2, ExternalLink, Columns, Copy, Loader2, GitBranch, ArrowUp, ArrowDown, FileEdit, List, AlertCircle, X, GitPullRequest, Settings2 } from 'lucide-react';
 import { LogViewer } from './LogViewer';
 import { TerminalOutput } from './TerminalOutput';
 import { InputArea } from './InputArea';
@@ -182,6 +182,12 @@ interface MainPanelProps {
   showFlashNotification?: (message: string) => void;
   // Fuzzy file search callback (for FilePreview in preview mode)
   onOpenFuzzySearch?: () => void;
+
+  // Worktree configuration
+  onOpenWorktreeConfig?: () => void;
+  onOpenCreatePR?: () => void;
+  /** True if this session is a worktree child (has parentSessionId) */
+  isWorktreeChild?: boolean;
 }
 
 export const MainPanel = forwardRef<MainPanelHandle, MainPanelProps>(function MainPanel(props, ref) {
@@ -204,7 +210,10 @@ export const MainPanel = forwardRef<MainPanelHandle, MainPanelProps>(function Ma
     handleInputKeyDown, handlePaste, handleDrop, getContextColor, setActiveSessionId,
     batchRunState, currentSessionBatchState, onStopBatchRun, showConfirmation, onRemoveQueuedItem, onOpenQueueBrowser,
     isMobileLandscape = false,
-    showFlashNotification
+    showFlashNotification,
+    onOpenWorktreeConfig,
+    onOpenCreatePR,
+    isWorktreeChild,
   } = props;
 
   // isCurrentSessionAutoMode: THIS session has active batch run (for all UI indicators)
@@ -546,7 +555,7 @@ export const MainPanel = forwardRef<MainPanelHandle, MainPanelProps>(function Ma
                       )}
 
                       {/* Status Summary */}
-                      <div className="p-3">
+                      <div className="p-3 border-b" style={{ borderColor: theme.colors.border }}>
                         <div className="text-[10px] uppercase font-bold mb-2" style={{ color: theme.colors.textDim }}>Status</div>
                         <div className="flex items-center gap-4 text-xs">
                           {gitInfo.uncommittedChanges > 0 ? (
@@ -560,7 +569,41 @@ export const MainPanel = forwardRef<MainPanelHandle, MainPanelProps>(function Ma
                             </span>
                           )}
                         </div>
-                        </div>
+                      </div>
+
+                      {/* Worktree Actions */}
+                      <div className="p-2 space-y-1">
+                        {/* Configure Worktrees - only for parent sessions (not worktree children) */}
+                        {!isWorktreeChild && onOpenWorktreeConfig && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onOpenWorktreeConfig();
+                              gitTooltip.close();
+                            }}
+                            className="w-full flex items-center gap-2 px-3 py-2 rounded text-xs hover:bg-white/10 transition-colors"
+                            style={{ color: theme.colors.textMain }}
+                          >
+                            <Settings2 className="w-4 h-4" style={{ color: theme.colors.accent }} />
+                            Configure Worktrees
+                          </button>
+                        )}
+                        {/* Create PR - only for worktree children */}
+                        {isWorktreeChild && onOpenCreatePR && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onOpenCreatePR();
+                              gitTooltip.close();
+                            }}
+                            className="w-full flex items-center gap-2 px-3 py-2 rounded text-xs hover:bg-white/10 transition-colors"
+                            style={{ color: theme.colors.textMain }}
+                          >
+                            <GitPullRequest className="w-4 h-4" style={{ color: theme.colors.accent }} />
+                            Create Pull Request
+                          </button>
+                        )}
+                      </div>
                       </div>
                     </div>
                     </>

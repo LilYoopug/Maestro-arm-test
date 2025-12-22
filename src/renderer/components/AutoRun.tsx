@@ -1209,7 +1209,8 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
             <Maximize2 className="w-3.5 h-3.5" />
           </button>
         )}
-        {/* Image upload button - always visible, ghosted in preview mode */}
+        {/* Image upload button - hidden for now, can be re-enabled by removing false && */}
+        {false && (
         <button
           onClick={() => mode === 'edit' && !isLocked && fileInputRef.current?.click()}
           disabled={mode !== 'edit' || isLocked}
@@ -1225,6 +1226,7 @@ const AutoRunInner = forwardRef<AutoRunHandle, AutoRunProps>(function AutoRunInn
         >
           <Image className="w-3.5 h-3.5" />
         </button>
+        )}
         <button
           onClick={() => !isLocked && switchMode('edit')}
           disabled={isLocked}

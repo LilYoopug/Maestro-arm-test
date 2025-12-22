@@ -48,6 +48,7 @@ Download the latest release for your platform from the [Releases](https://github
 
 ### Power Features
 
+- 🌳 **[Git Worktrees](#git-worktrees)** - Run AI agents in parallel on isolated branches. Create worktree sub-agents from the git branch menu, each operating in their own directory. Work interactively in the main repo while sub-agents process tasks independently—then create PRs with one click. True parallel development without conflicts.
 - 🤖 **[Auto Run & Playbooks](#auto-run)** - File-system-based task runner that batch-processes markdown checklists through AI agents. Create playbooks for repeatable workflows, run in loops, and track progress with full history. Each task gets its own AI session for clean conversation context.
 - 💬 **[Group Chat](#group-chat)** - Coordinate multiple AI agents in a single conversation. A moderator AI orchestrates discussions, routing questions to the right agents and synthesizing their responses for cross-project questions and architecture discussions.
 - 🌐 **[Mobile Remote Control](#remote-access)** - Built-in web server with QR code access. Monitor and control all your agents from your phone. Supports local network access and remote tunneling via Cloudflare for access from anywhere.
@@ -111,6 +112,7 @@ This approach mirrors methodologies like [Spec-Kit](https://github.com/github/sp
 | **Agent** | A workspace tied to a project directory and AI provider (Claude Code, Codex, or OpenCode). Contains one Command Terminal and one AI Terminal with full conversation history. |
 | **Group** | Organizational container for agents. Group by project, client, or workflow. |
 | **Group Chat** | Multi-agent conversation coordinated by a moderator. Ask questions across multiple agents and get synthesized answers. |
+| **Git Worktree** | An isolated working directory linked to a separate branch. Worktree sub-agents appear nested under their parent in the session list and can create PRs. |
 | **AI Terminal** | The conversation interface with your AI agent. Supports `@` file mentions, slash commands, and image attachments. |
 | **Command Terminal** | A PTY shell session for running commands directly. Tab completion for files, git branches, and command history. |
 | **Session Explorer** | Browse all past conversations for an agent. Star, rename, search, and resume any previous session. |
@@ -352,6 +354,57 @@ It's {{WEEKDAY}}, {{DATE}}. I'm on branch {{GIT_BRANCH}} at {{AGENT_PATH}}.
 Summarize what I worked on yesterday and suggest priorities for today.
 ```
 
+## Git Worktrees
+
+Git worktrees enable true parallel development by letting you run multiple AI agents on separate branches simultaneously. Each worktree operates in its own isolated directory, so there's no risk of conflicts between parallel work streams.
+
+### Creating a Worktree Sub-Agent
+
+1. In the session list, hover over an agent in a git repository
+2. Click the **git branch indicator** (shows current branch name)
+3. In the overlay menu, click **"Create Worktree Sub-Agent"**
+4. Configure the worktree:
+   - **Worktree Directory** — Base folder where worktrees are created
+   - **Branch Name** — Name for the new branch (becomes the subdirectory name)
+   - **Create PR on Completion** — Auto-open a pull request when done
+   - **Target Branch** — Base branch for the PR (defaults to main/master)
+
+### How Worktree Sessions Work
+
+- **Nested Display** — Worktree sub-agents appear indented under their parent session in the left sidebar
+- **Branch Icon** — A git branch icon indicates worktree sessions
+- **Collapse/Expand** — Click the chevron on a parent session to show/hide its worktree children
+- **Independent Operation** — Each worktree session has its own working directory, conversation history, and state
+
+### Creating Pull Requests
+
+When you're done with work in a worktree:
+
+1. **Right-click** the worktree session → **Create Pull Request**, or
+2. Press **Cmd+K** with the worktree active → search "Create Pull Request"
+
+The PR modal shows:
+- Source branch (your worktree branch)
+- Target branch (configurable)
+- Auto-generated title and description based on your work
+
+**Requirements:** GitHub CLI (`gh`) must be installed and authenticated. Maestro will detect if it's missing and show installation instructions.
+
+### Use Cases
+
+| Scenario | How Worktrees Help |
+|----------|-------------------|
+| **Background Auto Run** | Run Auto Run in a worktree while working interactively in the main repo |
+| **Feature Branches** | Spin up a sub-agent for each feature branch |
+| **Code Review** | Create a worktree to review and iterate on a PR without switching branches |
+| **Parallel Experiments** | Try different approaches simultaneously without git stash/pop |
+
+### Tips
+
+- **Name branches descriptively** — The branch name becomes the worktree directory name
+- **Use a dedicated worktree folder** — Keep all worktrees in one place (e.g., `~/worktrees/`)
+- **Clean up when done** — Delete worktree sessions after merging PRs to avoid clutter
+
 ## Auto Run
 
 Auto Run is a file-system-based document runner that lets you batch-process tasks using AI agents. Select a folder containing markdown documents with task checkboxes, and Maestro will work through them one by one, spawning a fresh AI session for each task.
@@ -403,25 +456,6 @@ Save your batch configurations for reuse:
 2. Click **Save as Playbook** and enter a name
 3. Load saved playbooks from the **Load Playbook** dropdown
 4. Update or discard changes to loaded playbooks
-
-### Git Worktree Support
-
-Git worktrees allow Auto Run to operate in an isolated directory while you continue working interactively in the main repository—no read-only restrictions, no waiting.
-
-**Setup:**
-1. Enable **Worktree** in the Batch Runner Modal
-2. Select a **Worktree Directory** (base folder for all worktrees)
-3. Enter a **Branch Name** (becomes the worktree subdirectory)
-4. The computed path shows where the worktree will be created
-5. Optionally enable **Create PR on completion** to auto-open a pull request
-
-**Benefits:**
-- **Continue working** in the main repo while Auto Run processes tasks in the background
-- **No read-only mode** — the yellow border and input lock only appear when running without a worktree
-- **Visual indicator** — a git branch icon appears in the AUTO badge, right panel, and status pill when using a worktree
-- **Automatic PR creation** — when enabled, opens a PR from the worktree branch to your target branch
-
-**Without a worktree:** Auto Run queues with other write operations to prevent conflicts, and the editor enters read-only mode until completion.
 
 ### Progress Tracking
 
@@ -490,9 +524,11 @@ Click the **Stop** button at any time. The runner will:
 - Preserve all completed work
 - Allow you to resume later by clicking Run again
 
-### Parallel Batches
+### Parallel Auto Runs
 
-You can run separate batch processes in different Maestro sessions simultaneously. Each session maintains its own independent batch state. With Git worktrees enabled, you can work on the main branch while Auto Run operates in an isolated worktree.
+Auto Run can execute in parallel across different agents without conflicts—each agent works in its own project directory, so there's no risk of clobbering each other's work.
+
+**Same project, parallel work:** To run multiple Auto Runs in the same repository simultaneously, create worktree sub-agents from the git branch menu (see [Git Worktrees](#git-worktrees)). Each worktree operates in an isolated directory with its own branch, enabling true parallel task execution on the same codebase.
 
 ## Group Chat
 

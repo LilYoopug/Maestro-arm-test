@@ -71,6 +71,12 @@ export const MODAL_PRIORITIES = {
   /** Onboarding wizard - high priority, guides new users through setup */
   WIZARD: 760,
 
+  /** Create PR modal (from worktree) */
+  CREATE_PR: 755,
+
+  /** Worktree configuration modal */
+  WORKTREE_CONFIG: 752,
+
   /** New instance creation modal */
   NEW_INSTANCE: 750,
 

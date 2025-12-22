@@ -80,6 +80,8 @@ interface QuickActionsModalProps {
   hasActiveSessionCapability?: (capability: 'supportsSessionStorage' | 'supportsSlashCommands') => boolean;
   // Remote control
   onToggleRemoteControl?: () => void;
+  // Worktree PR creation
+  onOpenCreatePR?: (session: Session) => void;
 }
 
 export function QuickActionsModal(props: QuickActionsModalProps) {
@@ -96,7 +98,7 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
     onRenameTab, onToggleReadOnlyMode, onOpenTabSwitcher, tabShortcuts, isAiMode, setPlaygroundOpen, onRefreshGitFileState,
     onDebugReleaseQueuedItem, markdownEditMode, onToggleMarkdownEditMode, setUpdateCheckModalOpen, openWizard, wizardGoToStep, setDebugWizardModalOpen, setDebugPackageModalOpen, startTour, setFuzzyFileSearchOpen, onEditAgent,
     groupChats, onNewGroupChat, onOpenGroupChat, onCloseGroupChat, onDeleteGroupChat, activeGroupChatId,
-    hasActiveSessionCapability
+    hasActiveSessionCapability, onOpenCreatePR
   } = props;
 
   const [search, setSearch] = useState('');
@@ -295,6 +297,16 @@ export function QuickActionsModal(props: QuickActionsModalProps) {
       }
       setQuickActionOpen(false);
     } }] : []),
+    // Create PR - only for worktree child sessions
+    ...(activeSession && activeSession.parentSessionId && activeSession.worktreeBranch && onOpenCreatePR ? [{
+      id: 'createPR',
+      label: `Create Pull Request: ${activeSession.worktreeBranch}`,
+      subtext: 'Open PR from this worktree branch',
+      action: () => {
+        onOpenCreatePR(activeSession);
+        setQuickActionOpen(false);
+      }
+    }] : []),
     ...(activeSession && onRefreshGitFileState ? [{ id: 'refreshGitFileState', label: 'Refresh Files, Git, History', subtext: 'Reload file tree, git status, and history', action: async () => {
       await onRefreshGitFileState();
       setQuickActionOpen(false);

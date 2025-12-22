@@ -8,8 +8,7 @@ import { PlaybookDeleteConfirmModal } from './PlaybookDeleteConfirmModal';
 import { PlaybookNameModal } from './PlaybookNameModal';
 import { AgentPromptComposerModal } from './AgentPromptComposerModal';
 import { DocumentsPanel } from './DocumentsPanel';
-import { GitWorktreeSection, GhCliStatus } from './GitWorktreeSection';
-import { usePlaybookManagement, useWorktreeValidation } from '../hooks';
+import { usePlaybookManagement } from '../hooks';
 import { autorunDefaultPrompt } from '../../prompts';
 import { generateId } from '../utils/ids';
 
@@ -33,10 +32,6 @@ interface BatchRunnerModalProps {
   onRefreshDocuments: () => Promise<void>; // Refresh document list from folder
   // Session ID for playbook storage
   sessionId: string;
-  // Session cwd for git worktree support
-  sessionCwd: string;
-  // Custom path to gh CLI binary (optional, for worktree features)
-  ghPath?: string;
 }
 
 // Helper function to count unchecked tasks in scratchpad content
@@ -80,8 +75,6 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
     getDocumentTaskCount,
     onRefreshDocuments,
     sessionId,
-    sessionCwd,
-    ghPath
   } = props;
 
   // Document list state
@@ -113,45 +106,17 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
   const [promptComposerOpen, setPromptComposerOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Git worktree state - only show worktree section for git repos
-  const [isGitRepo, setIsGitRepo] = useState(false);
-  const [checkingGitRepo, setCheckingGitRepo] = useState(true);
-
-  // Worktree configuration state
-  const [worktreeEnabled, setWorktreeEnabled] = useState(false);
-  const [worktreeBaseDir, setWorktreeBaseDir] = useState('');  // User-selected base directory for all worktrees
-  const [branchName, setBranchName] = useState('');
-  const [createPROnCompletion, setCreatePROnCompletion] = useState(false);
-  const [prTargetBranch, setPrTargetBranch] = useState('main');
-  const [availableBranches, setAvailableBranches] = useState<string[]>([]);
-  const [ghCliStatus, setGhCliStatus] = useState<GhCliStatus | null>(null);
-
-  // Compute the display path for the UI (baseDir + branchName)
-  const computedWorktreePath = worktreeBaseDir && branchName
-    ? `${worktreeBaseDir.replace(/\/+$/, '')}/${branchName.replace(/[^a-zA-Z0-9-_]/g, '-')}`
-    : '';
-
   // Playbook management callback to apply loaded playbook configuration
   const handleApplyPlaybook = useCallback((data: {
     documents: BatchDocumentEntry[];
     loopEnabled: boolean;
     maxLoops: number | null;
     prompt: string;
-    worktreeEnabled: boolean;
-    branchName: string;
-    createPROnCompletion: boolean;
-    prTargetBranch: string;
   }) => {
     setDocuments(data.documents);
     setLoopEnabled(data.loopEnabled);
     setMaxLoops(data.maxLoops);
     setPrompt(data.prompt);
-    setWorktreeEnabled(data.worktreeEnabled);
-    setBranchName(data.branchName);
-    setCreatePROnCompletion(data.createPROnCompletion);
-    if (data.prTargetBranch) {
-      setPrTargetBranch(data.prTargetBranch);
-    }
   }, []);
 
   // Playbook management hook
@@ -186,20 +151,8 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
       loopEnabled,
       maxLoops,
       prompt,
-      worktreeEnabled,
-      branchName,
-      createPROnCompletion,
-      prTargetBranch,
     },
     onApplyPlaybook: handleApplyPlaybook,
-  });
-
-  // Worktree validation hook (debounced validation of worktree path)
-  const { validation: worktreeValidation } = useWorktreeValidation({
-    worktreePath: computedWorktreePath,
-    branchName,
-    worktreeEnabled,
-    sessionCwd,
   });
 
   const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
@@ -229,50 +182,6 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
 
     loadTaskCounts();
   }, [allDocuments]);
-
-  // Check if session cwd is a git repo on mount (for worktree support)
-  useEffect(() => {
-    const checkGitRepo = async () => {
-      setCheckingGitRepo(true);
-      console.log(`[BatchRunnerModal] Checking git repo and gh CLI. ghPath prop: "${ghPath}"`);
-      try {
-        const result = await window.maestro.git.isRepo(sessionCwd);
-        const isRepo = result === true;
-        setIsGitRepo(isRepo);
-
-        // If it's a git repo, fetch available branches and check gh CLI
-        if (isRepo) {
-          const ghPathToUse = ghPath || undefined;
-          console.log(`[BatchRunnerModal] Checking gh CLI with path: ${ghPathToUse}`);
-          const [branchResult, ghResult] = await Promise.all([
-            window.maestro.git.branches(sessionCwd),
-            window.maestro.git.checkGhCli(ghPathToUse)
-          ]);
-          console.log(`[BatchRunnerModal] gh CLI check result:`, ghResult);
-
-          if (branchResult.branches && branchResult.branches.length > 0) {
-            setAvailableBranches(branchResult.branches);
-            // Set default target branch to 'main' or 'master' if available
-            if (branchResult.branches.includes('main')) {
-              setPrTargetBranch('main');
-            } else if (branchResult.branches.includes('master')) {
-              setPrTargetBranch('master');
-            } else {
-              setPrTargetBranch(branchResult.branches[0]);
-            }
-          }
-
-          setGhCliStatus(ghResult);
-        }
-      } catch (error) {
-        console.error('Failed to check if git repo:', error);
-        setIsGitRepo(false);
-      }
-      setCheckingGitRepo(false);
-    };
-
-    checkGitRepo();
-  }, [sessionCwd, ghPath]);
 
   // Calculate total tasks across selected documents (excluding missing documents)
   const totalTaskCount = documents.reduce((sum, doc) => {
@@ -354,7 +263,7 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
     // Filter out missing documents before starting batch run
     const validDocuments = documents.filter(doc => !doc.isMissing);
 
-    // Build config with optional worktree settings
+    // Build config (worktree configuration is now managed separately via WorktreeConfigModal)
     const config: BatchRunConfig = {
       documents: validDocuments,
       prompt,
@@ -362,29 +271,9 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
       maxLoops: loopEnabled ? maxLoops : null
     };
 
-    // Add worktree config if enabled and valid
-    if (worktreeEnabled && isGitRepo && worktreeBaseDir && branchName) {
-      // Compute the worktree path: baseDir + sanitized branch name
-      // e.g., /Users/pedram/worktrees + branch "feature-x" -> /Users/pedram/worktrees/feature-x
-      const sanitizedBranch = branchName.replace(/[^a-zA-Z0-9-_]/g, '-');
-      const computedWorktreePath = `${worktreeBaseDir.replace(/\/+$/, '')}/${sanitizedBranch}`;
-
-      config.worktree = {
-        enabled: true,
-        path: computedWorktreePath,
-        branchName,
-        createPROnCompletion,
-        prTargetBranch,
-        ghPath: ghPath || undefined
-      };
-    }
-
     console.log('[BatchRunnerModal] handleGo - calling onGo with config:', config);
     window.maestro.logger.log('info', 'Go button clicked', 'BatchRunnerModal', {
       documentsCount: validDocuments.length,
-      worktreeEnabled: config.worktree?.enabled,
-      worktreePath: config.worktree?.path,
-      branchName: config.worktree?.branchName
     });
 
     onGo(config);
@@ -598,27 +487,6 @@ export function BatchRunnerModal(props: BatchRunnerModalProps) {
             documentTree={documentTree as import('./DocumentsPanel').DocTreeNode[] | undefined}
             onRefreshDocuments={onRefreshDocuments}
           />
-
-          {/* Git Worktree Section - only visible for git repos */}
-          {isGitRepo && !checkingGitRepo && (
-            <GitWorktreeSection
-              theme={theme}
-              worktreeEnabled={worktreeEnabled}
-              setWorktreeEnabled={setWorktreeEnabled}
-              worktreeBaseDir={worktreeBaseDir}
-              setWorktreeBaseDir={setWorktreeBaseDir}
-              computedWorktreePath={computedWorktreePath}
-              branchName={branchName}
-              setBranchName={setBranchName}
-              createPROnCompletion={createPROnCompletion}
-              setCreatePROnCompletion={setCreatePROnCompletion}
-              prTargetBranch={prTargetBranch}
-              setPrTargetBranch={setPrTargetBranch}
-              worktreeValidation={worktreeValidation}
-              availableBranches={availableBranches}
-              ghCliStatus={ghCliStatus}
-            />
-          )}
 
           {/* Divider */}
           <div className="border-t mb-6" style={{ borderColor: theme.colors.border }} />

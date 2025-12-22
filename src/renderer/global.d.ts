@@ -279,6 +279,27 @@ interface MaestroAPI {
       branch?: string;
       error?: string;
     }>;
+    checkGhCli: (ghPath?: string) => Promise<{
+      installed: boolean;
+      authenticated: boolean;
+    }>;
+    listWorktrees: (cwd: string) => Promise<{
+      worktrees: Array<{
+        path: string;
+        head: string;
+        branch: string | null;
+        isBare: boolean;
+      }>;
+    }>;
+    scanWorktreeDirectory: (parentPath: string) => Promise<{
+      gitSubdirs: Array<{
+        path: string;
+        name: string;
+        isWorktree: boolean;
+        branch: string | null;
+        repoRoot: string | null;
+      }>;
+    }>;
   };
   fs: {
     homeDir: () => Promise<string>;

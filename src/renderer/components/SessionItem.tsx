@@ -13,8 +13,9 @@ import { getStatusColor } from '../utils/theme';
  * - 'group': Session inside a group folder
  * - 'flat': Session in flat list (when no groups exist)
  * - 'ungrouped': Session in the Ungrouped folder (when groups exist)
+ * - 'worktree': Worktree child session nested under parent (shows branch name)
  */
-export type SessionItemVariant = 'bookmark' | 'group' | 'flat' | 'ungrouped';
+export type SessionItemVariant = 'bookmark' | 'group' | 'flat' | 'ungrouped' | 'worktree';
 
 export interface SessionItemProps {
   session: Session;
@@ -83,8 +84,8 @@ export function SessionItem({
   onStartRename,
   onToggleBookmark,
 }: SessionItemProps) {
-  // Determine if we show the GIT/LOCAL badge (not shown in bookmark variant or terminal sessions)
-  const showGitLocalBadge = variant !== 'bookmark' && session.toolType !== 'terminal';
+  // Determine if we show the GIT/LOCAL badge (not shown in bookmark variant, terminal sessions, or worktree variant)
+  const showGitLocalBadge = variant !== 'bookmark' && variant !== 'worktree' && session.toolType !== 'terminal';
 
   // Determine container styling based on variant
   const getContainerClassName = () => {
@@ -92,6 +93,10 @@ export function SessionItem({
 
     if (variant === 'flat') {
       return `mx-3 px-3 py-2 rounded mb-1 ${base}`;
+    }
+    if (variant === 'worktree') {
+      // Worktree children have extra left padding and smaller text
+      return `pl-8 pr-4 py-1.5 ${base}`;
     }
     return `px-4 py-2 ${base}`;
   };
@@ -135,41 +140,47 @@ export function SessionItem({
             {variant === 'bookmark' && session.bookmarked && (
               <Bookmark className="w-3 h-3 shrink-0" style={{ color: theme.colors.accent }} fill={theme.colors.accent} />
             )}
+            {/* Branch icon for worktree children */}
+            {variant === 'worktree' && (
+              <GitBranch className="w-3 h-3 shrink-0" style={{ color: theme.colors.accent }} />
+            )}
             <span
-              className="text-sm font-medium truncate"
+              className={`font-medium truncate ${variant === 'worktree' ? 'text-xs' : 'text-sm'}`}
               style={{ color: isActive ? theme.colors.textMain : theme.colors.textDim }}
             >
-              {session.name}
+              {variant === 'worktree' ? (session.worktreeBranch || session.name) : session.name}
             </span>
           </div>
         )}
 
-        {/* Session metadata row */}
-        <div className="flex items-center gap-2 text-[10px] mt-0.5 opacity-70">
-          {/* Session Jump Number Badge (Opt+Cmd+NUMBER) */}
-          {jumpNumber && (
-            <div
-              className="w-4 h-4 rounded flex items-center justify-center text-[10px] font-bold shrink-0"
-              style={{
-                backgroundColor: theme.colors.accent,
-                color: theme.colors.bgMain
-              }}
-            >
-              {jumpNumber}
-            </div>
-          )}
-          <Activity className="w-3 h-3" /> {session.toolType}
+        {/* Session metadata row (hidden for compact worktree variant) */}
+        {variant !== 'worktree' && (
+          <div className="flex items-center gap-2 text-[10px] mt-0.5 opacity-70">
+            {/* Session Jump Number Badge (Opt+Cmd+NUMBER) */}
+            {jumpNumber && (
+              <div
+                className="w-4 h-4 rounded flex items-center justify-center text-[10px] font-bold shrink-0"
+                style={{
+                  backgroundColor: theme.colors.accent,
+                  color: theme.colors.bgMain
+                }}
+              >
+                {jumpNumber}
+              </div>
+            )}
+            <Activity className="w-3 h-3" /> {session.toolType}
 
-          {/* Group badge (only in bookmark variant when session belongs to a group) */}
-          {variant === 'bookmark' && group && (
-            <span
-              className="text-[9px] px-1 py-0.5 rounded"
-              style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textDim }}
-            >
-              {group.name}
-            </span>
-          )}
-        </div>
+            {/* Group badge (only in bookmark variant when session belongs to a group) */}
+            {variant === 'bookmark' && group && (
+              <span
+                className="text-[9px] px-1 py-0.5 rounded"
+                style={{ backgroundColor: theme.colors.bgActivity, color: theme.colors.textDim }}
+              >
+                {group.name}
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Right side: Indicators and actions */}

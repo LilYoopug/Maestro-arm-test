@@ -329,7 +329,18 @@ export interface Session {
   gitBranches?: string[];
   gitTags?: string[];
   gitRefsCacheTime?: number;  // Timestamp when branches/tags were last fetched
-  // Worktree parent path - if set, this session is a worktree parent that should be scanned for new worktrees
+  // Worktree configuration (only set on parent sessions that manage worktrees)
+  worktreeConfig?: {
+    basePath: string;           // Directory where worktrees are stored
+    watchEnabled: boolean;      // Whether to watch for new worktrees via chokidar
+  };
+  // Worktree child indicator (only set on worktree child sessions)
+  parentSessionId?: string;     // Links back to parent agent session
+  worktreeBranch?: string;      // The git branch this worktree is checked out to
+  // Whether worktree children are expanded in the sidebar (only on parent sessions)
+  worktreesExpanded?: boolean;
+  // Legacy: Worktree parent path for auto-discovery (will be migrated to worktreeConfig)
+  // TODO: Remove after migration to new parent/child model
   worktreeParentPath?: string;
   // File Explorer per-session state
   fileTree: any[];

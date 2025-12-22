@@ -37,6 +37,8 @@ import { TourOverlay } from './components/Wizard/tour';
 import { CONDUCTOR_BADGES, getBadgeForTime } from './constants/conductorBadges';
 import { EmptyStateView } from './components/EmptyStateView';
 import { AgentErrorModal } from './components/AgentErrorModal';
+import { WorktreeConfigModal } from './components/WorktreeConfigModal';
+import { CreatePRModal } from './components/CreatePRModal';
 
 // Group Chat Components
 import { GroupChatPanel } from './components/GroupChatPanel';
@@ -389,6 +391,11 @@ export default function MaestroConsole() {
 
   // Agent Error Modal State - tracks which session has an active error being shown
   const [agentErrorModalSessionId, setAgentErrorModalSessionId] = useState<string | null>(null);
+
+  // Worktree Modal State
+  const [worktreeConfigModalOpen, setWorktreeConfigModalOpen] = useState(false);
+  const [createPRModalOpen, setCreatePRModalOpen] = useState(false);
+  const [createPRSession, setCreatePRSession] = useState<Session | null>(null);
 
   // Tab Switcher Modal State
   const [tabSwitcherOpen, setTabSwitcherOpen] = useState(false);
@@ -3868,7 +3875,7 @@ export default function MaestroConsole() {
 
         // Create a group using the user-provided name
         const groupId = generateId();
-        const worktreeGroup: SessionGroup = {
+        const worktreeGroup: Group = {
           id: groupId,
           name: name,
           collapsed: false,
@@ -6208,6 +6215,10 @@ export default function MaestroConsole() {
           onDeleteGroupChat={deleteGroupChatWithConfirmation}
           activeGroupChatId={activeGroupChatId}
           hasActiveSessionCapability={hasActiveSessionCapability}
+          onOpenCreatePR={(session) => {
+            setCreatePRSession(session);
+            setCreatePRModalOpen(true);
+          }}
           onToggleRemoteControl={async () => {
             await toggleGlobalLive();
             // Show flash notification based on the NEW state (opposite of current)
@@ -6348,6 +6359,58 @@ export default function MaestroConsole() {
           recoveryActions={groupChatRecoveryActions}
           onDismiss={handleClearGroupChatError}
           dismissible={groupChatError.error.recoverable}
+        />
+      )}
+
+      {/* --- WORKTREE CONFIG MODAL --- */}
+      {worktreeConfigModalOpen && activeSession && (
+        <WorktreeConfigModal
+          isOpen={worktreeConfigModalOpen}
+          onClose={() => setWorktreeConfigModalOpen(false)}
+          theme={theme}
+          session={activeSession}
+          worktreeChildren={sessions.filter(s => s.parentSessionId === activeSession.id)}
+          onSaveConfig={(config) => {
+            setSessions(prev => prev.map(s =>
+              s.id === activeSession.id
+                ? { ...s, worktreeConfig: config }
+                : s
+            ));
+          }}
+          onCreateWorktree={async (branchName) => {
+            // TODO: Implement worktree creation via git worktree add
+            console.log('[WorktreeConfig] Create worktree:', branchName);
+          }}
+          onRemoveWorktree={(sessionId) => {
+            // Remove the worktree session
+            setSessions(prev => prev.filter(s => s.id !== sessionId));
+          }}
+          onSelectWorktree={(sessionId) => {
+            setActiveSessionId(sessionId);
+          }}
+        />
+      )}
+
+      {/* --- CREATE PR MODAL --- */}
+      {createPRModalOpen && (createPRSession || activeSession) && (
+        <CreatePRModal
+          isOpen={createPRModalOpen}
+          onClose={() => {
+            setCreatePRModalOpen(false);
+            setCreatePRSession(null);
+          }}
+          theme={theme}
+          worktreePath={(createPRSession || activeSession)!.cwd}
+          worktreeBranch={(createPRSession || activeSession)!.worktreeBranch || (createPRSession || activeSession)!.gitBranches?.[0] || 'main'}
+          availableBranches={(createPRSession || activeSession)!.gitBranches || ['main', 'master']}
+          onPRCreated={(prUrl) => {
+            addToast({
+              type: 'success',
+              title: 'Pull Request Created',
+              message: prUrl,
+            });
+            setCreatePRSession(null);
+          }}
         />
       )}
 
@@ -7085,6 +7148,10 @@ export default function MaestroConsole() {
         }}
         onTabStar={(tabId: string, starred: boolean) => {
           if (!activeSession) return;
+          // Find the tab first to check if it has a session ID
+          const tabToStar = activeSession.aiTabs.find(t => t.id === tabId);
+          // Don't allow starring tabs without a session ID (new/empty tabs)
+          if (!tabToStar?.agentSessionId) return;
           setSessions(prev => prev.map(s => {
             if (s.id !== activeSession.id) return s;
             // Find the tab to get its agentSessionId for persistence
@@ -7292,6 +7359,9 @@ export default function MaestroConsole() {
           setTimeout(() => setSuccessFlashNotification(null), 2000);
         }}
         onOpenFuzzySearch={() => setFuzzyFileSearchOpen(true)}
+        onOpenWorktreeConfig={() => setWorktreeConfigModalOpen(true)}
+        onOpenCreatePR={() => setCreatePRModalOpen(true)}
+        isWorktreeChild={!!activeSession?.parentSessionId}
       />
       )}
 
@@ -7393,8 +7463,6 @@ export default function MaestroConsole() {
           getDocumentTaskCount={getDocumentTaskCount}
           onRefreshDocuments={handleAutoRunRefresh}
           sessionId={activeSession.id}
-          sessionCwd={activeSession.cwd}
-          ghPath={ghPath}
         />
       )}
 

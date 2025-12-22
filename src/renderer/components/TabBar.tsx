@@ -622,7 +622,7 @@ export function TabBar({
               isDragging={draggingTabId === tab.id}
               isDragOver={dragOverTabId === tab.id}
               onRename={() => handleRenameRequest(tab.id)}
-              onStar={onTabStar ? (starred) => onTabStar(tab.id, starred) : undefined}
+              onStar={onTabStar && tab.agentSessionId ? (starred) => onTabStar(tab.id, starred) : undefined}
               onMarkUnread={onTabMarkUnread ? () => onTabMarkUnread(tab.id) : undefined}
               shortcutHint={!showUnreadOnly && originalIndex < 9 ? originalIndex + 1 : null}
               hasDraft={hasDraft(tab)}

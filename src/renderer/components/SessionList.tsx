@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Wand2, Plus, Settings, ChevronRight, ChevronDown, X, Keyboard,
   Radio, Copy, ExternalLink, PanelLeftClose, PanelLeftOpen, Folder, Info, GitBranch, Bot, Clock,
-  ScrollText, Cpu, Menu, Bookmark, Trophy, Trash2, Edit3, FolderInput, Download, Compass, Globe
+  ScrollText, Cpu, Menu, Bookmark, Trophy, Trash2, Edit3, FolderInput, Download, Compass, Globe,
+  GitPullRequest
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import type { Session, Group, Theme, Shortcut, AutoRunStats, GroupChat, GroupChatState, SettingsTab, FocusArea } from '../types';
@@ -30,6 +31,7 @@ interface SessionContextMenuProps {
   onMoveToGroup: (groupId: string) => void;
   onDelete: () => void;
   onDismiss: () => void;
+  onCreatePR?: () => void; // For worktree child sessions
 }
 
 function SessionContextMenu({
@@ -43,7 +45,8 @@ function SessionContextMenu({
   onToggleBookmark,
   onMoveToGroup,
   onDelete,
-  onDismiss
+  onDismiss,
+  onCreatePR,
 }: SessionContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const moveToGroupRef = useRef<HTMLDivElement>(null);
@@ -143,6 +146,24 @@ function SessionContextMenu({
         <Bookmark className="w-3.5 h-3.5" fill={session.bookmarked ? 'currentColor' : 'none'} />
         {session.bookmarked ? 'Remove Bookmark' : 'Add Bookmark'}
       </button>
+
+      {/* Create PR - only for worktree child sessions */}
+      {session.parentSessionId && session.worktreeBranch && onCreatePR && (
+        <>
+          <div className="my-1 border-t" style={{ borderColor: theme.colors.border }} />
+          <button
+            onClick={() => {
+              onCreatePR();
+              onDismiss();
+            }}
+            className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors flex items-center gap-2"
+            style={{ color: theme.colors.accent }}
+          >
+            <GitPullRequest className="w-3.5 h-3.5" />
+            Create Pull Request
+          </button>
+        </>
+      )}
 
       {/* Divider */}
       <div className="my-1 border-t" style={{ borderColor: theme.colors.border }} />
@@ -579,6 +600,10 @@ interface SessionListProps {
   // Edit agent modal handler (for context menu edit)
   onEditAgent: (session: Session) => void;
 
+  // Worktree handlers
+  onToggleWorktreeExpanded?: (sessionId: string) => void;
+  onOpenCreatePR?: (session: Session) => void;
+
   // Auto mode props
   activeBatchSessionIds?: string[]; // Session IDs that are running in auto mode
 
@@ -639,6 +664,8 @@ export function SessionList(props: SessionListProps) {
     onDeleteSession, onDeleteWorktreeGroup,
     setRenameInstanceModalOpen, setRenameInstanceValue, setRenameInstanceSessionId,
     onEditAgent,
+    onToggleWorktreeExpanded,
+    onOpenCreatePR,
     activeBatchSessionIds = [],
     showSessionJumpNumbers = false,
     visibleSessions = [],
@@ -800,17 +827,149 @@ export function SessionList(props: SessionListProps) {
     gitFileCounts.set(sessionId, status.fileCount);
   });
 
+  // Helper: Get worktree children for a parent session
+  const getWorktreeChildren = (parentId: string): Session[] => {
+    return sessions.filter(s => s.parentSessionId === parentId);
+  };
+
+  // Helper: Check if a session has worktree children
+  const hasWorktreeChildren = (sessionId: string): boolean => {
+    return sessions.some(s => s.parentSessionId === sessionId);
+  };
+
+  // Helper component: Renders a session item with its worktree children (if any)
+  const renderSessionWithWorktrees = (
+    session: Session,
+    variant: 'bookmark' | 'group' | 'flat' | 'ungrouped',
+    options: {
+      keyPrefix: string;
+      groupId?: string;
+      group?: Group;
+      onDrop?: () => void;
+    }
+  ) => {
+    const worktreeChildren = getWorktreeChildren(session.id);
+    const hasWorktrees = worktreeChildren.length > 0;
+    const worktreesExpanded = session.worktreesExpanded ?? true;
+    const globalIdx = sortedSessions.findIndex(s => s.id === session.id);
+    const isKeyboardSelected = activeFocus === 'sidebar' && globalIdx === selectedSidebarIndex;
+
+    return (
+      <div key={`${options.keyPrefix}-${session.id}`}>
+        {/* Parent session with expand/collapse toggle for worktrees */}
+        <div className="flex items-center">
+          {/* Expand/collapse button for sessions with worktrees */}
+          {hasWorktrees && onToggleWorktreeExpanded && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleWorktreeExpanded(session.id);
+              }}
+              className="p-1 hover:bg-white/10 rounded transition-colors ml-1 shrink-0"
+              title={worktreesExpanded ? 'Collapse worktrees' : 'Expand worktrees'}
+            >
+              {worktreesExpanded ? (
+                <ChevronDown className="w-3 h-3" style={{ color: theme.colors.textDim }} />
+              ) : (
+                <ChevronRight className="w-3 h-3" style={{ color: theme.colors.textDim }} />
+              )}
+            </button>
+          )}
+          <div className="flex-1">
+            <SessionItem
+              session={session}
+              variant={variant}
+              theme={theme}
+              isActive={activeSessionId === session.id && !activeGroupChatId}
+              isKeyboardSelected={isKeyboardSelected}
+              isDragging={draggingSessionId === session.id}
+              isEditing={editingSessionId === `${options.keyPrefix}-${session.id}`}
+              leftSidebarOpen={leftSidebarOpen}
+              group={options.group}
+              groupId={options.groupId}
+              gitFileCount={gitFileCounts.get(session.id)}
+              isInBatch={activeBatchSessionIds.includes(session.id)}
+              jumpNumber={getSessionJumpNumber(session.id)}
+              onSelect={() => setActiveSessionId(session.id)}
+              onDragStart={() => handleDragStart(session.id)}
+              onDragOver={handleDragOver}
+              onDrop={options.onDrop || handleDropOnUngrouped}
+              onContextMenu={(e) => handleContextMenu(e, session.id)}
+              onFinishRename={(newName) => finishRenamingSession(session.id, newName)}
+              onStartRename={() => startRenamingSession(`${options.keyPrefix}-${session.id}`)}
+              onToggleBookmark={() => toggleBookmark(session.id)}
+            />
+          </div>
+          {/* Worktree count badge when collapsed */}
+          {hasWorktrees && !worktreesExpanded && (
+            <div
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold mr-2 shrink-0"
+              style={{
+                backgroundColor: theme.colors.accent + '20',
+                color: theme.colors.accent,
+              }}
+              title={`${worktreeChildren.length} worktree${worktreeChildren.length > 1 ? 's' : ''}`}
+            >
+              <GitBranch className="w-2.5 h-2.5" />
+              {worktreeChildren.length}
+            </div>
+          )}
+        </div>
+
+        {/* Worktree children (when expanded) */}
+        {hasWorktrees && worktreesExpanded && (
+          <div className="border-l ml-6 pl-2" style={{ borderColor: theme.colors.accent + '40' }}>
+            {worktreeChildren.sort((a, b) => compareSessionNames(a.worktreeBranch || a.name, b.worktreeBranch || b.name)).map(child => {
+              const childGlobalIdx = sortedSessions.findIndex(s => s.id === child.id);
+              const isChildKeyboardSelected = activeFocus === 'sidebar' && childGlobalIdx === selectedSidebarIndex;
+              return (
+                <SessionItem
+                  key={`worktree-${session.id}-${child.id}`}
+                  session={child}
+                  variant="worktree"
+                  theme={theme}
+                  isActive={activeSessionId === child.id && !activeGroupChatId}
+                  isKeyboardSelected={isChildKeyboardSelected}
+                  isDragging={draggingSessionId === child.id}
+                  isEditing={editingSessionId === `worktree-${session.id}-${child.id}`}
+                  leftSidebarOpen={leftSidebarOpen}
+                  gitFileCount={gitFileCounts.get(child.id)}
+                  isInBatch={activeBatchSessionIds.includes(child.id)}
+                  jumpNumber={getSessionJumpNumber(child.id)}
+                  onSelect={() => setActiveSessionId(child.id)}
+                  onDragStart={() => handleDragStart(child.id)}
+                  onContextMenu={(e) => handleContextMenu(e, child.id)}
+                  onFinishRename={(newName) => finishRenamingSession(child.id, newName)}
+                  onStartRename={() => startRenamingSession(`worktree-${session.id}-${child.id}`)}
+                  onToggleBookmark={() => toggleBookmark(child.id)}
+                />
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // Filter sessions based on search query (searches session name AND AI tab names)
+  // Also filters out worktree children (they're rendered under their parents)
   const filteredSessions = sessionFilter
     ? sessions.filter(s => {
+        // Exclude worktree children from main list (they appear under parent)
+        if (s.parentSessionId) return false;
         const query = sessionFilter.toLowerCase();
         // Match session name
         if (s.name.toLowerCase().includes(query)) return true;
         // Match any AI tab name
         if (s.aiTabs?.some(tab => tab.name?.toLowerCase().includes(query))) return true;
+        // Match worktree children branch names
+        if (getWorktreeChildren(s.id).some(child =>
+          child.worktreeBranch?.toLowerCase().includes(query) ||
+          child.name.toLowerCase().includes(query)
+        )) return true;
         return false;
       })
-    : sessions;
+    : sessions.filter(s => !s.parentSessionId); // Exclude worktree children from main list
 
   // When filter opens, apply filter mode preferences (or defaults on first open)
   // When filter closes, save current states as filter mode preferences and restore original states
@@ -1490,32 +1649,11 @@ export function SessionList(props: SessionListProps) {
               {!bookmarksCollapsed ? (
                 <div className="flex flex-col border-l ml-4" style={{ borderColor: theme.colors.accent }}>
                   {[...filteredSessions.filter(s => s.bookmarked)].sort((a, b) => compareSessionNames(a.name, b.name)).map(session => {
-                    const globalIdx = sortedSessions.findIndex(s => s.id === session.id);
-                    const isKeyboardSelected = activeFocus === 'sidebar' && globalIdx === selectedSidebarIndex;
                     const group = groups.find(g => g.id === session.groupId);
-                    return (
-                      <SessionItem
-                        key={`bookmark-${session.id}`}
-                        session={session}
-                        variant="bookmark"
-                        theme={theme}
-                        isActive={activeSessionId === session.id && !activeGroupChatId}
-                        isKeyboardSelected={isKeyboardSelected}
-                        isDragging={draggingSessionId === session.id}
-                        isEditing={editingSessionId === `bookmark-${session.id}`}
-                        leftSidebarOpen={leftSidebarOpen}
-                        group={group}
-                        gitFileCount={gitFileCounts.get(session.id)}
-                        isInBatch={activeBatchSessionIds.includes(session.id)}
-                        jumpNumber={getSessionJumpNumber(session.id)}
-                        onSelect={() => setActiveSessionId(session.id)}
-                        onDragStart={() => handleDragStart(session.id)}
-                        onContextMenu={(e) => handleContextMenu(e, session.id)}
-                        onFinishRename={(newName) => finishRenamingSession(session.id, newName)}
-                        onStartRename={() => startRenamingSession(`bookmark-${session.id}`)}
-                        onToggleBookmark={() => toggleBookmark(session.id)}
-                      />
-                    );
+                    return renderSessionWithWorktrees(session, 'bookmark', {
+                      keyPrefix: 'bookmark',
+                      group,
+                    });
                   })}
                 </div>
               ) : (
@@ -1641,35 +1779,13 @@ export function SessionList(props: SessionListProps) {
 
                 {!group.collapsed ? (
                   <div className="flex flex-col border-l ml-4" style={{ borderColor: theme.colors.border }}>
-                    {groupSessions.map(session => {
-                      const globalIdx = sortedSessions.findIndex(s => s.id === session.id);
-                      const isKeyboardSelected = activeFocus === 'sidebar' && globalIdx === selectedSidebarIndex;
-                      return (
-                        <SessionItem
-                          key={`group-${group.id}-${session.id}`}
-                          session={session}
-                          variant="group"
-                          theme={theme}
-                          isActive={activeSessionId === session.id && !activeGroupChatId}
-                          isKeyboardSelected={isKeyboardSelected}
-                          isDragging={draggingSessionId === session.id}
-                          isEditing={editingSessionId === `group-${group.id}-${session.id}`}
-                          leftSidebarOpen={leftSidebarOpen}
-                          groupId={group.id}
-                          gitFileCount={gitFileCounts.get(session.id)}
-                          isInBatch={activeBatchSessionIds.includes(session.id)}
-                          jumpNumber={getSessionJumpNumber(session.id)}
-                          onSelect={() => setActiveSessionId(session.id)}
-                          onDragStart={() => handleDragStart(session.id)}
-                          onDragOver={handleDragOver}
-                          onDrop={() => handleDropOnGroup(group.id)}
-                          onContextMenu={(e) => handleContextMenu(e, session.id)}
-                          onFinishRename={(newName) => finishRenamingSession(session.id, newName)}
-                          onStartRename={() => startRenamingSession(`group-${group.id}-${session.id}`)}
-                          onToggleBookmark={() => toggleBookmark(session.id)}
-                        />
-                      );
-                    })}
+                    {groupSessions.map(session =>
+                      renderSessionWithWorktrees(session, 'group', {
+                        keyPrefix: `group-${group.id}`,
+                        groupId: group.id,
+                        onDrop: () => handleDropOnGroup(group.id),
+                      })
+                    )}
                   </div>
                 ) : (
                   /* Collapsed Group Palette */
@@ -1732,34 +1848,9 @@ export function SessionList(props: SessionListProps) {
           {sessions.length > 0 && groups.length === 0 ? (
             /* FLAT LIST - No groups exist yet, show sessions directly */
             <div className="flex flex-col">
-              {[...filteredSessions].sort((a, b) => compareSessionNames(a.name, b.name)).map((session) => {
-                const globalIdx = sortedSessions.findIndex(s => s.id === session.id);
-                const isKeyboardSelected = activeFocus === 'sidebar' && globalIdx === selectedSidebarIndex;
-                return (
-                  <SessionItem
-                    key={`flat-${session.id}`}
-                    session={session}
-                    variant="flat"
-                    theme={theme}
-                    isActive={activeSessionId === session.id && !activeGroupChatId}
-                    isKeyboardSelected={isKeyboardSelected}
-                    isDragging={draggingSessionId === session.id}
-                    isEditing={editingSessionId === `flat-${session.id}`}
-                    leftSidebarOpen={leftSidebarOpen}
-                    gitFileCount={gitFileCounts.get(session.id)}
-                    isInBatch={activeBatchSessionIds.includes(session.id)}
-                    jumpNumber={getSessionJumpNumber(session.id)}
-                    onSelect={() => setActiveSessionId(session.id)}
-                    onDragStart={() => handleDragStart(session.id)}
-                    onDragOver={handleDragOver}
-                    onDrop={handleDropOnUngrouped}
-                    onContextMenu={(e) => handleContextMenu(e, session.id)}
-                    onFinishRename={(newName) => finishRenamingSession(session.id, newName)}
-                    onStartRename={() => startRenamingSession(`flat-${session.id}`)}
-                    onToggleBookmark={() => toggleBookmark(session.id)}
-                  />
-                );
-              })}
+              {[...filteredSessions].sort((a, b) => compareSessionNames(a.name, b.name)).map((session) =>
+                renderSessionWithWorktrees(session, 'flat', { keyPrefix: 'flat' })
+              )}
             </div>
           ) : groups.length > 0 && (
           /* UNGROUPED FOLDER - Groups exist, show as collapsible folder */
@@ -1795,34 +1886,9 @@ export function SessionList(props: SessionListProps) {
 
             {!ungroupedCollapsed ? (
               <div className="flex flex-col border-l ml-4" style={{ borderColor: theme.colors.border }}>
-                {[...filteredSessions.filter(s => !s.groupId)].sort((a, b) => compareSessionNames(a.name, b.name)).map((session) => {
-                  const globalIdx = sortedSessions.findIndex(s => s.id === session.id);
-                  const isKeyboardSelected = activeFocus === 'sidebar' && globalIdx === selectedSidebarIndex;
-                  return (
-                    <SessionItem
-                      key={`ungrouped-${session.id}`}
-                      session={session}
-                      variant="ungrouped"
-                      theme={theme}
-                      isActive={activeSessionId === session.id && !activeGroupChatId}
-                      isKeyboardSelected={isKeyboardSelected}
-                      isDragging={draggingSessionId === session.id}
-                      isEditing={editingSessionId === `ungrouped-${session.id}`}
-                      leftSidebarOpen={leftSidebarOpen}
-                      gitFileCount={gitFileCounts.get(session.id)}
-                      isInBatch={activeBatchSessionIds.includes(session.id)}
-                      jumpNumber={getSessionJumpNumber(session.id)}
-                      onSelect={() => setActiveSessionId(session.id)}
-                      onDragStart={() => handleDragStart(session.id)}
-                      onDragOver={handleDragOver}
-                      onDrop={handleDropOnUngrouped}
-                      onContextMenu={(e) => handleContextMenu(e, session.id)}
-                      onFinishRename={(newName) => finishRenamingSession(session.id, newName)}
-                      onStartRename={() => startRenamingSession(`ungrouped-${session.id}`)}
-                      onToggleBookmark={() => toggleBookmark(session.id)}
-                    />
-                  );
-                })}
+                {[...filteredSessions.filter(s => !s.groupId)].sort((a, b) => compareSessionNames(a.name, b.name)).map((session) =>
+                  renderSessionWithWorktrees(session, 'ungrouped', { keyPrefix: 'ungrouped' })
+                )}
               </div>
             ) : (
               /* Collapsed Ungrouped Palette */
@@ -2020,6 +2086,7 @@ export function SessionList(props: SessionListProps) {
           onMoveToGroup={(groupId) => handleMoveToGroup(contextMenuSession.id, groupId)}
           onDelete={() => handleDeleteSession(contextMenuSession.id)}
           onDismiss={() => setContextMenu(null)}
+          onCreatePR={onOpenCreatePR && contextMenuSession.parentSessionId ? () => onOpenCreatePR(contextMenuSession) : undefined}
         />
       )}
     </div>
