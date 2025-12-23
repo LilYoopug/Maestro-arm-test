@@ -19,6 +19,7 @@ import { useThemeColors } from '../components/ThemeProvider';
 import { StatusDot, type SessionStatus } from '../components/Badge';
 import type { Session, GroupInfo } from '../hooks/useSessions';
 import { triggerHaptic, HAPTIC_PATTERNS } from './constants';
+import { truncatePath } from '../../shared/formatters';
 
 /**
  * Session card component for the All Sessions view
@@ -65,15 +66,6 @@ function MobileSessionCard({ session, isActive, onSelect, displayName }: MobileS
       'qwen3-coder': 'Qwen3 Coder',
     };
     return toolTypeMap[session.toolType] || session.toolType;
-  };
-
-  // Truncate path for display
-  const truncatePath = (path: string, maxLength: number = 40): string => {
-    if (path.length <= maxLength) return path;
-    const separator = path.includes('\\') ? '\\' : '/';
-    const parts = path.split(/[/\\]/).filter(Boolean);
-    if (parts.length <= 2) return `...${path.slice(-maxLength + 3)}`;
-    return `...${separator}${parts.slice(-2).join(separator)}`;
   };
 
   const handleClick = useCallback(() => {
@@ -194,7 +186,7 @@ function MobileSessionCard({ session, isActive, onSelect, displayName }: MobileS
         }}
         title={session.cwd}
       >
-        {truncatePath(session.cwd)}
+        {truncatePath(session.cwd, 40)}
       </div>
     </button>
   );

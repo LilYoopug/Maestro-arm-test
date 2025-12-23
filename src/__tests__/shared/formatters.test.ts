@@ -11,8 +11,10 @@ import {
   formatRelativeTime,
   formatActiveTime,
   formatElapsedTime,
+  formatElapsedTimeColon,
   formatCost,
   estimateTokenCount,
+  truncatePath,
 } from '../../shared/formatters';
 
 describe('shared/formatters', () => {
@@ -282,6 +284,83 @@ describe('shared/formatters', () => {
     it('should handle longer text', () => {
       const text = 'Hello, this is a sample text for token estimation.';
       expect(estimateTokenCount(text)).toBe(Math.ceil(text.length / 4));
+    });
+  });
+
+  // ==========================================================================
+  // formatElapsedTimeColon tests
+  // ==========================================================================
+  describe('formatElapsedTimeColon', () => {
+    it('should format seconds only as mm:ss', () => {
+      expect(formatElapsedTimeColon(0)).toBe('0:00');
+      expect(formatElapsedTimeColon(5)).toBe('0:05');
+      expect(formatElapsedTimeColon(30)).toBe('0:30');
+      expect(formatElapsedTimeColon(59)).toBe('0:59');
+    });
+
+    it('should format minutes and seconds as mm:ss', () => {
+      expect(formatElapsedTimeColon(60)).toBe('1:00');
+      expect(formatElapsedTimeColon(90)).toBe('1:30');
+      expect(formatElapsedTimeColon(312)).toBe('5:12');
+      expect(formatElapsedTimeColon(3599)).toBe('59:59');
+    });
+
+    it('should format hours as hh:mm:ss', () => {
+      expect(formatElapsedTimeColon(3600)).toBe('1:00:00');
+      expect(formatElapsedTimeColon(3661)).toBe('1:01:01');
+      expect(formatElapsedTimeColon(5430)).toBe('1:30:30');
+      expect(formatElapsedTimeColon(7200)).toBe('2:00:00');
+    });
+
+    it('should pad minutes and seconds with leading zeros', () => {
+      expect(formatElapsedTimeColon(65)).toBe('1:05');
+      expect(formatElapsedTimeColon(3605)).toBe('1:00:05');
+      expect(formatElapsedTimeColon(3660)).toBe('1:01:00');
+    });
+  });
+
+  // ==========================================================================
+  // truncatePath tests
+  // ==========================================================================
+  describe('truncatePath', () => {
+    it('should return empty string for empty input', () => {
+      expect(truncatePath('')).toBe('');
+    });
+
+    it('should return path unchanged if within maxLength', () => {
+      expect(truncatePath('/short/path')).toBe('/short/path');
+      expect(truncatePath('/a/b/c', 20)).toBe('/a/b/c');
+    });
+
+    it('should truncate long paths showing last two parts', () => {
+      expect(truncatePath('/Users/name/Projects/Maestro/src/components', 30)).toBe('.../src/components');
+    });
+
+    it('should handle single segment paths', () => {
+      const longName = 'a'.repeat(50);
+      const result = truncatePath('/' + longName, 20);
+      expect(result.startsWith('...')).toBe(true);
+      expect(result.length).toBeLessThanOrEqual(20);
+    });
+
+    it('should handle Windows paths', () => {
+      expect(truncatePath('C:\\Users\\name\\Projects\\Maestro\\src', 25)).toBe('...\\Maestro\\src');
+    });
+
+    it('should respect custom maxLength parameter', () => {
+      const path = '/Users/name/Projects/Maestro/src/components/Button.tsx';
+
+      const result40 = truncatePath(path, 40);
+      expect(result40.length).toBeLessThanOrEqual(40);
+      expect(result40.startsWith('...')).toBe(true);
+
+      const result20 = truncatePath(path, 20);
+      expect(result20.length).toBeLessThanOrEqual(20);
+      expect(result20.startsWith('...')).toBe(true);
+    });
+
+    it('should handle paths with two parts', () => {
+      expect(truncatePath('/parent/child', 50)).toBe('/parent/child');
     });
   });
 });
