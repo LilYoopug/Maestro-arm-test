@@ -1101,6 +1101,7 @@ export default function MaestroConsole() {
             : getActiveTab(currentSession);
           const logs = completedTab?.logs || [];
           const lastUserLog = logs.filter(log => log.source === 'user').pop();
+          // Find last AI response: 'stdout' or 'ai' source (note: 'thinking' logs are already excluded since they have a distinct source type)
           const lastAiLog = logs.filter(log => log.source === 'stdout' || log.source === 'ai').pop();
           // Use the completed tab's thinkingStartTime for accurate per-tab duration
           const completedTabData = currentSession.aiTabs?.find(tab => tab.id === tabIdFromSession);

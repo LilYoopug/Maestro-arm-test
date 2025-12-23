@@ -269,6 +269,7 @@ function createWebServer(): WebServer {
       const tabLogs = activeTab?.logs || [];
       if (tabLogs.length > 0) {
         // Find the last stdout/stderr entry from the AI (not user messages)
+        // Note: 'thinking' logs are already excluded since they have a distinct source type
         const lastAiLog = [...tabLogs].reverse().find((log: any) =>
           log.source === 'stdout' || log.source === 'stderr'
         );
