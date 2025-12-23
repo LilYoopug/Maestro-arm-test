@@ -7930,6 +7930,20 @@ export default function MaestroConsole() {
             };
           }));
         }}
+        onToggleTabShowThinking={() => {
+          if (!activeSession) return;
+          const activeTab = getActiveTab(activeSession);
+          if (!activeTab) return;
+          setSessions(prev => prev.map(s => {
+            if (s.id !== activeSession.id) return s;
+            return {
+              ...s,
+              aiTabs: s.aiTabs.map(tab =>
+                tab.id === activeTab.id ? { ...tab, showThinking: !tab.showThinking } : tab
+              )
+            };
+          }));
+        }}
         onScrollPositionChange={(scrollTop: number) => {
           if (!activeSession) return;
           // Save scroll position for the current view (AI tab or terminal)
