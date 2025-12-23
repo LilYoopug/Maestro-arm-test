@@ -5,6 +5,7 @@ import { CustomThemeBuilder } from './CustomThemeBuilder';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { AICommandsPanel } from './AICommandsPanel';
+import { SpecKitCommandsPanel } from './SpecKitCommandsPanel';
 import { formatShortcutKeys } from '../utils/shortcutFormatter';
 import { ToggleButtonGroup } from './ToggleButtonGroup';
 import { SettingCheckbox } from './SettingCheckbox';
@@ -1458,11 +1459,22 @@ export const SettingsModal = memo(function SettingsModal(props: SettingsModalPro
           )}
 
           {activeTab === 'aicommands' && (
-            <AICommandsPanel
-              theme={theme}
-              customAICommands={props.customAICommands}
-              setCustomAICommands={props.setCustomAICommands}
-            />
+            <div className="space-y-8">
+              <AICommandsPanel
+                theme={theme}
+                customAICommands={props.customAICommands}
+                setCustomAICommands={props.setCustomAICommands}
+              />
+
+              {/* Divider */}
+              <div
+                className="border-t"
+                style={{ borderColor: theme.colors.border }}
+              />
+
+              {/* Spec Kit Commands Section */}
+              <SpecKitCommandsPanel theme={theme} />
+            </div>
           )}
         </div>
       </div>

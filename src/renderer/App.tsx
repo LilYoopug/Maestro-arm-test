@@ -81,6 +81,7 @@ import { ToastContainer } from './components/Toast';
 
 // Import services
 import { gitService } from './services/git';
+import { getSpeckitCommands } from './services/speckit';
 
 // Import prompts and synopsis parsing
 import { autorunSynopsisPrompt, maestroSystemPrompt } from '../prompts';
@@ -90,7 +91,8 @@ import { parseSynopsis } from '../shared/synopsis';
 import type {
   ToolType, SessionState, RightPanelTab, SettingsTab,
   FocusArea, LogEntry, Session, Group, AITab, UsageStats, QueuedItem, BatchRunConfig,
-  AgentError, BatchRunState, GroupChat, GroupChatMessage, GroupChatState
+  AgentError, BatchRunState, GroupChat, GroupChatMessage, GroupChatState,
+  SpecKitCommand
 } from './types';
 import { THEMES } from './constants/themes';
 import { generateId } from './utils/ids';
@@ -219,6 +221,8 @@ export default function MaestroConsole() {
   // --- STATE ---
   const [sessions, setSessions] = useState<Session[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
+  // Spec Kit commands (loaded from bundled prompts)
+  const [speckitCommands, setSpeckitCommands] = useState<SpecKitCommand[]>([]);
   // Track worktree paths that were manually removed - prevents re-discovery during this session
   const [removedWorktreePaths, setRemovedWorktreePaths] = useState<Set<string>>(new Set());
   // Ref to always access current removed paths (avoids stale closure in async scanner)
@@ -923,6 +927,19 @@ export default function MaestroConsole() {
       return () => clearTimeout(timer);
     }
   }, [settingsLoaded, checkForUpdatesOnStartup]);
+
+  // Load spec-kit commands on startup
+  useEffect(() => {
+    const loadSpeckitCommands = async () => {
+      try {
+        const commands = await getSpeckitCommands();
+        setSpeckitCommands(commands);
+      } catch (error) {
+        console.error('[SpecKit] Failed to load commands:', error);
+      }
+    };
+    loadSpeckitCommands();
+  }, []);
 
   // Set up process event listeners for real-time output
   useEffect(() => {
@@ -1954,12 +1971,14 @@ export default function MaestroConsole() {
   const sessionsRef = useRef(sessions);
   const updateGlobalStatsRef = useRef(updateGlobalStats);
   const customAICommandsRef = useRef(customAICommands);
+  const speckitCommandsRef = useRef(speckitCommands);
   const activeSessionIdRef = useRef(activeSessionId);
   groupsRef.current = groups;
   addToastRef.current = addToast;
   sessionsRef.current = sessions;
   updateGlobalStatsRef.current = updateGlobalStats;
   customAICommandsRef.current = customAICommands;
+  speckitCommandsRef.current = speckitCommands;
   activeSessionIdRef.current = activeSessionId;
 
   // Note: spawnBackgroundSynopsisRef and spawnAgentWithPromptRef are now provided by useAgentExecution hook
@@ -2322,7 +2341,7 @@ export default function MaestroConsole() {
   // Get capabilities for the active session's agent type
   const { hasCapability: hasActiveSessionCapability } = useAgentCapabilities(activeSession?.toolType);
 
-  // Combine built-in slash commands with custom AI commands AND agent-specific commands for autocomplete
+  // Combine built-in slash commands with custom AI commands, spec-kit commands, AND agent-specific commands for autocomplete
   const allSlashCommands = useMemo(() => {
     const customCommandsAsSlash = customAICommands
       .map(cmd => ({
@@ -2330,6 +2349,15 @@ export default function MaestroConsole() {
         description: cmd.description,
         aiOnly: true, // Custom AI commands are only available in AI mode
         prompt: cmd.prompt, // Include prompt for execution
+      }));
+    // Spec Kit commands (bundled from github/spec-kit)
+    const speckitCommandsAsSlash = speckitCommands
+      .map(cmd => ({
+        command: cmd.command,
+        description: cmd.description,
+        aiOnly: true, // Spec-kit commands are only available in AI mode
+        prompt: cmd.prompt, // Include prompt for execution
+        isSpeckit: true, // Mark as spec-kit command for special handling
       }));
     // Only include agent-specific commands if the agent supports slash commands
     // This allows built-in and custom commands to be shown for all agents (Codex, OpenCode, etc.)
@@ -2340,8 +2368,8 @@ export default function MaestroConsole() {
           aiOnly: true, // Agent commands are only available in AI mode
         }))
       : [];
-    return [...slashCommands, ...customCommandsAsSlash, ...agentCommands];
-  }, [customAICommands, activeSession?.agentCommands, hasActiveSessionCapability]);
+    return [...slashCommands, ...customCommandsAsSlash, ...speckitCommandsAsSlash, ...agentCommands];
+  }, [customAICommands, speckitCommands, activeSession?.agentCommands, hasActiveSessionCapability]);
 
   // Derive current input value and setter based on active session mode
   // For AI mode: use active tab's inputValue (stored per-tab)
@@ -4878,8 +4906,15 @@ export default function MaestroConsole() {
           cmd => cmd.command === commandText
         );
 
-        if (matchingCustomCommand) {
-          console.log('[Remote] Found matching custom AI command:', matchingCustomCommand.command);
+        // Look up in spec-kit commands
+        const matchingSpeckitCommand = speckitCommandsRef.current.find(
+          cmd => cmd.command === commandText
+        );
+
+        const matchingCommand = matchingCustomCommand || matchingSpeckitCommand;
+
+        if (matchingCommand) {
+          console.log('[Remote] Found matching command:', matchingCommand.command, matchingSpeckitCommand ? '(spec-kit)' : '(custom)');
 
           // Get git branch for template substitution
           let gitBranch: string | undefined;
@@ -4894,12 +4929,12 @@ export default function MaestroConsole() {
 
           // Substitute template variables
           promptToSend = substituteTemplateVariables(
-            matchingCustomCommand.prompt,
+            matchingCommand.prompt,
             { session, gitBranch }
           );
           commandMetadata = {
-            command: matchingCustomCommand.command,
-            description: matchingCustomCommand.description
+            command: matchingCommand.command,
+            description: matchingCommand.description
           };
 
           console.log('[Remote] Substituted prompt (first 100 chars):', promptToSend.substring(0, 100));
@@ -5200,8 +5235,9 @@ export default function MaestroConsole() {
           sessionCustomContextWindow: session.customContextWindow,
         });
       } else if (item.type === 'command' && item.command) {
-        // Process a slash command - find the matching custom AI command
-        const matchingCommand = customAICommands.find(cmd => cmd.command === item.command);
+        // Process a slash command - find the matching custom AI command or speckit command
+        const matchingCommand = customAICommands.find(cmd => cmd.command === item.command)
+          || speckitCommands.find(cmd => cmd.command === item.command);
         if (matchingCommand) {
           // Substitute template variables
           let gitBranch: string | undefined;

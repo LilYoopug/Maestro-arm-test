@@ -449,42 +449,56 @@ describe('agent-detector', () => {
       const originalPlatform = process.platform;
       Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
 
-      vi.spyOn(fs.promises, 'stat').mockResolvedValue({
-        isFile: () => true,
-      } as fs.Stats);
-      vi.spyOn(fs.promises, 'access').mockRejectedValue(new Error('EACCES'));
+      try {
+        vi.spyOn(fs.promises, 'stat').mockResolvedValue({
+          isFile: () => true,
+        } as fs.Stats);
+        vi.spyOn(fs.promises, 'access').mockRejectedValue(new Error('EACCES'));
 
-      detector.setCustomPaths({ 'claude-code': '/custom/claude' });
-      const agents = await detector.detectAgents();
+        // Create a fresh detector to pick up the platform change
+        const unixDetector = new AgentDetector();
+        unixDetector.setCustomPaths({ 'claude-code': '/custom/claude' });
+        const agents = await unixDetector.detectAgents();
 
-      const claude = agents.find(a => a.id === 'claude-code');
-      expect(claude?.available).toBe(false);
+        const claude = agents.find(a => a.id === 'claude-code');
+        expect(claude?.available).toBe(false);
 
-      expect(logger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('not executable'),
-        'AgentDetector'
-      );
-
-      Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+        expect(logger.warn).toHaveBeenCalledWith(
+          expect.stringContaining('not executable'),
+          'AgentDetector'
+        );
+      } finally {
+        Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+      }
     });
 
     it('should skip executable check on Windows', async () => {
       const originalPlatform = process.platform;
       Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
 
-      const accessMock = vi.spyOn(fs.promises, 'access');
-      vi.spyOn(fs.promises, 'stat').mockResolvedValue({
-        isFile: () => true,
-      } as fs.Stats);
+      try {
+        const accessMock = vi.spyOn(fs.promises, 'access');
+        vi.spyOn(fs.promises, 'stat').mockResolvedValue({
+          isFile: () => true,
+        } as fs.Stats);
 
-      detector.setCustomPaths({ 'claude-code': 'C:\\custom\\claude.exe' });
-      const agents = await detector.detectAgents();
+        // Create a fresh detector to pick up the platform change
+        const winDetector = new AgentDetector();
+        winDetector.setCustomPaths({ 'claude-code': 'C:\\custom\\claude.exe' });
+        const agents = await winDetector.detectAgents();
 
-      const claude = agents.find(a => a.id === 'claude-code');
-      expect(claude?.available).toBe(true);
-      expect(accessMock).not.toHaveBeenCalled();
-
-      Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+        const claude = agents.find(a => a.id === 'claude-code');
+        expect(claude?.available).toBe(true);
+        // On Windows, access should not be called with X_OK flag for custom paths
+        // Note: probeWindowsPaths may call access with F_OK for other agents,
+        // but the key is that the executable check (X_OK) is skipped for custom paths
+        const xokCalls = accessMock.mock.calls.filter(
+          call => call[1] === fs.constants.X_OK
+        );
+        expect(xokCalls).toHaveLength(0);
+      } finally {
+        Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+      }
     });
 
     it('should fall back to PATH when custom path is invalid', async () => {
@@ -547,39 +561,47 @@ describe('agent-detector', () => {
       const originalPlatform = process.platform;
       Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
 
-      // Create a new detector to pick up the platform change
-      const unixDetector = new AgentDetector();
-      mockExecFileNoThrow.mockResolvedValue({ stdout: '/usr/bin/claude\n', stderr: '', exitCode: 0 });
+      try {
+        // Create a new detector to pick up the platform change
+        const unixDetector = new AgentDetector();
+        mockExecFileNoThrow.mockResolvedValue({ stdout: '/usr/bin/claude\n', stderr: '', exitCode: 0 });
 
-      await unixDetector.detectAgents();
+        await unixDetector.detectAgents();
 
-      expect(mockExecFileNoThrow).toHaveBeenCalledWith(
-        'which',
-        expect.any(Array),
-        undefined,
-        expect.any(Object)
-      );
-
-      Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+        expect(mockExecFileNoThrow).toHaveBeenCalledWith(
+          'which',
+          expect.any(Array),
+          undefined,
+          expect.any(Object)
+        );
+      } finally {
+        Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+      }
     });
 
     it('should use where command on Windows', async () => {
       const originalPlatform = process.platform;
       Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
 
-      const winDetector = new AgentDetector();
-      mockExecFileNoThrow.mockResolvedValue({ stdout: 'C:\\claude.exe\n', stderr: '', exitCode: 0 });
+      try {
+        // Mock fs.promises.access to reject so probeWindowsPaths doesn't find anything
+        // This forces fallback to 'where' command
+        vi.spyOn(fs.promises, 'access').mockRejectedValue(new Error('ENOENT'));
 
-      await winDetector.detectAgents();
+        const winDetector = new AgentDetector();
+        mockExecFileNoThrow.mockResolvedValue({ stdout: 'C:\\claude.exe\n', stderr: '', exitCode: 0 });
 
-      expect(mockExecFileNoThrow).toHaveBeenCalledWith(
-        'where',
-        expect.any(Array),
-        undefined,
-        expect.any(Object)
-      );
+        await winDetector.detectAgents();
 
-      Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+        expect(mockExecFileNoThrow).toHaveBeenCalledWith(
+          'where',
+          expect.any(Array),
+          undefined,
+          expect.any(Object)
+        );
+      } finally {
+        Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+      }
     });
 
     it('should take first match when multiple paths returned', async () => {

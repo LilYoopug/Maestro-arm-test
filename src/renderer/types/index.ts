@@ -532,6 +532,24 @@ export interface CustomAICommand {
   isBuiltIn?: boolean; // If true, cannot be deleted (only edited)
 }
 
+// Spec Kit command definition (bundled from github/spec-kit)
+export interface SpecKitCommand {
+  id: string; // e.g., 'constitution'
+  command: string; // e.g., '/speckit.constitution'
+  description: string;
+  prompt: string;
+  isCustom: boolean; // true only for 'implement' (our Maestro-specific version)
+  isModified: boolean; // true if user has edited
+}
+
+// Spec Kit metadata for tracking version and refresh status
+export interface SpecKitMetadata {
+  lastRefreshed: string; // ISO date
+  commitSha: string; // Git commit SHA or version tag
+  sourceVersion: string; // Semantic version (e.g., '0.0.90')
+  sourceUrl: string; // GitHub repo URL
+}
+
 // Leaderboard registration data for runmaestro.ai integration
 export interface LeaderboardRegistration {
   // Required fields

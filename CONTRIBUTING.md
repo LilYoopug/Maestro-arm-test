@@ -549,6 +549,18 @@ Example: `feat: add context usage visualization`
 
 ## Building for Release
 
+### 0. Refresh Spec Kit Prompts (Optional)
+
+Before releasing, check if GitHub's spec-kit has updates:
+
+```bash
+npm run refresh-speckit
+```
+
+This fetches the latest prompts from [github/spec-kit](https://github.com/github/spec-kit) and updates the bundled files in `src/prompts/speckit/`. The custom `/speckit.implement` prompt is never overwritten.
+
+Review any changes with `git diff` before committing.
+
 ### 1. Prepare Icons
 
 Place icons in `build/` directory:
