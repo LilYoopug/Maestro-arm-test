@@ -284,20 +284,6 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
           ctx.setAgentSessionsOpen(true);
         }
       }
-      else if (ctx.isShortcut(e, 'mergeSession')) {
-        e.preventDefault();
-        // Only show merge modal if agent supports context merge
-        if (ctx.hasActiveSessionCapability('supportsContextMerge') && ctx.activeSession?.activeTabId) {
-          ctx.setMergeSessionModalOpen(true);
-        }
-      }
-      else if (ctx.isShortcut(e, 'sendToAgent')) {
-        e.preventDefault();
-        // Only show send to agent modal if agent supports context merge
-        if (ctx.hasActiveSessionCapability('supportsContextMerge') && ctx.activeSession?.activeTabId) {
-          ctx.setSendToAgentModalOpen(true);
-        }
-      }
       else if (ctx.isShortcut(e, 'systemLogs')) {
         e.preventDefault();
         ctx.setLogViewerOpen(true);
@@ -445,13 +431,6 @@ export function useMainKeyboardHandler(): UseMainKeyboardHandlerReturn {
         if (ctx.isTabShortcut(e, 'toggleTabUnread')) {
           e.preventDefault();
           ctx.toggleTabUnread();
-        }
-        if (ctx.isTabShortcut(e, 'summarizeAndContinue')) {
-          e.preventDefault();
-          // Only trigger if summarization is available for the current tab
-          if (ctx.canSummarizeActiveTab && ctx.summarizeAndContinue) {
-            ctx.summarizeAndContinue();
-          }
         }
         if (ctx.isTabShortcut(e, 'nextTab')) {
           e.preventDefault();

@@ -201,8 +201,6 @@ All these screenshots were captured in the them "Pedurple". For screenshots of o
 | New Agent | `Cmd+N` | `Ctrl+N` |
 | Kill Agent | `Cmd+Shift+Backspace` | `Ctrl+Shift+Backspace` |
 | Move Agent to Group | `Cmd+Shift+M` | `Ctrl+Shift+M` |
-| Merge Sessions | `Cmd+Shift+M` | `Ctrl+Shift+M` |
-| Send to Agent | `Cmd+Shift+A` | `Ctrl+Shift+A` |
 | Previous Agent | `Cmd+[` | `Ctrl+[` |
 | Next Agent | `Cmd+]` | `Ctrl+]` |
 | Jump to Agent (1-9, 0=10th) | `Opt+Cmd+NUMBER` | `Alt+Ctrl+NUMBER` |
@@ -631,11 +629,10 @@ Context management lets you combine or transfer conversation history between ses
 
 Combine context from multiple sessions or tabs into one:
 
-1. **Right-click** a tab → **"Merge With..."**, or
-2. Press `Cmd+Shift+M` (Mac) / `Ctrl+Shift+M` (Windows/Linux)
-3. Search for or select the target session/tab
-4. Review the merge preview showing estimated token count
-5. Click **"Merge Contexts"**
+1. **Right-click** a tab → **"Merge With..."**, or use **Command Palette** (`Cmd+K` / `Ctrl+K`) → "Merge with another session"
+2. Search for or select the target session/tab
+3. Review the merge preview showing estimated token count
+4. Click **"Merge Contexts"**
 
 The merged context creates a new tab in the target session with conversation history from both sources. Use this to consolidate related conversations or bring context from an older session into a current one.
 
@@ -652,11 +649,10 @@ The merged context creates a new tab in the target session with conversation his
 
 Transfer your context to a different AI agent:
 
-1. **Right-click** a tab → **"Send to Agent..."**, or
-2. Press `Cmd+Shift+A` (Mac) / `Ctrl+Shift+A` (Windows/Linux)
-3. Select the target agent (only available/installed agents are shown)
-4. Optionally enable **context grooming** to optimize the context for the target agent
-5. A new session opens with the transferred context
+1. **Right-click** a tab → **"Send to Agent..."**, or use **Command Palette** (`Cmd+K` / `Ctrl+K`) → "Send to another agent"
+2. Select the target agent (only available/installed agents are shown)
+3. Optionally enable **context grooming** to optimize the context for the target agent
+4. A new session opens with the transferred context
 
 **Context Grooming:**
 When transferring between different agent types, the context can be automatically "groomed" to:
@@ -670,15 +666,6 @@ Grooming is enabled by default but can be skipped for faster transfers.
 - Start a task in Claude Code, then hand off to Codex for a different perspective
 - Transfer a debugging session to an agent with different tool access
 - Move context to an agent pointing at a different project directory
-
-### Keyboard Shortcuts
-
-| Action | macOS | Windows/Linux |
-|--------|-------|---------------|
-| Merge Sessions | `Cmd+Shift+M` | `Ctrl+Shift+M` |
-| Send to Agent | `Cmd+Shift+A` | `Ctrl+Shift+A` |
-
-These shortcuts are also available in the Command Palette (`Cmd+K` / `Ctrl+K`) as "Merge with another session" and "Send to another agent".
 
 ## Command Line Interface
 
