@@ -118,4 +118,76 @@ describe('Git IPC handlers', () => {
       }
     });
   });
+
+  describe('git:status', () => {
+    it('should return stdout from execFileNoThrow on success', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: 'M  file.txt\nA  new.txt\n',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:status');
+      const result = await handler!({} as any, '/test/repo');
+
+      expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
+        'git',
+        ['status', '--porcelain'],
+        '/test/repo'
+      );
+      expect(result).toEqual({
+        stdout: 'M  file.txt\nA  new.txt\n',
+        stderr: '',
+      });
+    });
+
+    it('should return stderr when not a git repo', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '',
+        stderr: 'fatal: not a git repository',
+        exitCode: 128,
+      });
+
+      const handler = handlers.get('git:status');
+      const result = await handler!({} as any, '/not/a/repo');
+
+      expect(result).toEqual({
+        stdout: '',
+        stderr: 'fatal: not a git repository',
+      });
+    });
+
+    it('should pass cwd parameter correctly', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:status');
+      await handler!({} as any, '/custom/path');
+
+      expect(execFile.execFileNoThrow).toHaveBeenCalledWith(
+        'git',
+        ['status', '--porcelain'],
+        '/custom/path'
+      );
+    });
+
+    it('should return empty stdout for clean repository', async () => {
+      vi.mocked(execFile.execFileNoThrow).mockResolvedValue({
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const handler = handlers.get('git:status');
+      const result = await handler!({} as any, '/clean/repo');
+
+      expect(result).toEqual({
+        stdout: '',
+        stderr: '',
+      });
+    });
+  });
 });
