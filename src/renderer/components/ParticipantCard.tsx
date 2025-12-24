@@ -5,7 +5,8 @@
  * session ID, context usage, stats, and cost.
  */
 
-import { MessageSquare, ExternalLink, DollarSign } from 'lucide-react';
+import { MessageSquare, Copy, Check, DollarSign, RotateCcw } from 'lucide-react';
+import { useState, useCallback } from 'react';
 import type { Theme, GroupChatParticipant, SessionState } from '../types';
 import { getStatusColor } from '../utils/theme';
 import { formatCost } from '../utils/formatters';
@@ -15,8 +16,8 @@ interface ParticipantCardProps {
   participant: GroupChatParticipant;
   state: SessionState;
   color?: string;
-  /** Callback when user clicks session ID pill to jump to the agent */
-  onJumpToSession?: (sessionId: string) => void;
+  groupChatId?: string;
+  onContextReset?: (participantName: string) => void;
 }
 
 /**
@@ -35,17 +36,23 @@ export function ParticipantCard({
   participant,
   state,
   color,
-  onJumpToSession,
+  groupChatId,
+  onContextReset,
 }: ParticipantCardProps): JSX.Element {
+  const [copied, setCopied] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+
   // Use agent's session ID (clean GUID) when available, otherwise show pending
   const agentSessionId = participant.agentSessionId;
   const isPending = !agentSessionId;
 
-  const handleJumpToSession = () => {
-    if (onJumpToSession && participant.sessionId) {
-      onJumpToSession(participant.sessionId);
+  const copySessionId = useCallback(() => {
+    if (agentSessionId) {
+      navigator.clipboard.writeText(agentSessionId);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
-  };
+  }, [agentSessionId]);
 
   // Determine if state should animate (busy or connecting)
   const shouldPulse = state === 'busy' || state === 'connecting';
@@ -65,6 +72,19 @@ export function ParticipantCard({
 
   // Context usage percentage (default to 0 if not set)
   const contextUsage = participant.contextUsage ?? 0;
+
+  // Show reset button when context usage is 40% or higher
+  const showResetButton = contextUsage >= 40 && onContextReset && groupChatId && !isResetting;
+
+  const handleReset = useCallback(async () => {
+    if (!onContextReset || !groupChatId) return;
+    setIsResetting(true);
+    try {
+      await onContextReset(participant.name);
+    } finally {
+      setIsResetting(false);
+    }
+  }, [onContextReset, groupChatId, participant.name]);
 
   return (
     <div
@@ -105,19 +125,23 @@ export function ParticipantCard({
           </span>
         ) : (
           <button
-            onClick={handleJumpToSession}
+            onClick={copySessionId}
             className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full hover:opacity-80 transition-opacity cursor-pointer shrink-0"
             style={{
               backgroundColor: `${theme.colors.accent}20`,
               color: theme.colors.accent,
               border: `1px solid ${theme.colors.accent}40`,
             }}
-            title={`Session: ${agentSessionId}\nClick to jump to agent`}
+            title={`Session: ${agentSessionId}\nClick to copy`}
           >
             <span className="font-mono">
               {agentSessionId.slice(0, 8).toUpperCase()}
             </span>
-            <ExternalLink className="w-2.5 h-2.5" />
+            {copied ? (
+              <Check className="w-2.5 h-2.5" />
+            ) : (
+              <Copy className="w-2.5 h-2.5" />
+            )}
           </button>
         )}
       </div>
@@ -188,6 +212,35 @@ export function ParticipantCard({
           >
             <DollarSign className="w-3 h-3" />
             {formatCost(participant.totalCost).slice(1)}
+          </span>
+        )}
+        {/* Reset button - shown when context usage >= 40% */}
+        {showResetButton && (
+          <button
+            onClick={handleReset}
+            className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded shrink-0 hover:opacity-80 transition-opacity cursor-pointer"
+            style={{
+              backgroundColor: `${theme.colors.warning}20`,
+              color: theme.colors.warning,
+              border: `1px solid ${theme.colors.warning}40`,
+            }}
+            title="Reset context: Summarize current session and start fresh"
+          >
+            <RotateCcw className="w-3 h-3" />
+            Reset
+          </button>
+        )}
+        {/* Reset in progress indicator */}
+        {isResetting && (
+          <span
+            className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded shrink-0 animate-pulse"
+            style={{
+              backgroundColor: `${theme.colors.warning}20`,
+              color: theme.colors.warning,
+            }}
+          >
+            <RotateCcw className="w-3 h-3 animate-spin" />
+            Resetting...
           </span>
         )}
       </div>

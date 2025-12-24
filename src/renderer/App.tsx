@@ -8238,11 +8238,6 @@ export default function MaestroConsole() {
             onTabChange={handleGroupChatRightTabChange}
             onJumpToMessage={handleJumpToGroupChatMessage}
             onColorsComputed={setGroupChatParticipantColors}
-            onJumpToSession={(sessionId) => {
-              // Dismiss group chat and switch to the participant's session
-              setActiveGroupChatId(null);
-              setActiveSessionId(sessionId);
-            }}
           />
         </>
       )}
@@ -8868,6 +8863,42 @@ export default function MaestroConsole() {
             onResumeSession={handleResumeSession}
             onOpenSessionAsTab={handleResumeSession}
             onOpenAboutModal={() => setAboutModalOpen(true)}
+            onFileClick={async (relativePath: string) => {
+              if (!activeSession) return;
+              const filename = relativePath.split('/').pop() || relativePath;
+
+              // Check if file should be opened externally (PDF, etc.)
+              if (shouldOpenExternally(filename)) {
+                const fullPath = `${activeSession.fullPath}/${relativePath}`;
+                window.maestro.shell.openExternal(`file://${fullPath}`);
+                return;
+              }
+
+              try {
+                const fullPath = `${activeSession.fullPath}/${relativePath}`;
+                const content = await window.maestro.fs.readFile(fullPath);
+                const newFile = {
+                  name: filename,
+                  content,
+                  path: fullPath
+                };
+
+                // Only add to history if it's a different file than the current one
+                const currentFile = filePreviewHistory[filePreviewHistoryIndex];
+                if (!currentFile || currentFile.path !== fullPath) {
+                  // Add to navigation history (truncate forward history if we're not at the end)
+                  const newHistory = filePreviewHistory.slice(0, filePreviewHistoryIndex + 1);
+                  newHistory.push(newFile);
+                  setFilePreviewHistory(newHistory);
+                  setFilePreviewHistoryIndex(newHistory.length - 1);
+                }
+
+                setPreviewFile(newFile);
+                setActiveFocus('main');
+              } catch (error) {
+                console.error('[onFileClick] Failed to read file:', error);
+              }
+            }}
           />
         </ErrorBoundary>
       )}

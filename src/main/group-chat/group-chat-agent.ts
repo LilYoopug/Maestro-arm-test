@@ -20,7 +20,7 @@ import { appendToLog } from './group-chat-log';
 import { IProcessManager, isModeratorActive } from './group-chat-moderator';
 import type { AgentDetector } from '../agent-detector';
 import { buildAgentArgs, applyAgentConfigOverrides, getContextWindowValue } from '../utils/agent-args';
-import { groupChatParticipantPrompt } from '../prompts';
+import { groupChatParticipantPrompt } from '../../prompts';
 
 /**
  * In-memory store for active participant sessions.

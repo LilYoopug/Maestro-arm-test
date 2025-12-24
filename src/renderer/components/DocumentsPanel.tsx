@@ -667,6 +667,12 @@ export function DocumentsPanel({
         const items = [...prev];
         if (currentIsCopyDrag) {
           const original = items[draggedIndex];
+          // Enable reset on ALL documents with the same filename (since duplicates require reset)
+          for (let i = 0; i < items.length; i++) {
+            if (items[i].filename === original.filename) {
+              items[i] = { ...items[i], resetOnCompletion: true };
+            }
+          }
           items.splice(currentDropTargetIndex, 0, {
             id: generateId(),
             filename: original.filename,

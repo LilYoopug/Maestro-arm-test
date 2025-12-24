@@ -15,15 +15,15 @@ import {
   IProcessManager,
   getModeratorSessionId,
   isModeratorActive,
-  MODERATOR_SYSTEM_PROMPT,
-  MODERATOR_SYNTHESIS_PROMPT,
+  getModeratorSystemPrompt,
+  getModeratorSynthesisPrompt,
 } from './group-chat-moderator';
 import {
   addParticipant,
 } from './group-chat-agent';
 import { AgentDetector } from '../agent-detector';
 import { buildAgentArgs, applyAgentConfigOverrides, getContextWindowValue } from '../utils/agent-args';
-import { groupChatParticipantRequestPrompt } from '../prompts';
+import { groupChatParticipantRequestPrompt } from '../../prompts';
 
 // Import emitters from IPC handlers (will be populated after handlers are registered)
 import { groupChatEmitters } from '../ipc/handlers/groupChat';
@@ -371,7 +371,7 @@ export async function routeUserMessage(
         `[${m.from}]: ${m.content}`
       ).join('\n');
 
-      const fullPrompt = `${MODERATOR_SYSTEM_PROMPT}
+      const fullPrompt = `${getModeratorSystemPrompt()}
 
 ## Current Participants:
 ${participantContext}${availableSessionsContext}
@@ -913,9 +913,9 @@ export async function spawnModeratorSynthesis(
     ? chat.participants.map(p => `- @${p.name} (${p.agentId} session)`).join('\n')
     : '(No agents currently in this group chat)';
 
-  const synthesisPrompt = `${MODERATOR_SYSTEM_PROMPT}
+  const synthesisPrompt = `${getModeratorSystemPrompt()}
 
-${MODERATOR_SYNTHESIS_PROMPT}
+${getModeratorSynthesisPrompt()}
 
 ## Current Participants (you can @mention these for follow-up):
 ${participantContext}

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { X, Bot, User, Copy, Check, CheckCircle, XCircle, Trash2, Clock, Cpu, Zap, Play, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { Theme, HistoryEntry } from '../types';
+import type { FileNode } from '../types/fileTree';
 import { useLayerStack } from '../contexts/LayerStackContext';
 import { MODAL_PRIORITIES } from '../constants/modalPriorities';
 import { formatElapsedTime } from '../utils/formatters';
@@ -27,6 +28,11 @@ interface HistoryDetailModalProps {
   filteredEntries?: HistoryEntry[];
   currentIndex?: number;
   onNavigate?: (entry: HistoryEntry, index: number) => void;
+  // File linking props for markdown rendering
+  fileTree?: FileNode[];
+  cwd?: string;
+  projectRoot?: string;
+  onFileClick?: (path: string) => void;
 }
 
 // Get context bar color based on usage percentage
@@ -46,7 +52,11 @@ export function HistoryDetailModal({
   onUpdate,
   filteredEntries,
   currentIndex,
-  onNavigate
+  onNavigate,
+  fileTree,
+  cwd,
+  projectRoot,
+  onFileClick
 }: HistoryDetailModalProps) {
   const { registerLayer, unregisterLayer, updateLayerHandler } = useLayerStack();
   const layerIdRef = useRef<string>();
@@ -403,6 +413,10 @@ export function HistoryDetailModal({
             content={cleanResponse}
             theme={theme}
             onCopy={(text) => navigator.clipboard.writeText(text)}
+            fileTree={fileTree}
+            cwd={cwd}
+            projectRoot={projectRoot}
+            onFileClick={onFileClick}
           />
         </div>
 

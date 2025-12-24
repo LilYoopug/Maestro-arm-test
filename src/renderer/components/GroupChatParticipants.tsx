@@ -6,7 +6,7 @@
  * This panel replaces the RightPanel when a group chat is active.
  */
 
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import { PanelRightClose } from 'lucide-react';
 import type { Theme, GroupChatParticipant, SessionState, Shortcut } from '../types';
 import { ParticipantCard } from './ParticipantCard';
@@ -22,6 +22,8 @@ interface GroupChatParticipantsProps {
   width: number;
   setWidthState: (width: number) => void;
   shortcuts: Record<string, Shortcut>;
+  /** Group chat ID */
+  groupChatId: string;
   /** Moderator agent ID (e.g., 'claude-code') */
   moderatorAgentId: string;
   /** Moderator internal session ID (for routing) */
@@ -43,6 +45,7 @@ export function GroupChatParticipants({
   width,
   setWidthState,
   shortcuts,
+  groupChatId,
   moderatorAgentId,
   moderatorSessionId,
   moderatorAgentSessionId,
@@ -73,6 +76,15 @@ export function GroupChatParticipants({
   const sortedParticipants = useMemo(() => {
     return [...participants].sort((a, b) => a.name.localeCompare(b.name));
   }, [participants]);
+
+  // Handle context reset for a participant
+  const handleContextReset = useCallback(async (participantName: string) => {
+    try {
+      await window.maestro.groupChat.resetParticipantContext(groupChatId, participantName);
+    } catch (error) {
+      console.error(`Failed to reset context for ${participantName}:`, error);
+    }
+  }, [groupChatId]);
 
   if (!isOpen) return null;
 
@@ -131,7 +143,7 @@ export function GroupChatParticipants({
         </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
-        {/* Moderator card always at top */}
+        {/* Moderator card always at top - no reset for moderator */}
         <ParticipantCard
           key="moderator"
           theme={theme}
@@ -166,6 +178,8 @@ export function GroupChatParticipants({
               participant={participant}
               state={participantStates.get(participant.sessionId) || 'idle'}
               color={participantColors[participant.name]}
+              groupChatId={groupChatId}
+              onContextReset={handleContextReset}
             />
           ))
         )}

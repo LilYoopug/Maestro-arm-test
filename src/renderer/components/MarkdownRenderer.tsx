@@ -1,6 +1,7 @@
 import React, { memo, useMemo, useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Clipboard, Loader2, ImageOff } from 'lucide-react';
@@ -220,6 +221,7 @@ export const MarkdownRenderer = memo(({ content, theme, onCopy, className = '', 
     >
       <ReactMarkdown
         remarkPlugins={remarkPlugins}
+        rehypePlugins={[rehypeRaw]}
         components={{
           a: ({ node, href, children, ...props }) => {
             // Check for maestro-file:// protocol OR data-maestro-file attribute

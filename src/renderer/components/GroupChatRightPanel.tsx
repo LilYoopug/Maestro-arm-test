@@ -53,8 +53,6 @@ interface GroupChatRightPanelProps {
   onJumpToMessage?: (timestamp: number) => void;
   /** Callback when participant colors are computed (for sharing with other components) */
   onColorsComputed?: (colors: Record<string, string>) => void;
-  /** Callback when user clicks to jump to a participant's session */
-  onJumpToSession?: (sessionId: string) => void;
 }
 
 export function GroupChatRightPanel({
@@ -77,7 +75,6 @@ export function GroupChatRightPanel({
   onTabChange,
   onJumpToMessage,
   onColorsComputed,
-  onJumpToSession,
 }: GroupChatRightPanelProps): JSX.Element | null {
   // Color preferences state
   const [colorPreferences, setColorPreferences] = useState<Record<string, number>>({});
@@ -160,6 +157,15 @@ export function GroupChatRightPanel({
   const sortedParticipants = useMemo(() => {
     return [...participants].sort((a, b) => a.name.localeCompare(b.name));
   }, [participants]);
+
+  // Handle context reset for a participant
+  const handleContextReset = useCallback(async (participantName: string) => {
+    try {
+      await window.maestro.groupChat.resetParticipantContext(groupChatId, participantName);
+    } catch (error) {
+      console.error(`Failed to reset context for ${participantName}:`, error);
+    }
+  }, [groupChatId]);
 
   // History entries state
   const [historyEntries, setHistoryEntries] = useState<GroupChatHistoryEntry[]>([]);
@@ -285,7 +291,6 @@ export function GroupChatRightPanel({
             participant={moderatorParticipant}
             state={moderatorState}
             color={participantColors['Moderator']}
-            onJumpToSession={onJumpToSession}
           />
 
           {/* Separator between moderator and participants */}
@@ -318,7 +323,8 @@ export function GroupChatRightPanel({
                   participant={participant}
                   state={sessionState}
                   color={participantColors[participant.name]}
-                  onJumpToSession={onJumpToSession}
+                  groupChatId={groupChatId}
+                  onContextReset={handleContextReset}
                 />
               );
             })

@@ -93,6 +93,8 @@ interface RightPanelProps {
   onResumeSession?: (agentSessionId: string) => void;
   onOpenSessionAsTab?: (agentSessionId: string) => void;
   onOpenAboutModal?: () => void;  // For opening About/achievements panel from history entries
+  // File linking callback for history detail modal
+  onFileClick?: (path: string) => void;
 }
 
 export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function RightPanel(props, ref) {
@@ -112,7 +114,7 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
     // Error handling callbacks (Phase 5.10)
     onSkipCurrentDocument, onAbortBatchOnError, onResumeAfterError,
     onJumpToAgentSession, onResumeSession,
-    onOpenSessionAsTab, onOpenAboutModal
+    onOpenSessionAsTab, onOpenAboutModal, onFileClick
   } = props;
 
   const historyPanelRef = useRef<HistoryPanelHandle>(null);
@@ -461,6 +463,8 @@ export const RightPanel = forwardRef<RightPanelHandle, RightPanelProps>(function
               onResumeSession={onResumeSession}
               onOpenSessionAsTab={onOpenSessionAsTab}
               onOpenAboutModal={onOpenAboutModal}
+              fileTree={filteredFileTree}
+              onFileClick={onFileClick}
             />
           </div>
         )}

@@ -17,7 +17,7 @@ import { appendToLog, readLog } from './group-chat-log';
 import {
   groupChatModeratorSystemPrompt,
   groupChatModeratorSynthesisPrompt,
-} from '../prompts';
+} from '../../prompts';
 
 /**
  * Interface for the process manager dependency.
@@ -114,18 +114,22 @@ function touchSession(groupChatId: string): void {
 }
 
 /**
- * The base system prompt for the moderator.
+ * Gets the base system prompt for the moderator.
  * This is combined with participant info and chat history in routeUserMessage.
  * Loaded from src/prompts/group-chat-moderator-system.md
  */
-export const MODERATOR_SYSTEM_PROMPT = groupChatModeratorSystemPrompt;
+export function getModeratorSystemPrompt(): string {
+  return groupChatModeratorSystemPrompt;
+}
 
 /**
- * The synthesis prompt for the moderator when reviewing agent responses.
+ * Gets the synthesis prompt for the moderator when reviewing agent responses.
  * The moderator decides whether to continue with agents or return to the user.
  * Loaded from src/prompts/group-chat-moderator-synthesis.md
  */
-export const MODERATOR_SYNTHESIS_PROMPT = groupChatModeratorSynthesisPrompt;
+export function getModeratorSynthesisPrompt(): string {
+  return groupChatModeratorSynthesisPrompt;
+}
 
 /**
  * Spawns a moderator agent for a group chat.

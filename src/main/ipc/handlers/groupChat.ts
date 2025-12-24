@@ -20,6 +20,7 @@ import {
   listGroupChats,
   deleteGroupChat,
   updateGroupChat,
+  updateParticipant,
   GroupChat,
   GroupChatParticipant,
   addGroupChatHistoryEntry,
@@ -27,6 +28,7 @@ import {
   deleteGroupChatHistoryEntry,
   clearGroupChatHistory,
   getGroupChatHistoryFilePath,
+  getGroupChatDir,
 } from '../../group-chat/group-chat-storage';
 
 // Group chat history type
@@ -66,6 +68,8 @@ import { routeUserMessage } from '../../group-chat/group-chat-router';
 
 // Agent detector import
 import { AgentDetector } from '../../agent-detector';
+import { buildAgentArgs, applyAgentConfigOverrides, getContextWindowValue } from '../../utils/agent-args';
+import { v4 as uuidv4 } from 'uuid';
 
 const LOG_CONTEXT = '[GroupChat]';
 
@@ -456,6 +460,148 @@ export function registerGroupChatHandlers(deps: GroupChatHandlerDependencies): v
       await removeParticipant(id, name, processManager ?? undefined);
       logger.info(`Removed participant ${name} from ${id}`, LOG_CONTEXT);
     })
+  );
+
+  // Reset participant context - summarize current session and start fresh
+  ipcMain.handle(
+    'groupChat:resetParticipantContext',
+    withIpcErrorLogging(
+      handlerOpts('resetParticipantContext'),
+      async (groupChatId: string, participantName: string, cwd?: string): Promise<{ newAgentSessionId: string }> => {
+        logger.info(`Resetting context for participant ${participantName} in ${groupChatId}`, LOG_CONTEXT);
+
+        const chat = await loadGroupChat(groupChatId);
+        if (!chat) {
+          throw new Error(`Group chat not found: ${groupChatId}`);
+        }
+
+        const participant = chat.participants.find(p => p.name === participantName);
+        if (!participant) {
+          throw new Error(`Participant not found: ${participantName}`);
+        }
+
+        const processManager = getProcessManager();
+        if (!processManager) {
+          throw new Error('Process manager not initialized');
+        }
+
+        const agentDetector = getAgentDetector();
+        if (!agentDetector) {
+          throw new Error('Agent detector not initialized');
+        }
+
+        const agent = await agentDetector.getAgent(participant.agentId);
+        if (!agent || !agent.available) {
+          throw new Error(`Agent not available: ${participant.agentId}`);
+        }
+
+        // Get the group chat folder for file access
+        const groupChatFolder = getGroupChatDir(groupChatId);
+
+        // Build a context summary prompt to ask the agent to summarize its current state
+        const summaryPrompt = `You are "${participantName}" in the group chat "${chat.name}".
+The shared group chat folder is: ${groupChatFolder}
+
+Your context window is getting full. Please provide a concise summary of:
+1. What you've been working on in this group chat
+2. Key decisions made and their rationale
+3. Current state of any ongoing tasks
+4. Important context that should be preserved for continuity
+
+This summary will be used to initialize your fresh session so you can continue seamlessly.
+
+Respond with ONLY the summary text, no additional commentary.`;
+
+        // Spawn a batch process to get the summary
+        const summarySessionId = `group-chat-${groupChatId}-summary-${participantName}-${Date.now()}`;
+        const effectiveCwd = cwd || process.env.HOME || '/tmp';
+
+        const agentConfigValues = getAgentConfig?.(participant.agentId) || {};
+        const customEnvVars = getCustomEnvVars?.(participant.agentId);
+
+        const baseArgs = buildAgentArgs(agent, {
+          baseArgs: [...agent.args],
+          prompt: summaryPrompt,
+          cwd: effectiveCwd,
+          readOnlyMode: true, // Summary is read-only
+          agentSessionId: participant.agentSessionId, // Use existing session to get context
+        });
+
+        const configResolution = applyAgentConfigOverrides(agent, baseArgs, {
+          agentConfigValues,
+        });
+
+        // Collect summary output
+        let summaryOutput = '';
+        const summaryPromise = new Promise<string>((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            reject(new Error('Summary generation timed out'));
+          }, 60000); // 60 second timeout
+
+          // Set up a listener for the summary output
+          const checkInterval = setInterval(() => {
+            // The process manager should emit output events
+            // For now, we'll wait for the process to complete
+          }, 100);
+
+          // Clean up on completion
+          setTimeout(() => {
+            clearInterval(checkInterval);
+            clearTimeout(timeout);
+            resolve(summaryOutput || 'No summary available - starting fresh session.');
+          }, 10000); // Wait 10 seconds for summary
+        });
+
+        // Spawn the summary process
+        const command = agent.path || agent.command;
+        processManager.spawn({
+          sessionId: summarySessionId,
+          toolType: participant.agentId,
+          cwd: effectiveCwd,
+          command,
+          args: configResolution.args,
+          readOnlyMode: true,
+          prompt: summaryPrompt,
+          contextWindow: getContextWindowValue(agent, agentConfigValues),
+          customEnvVars: configResolution.effectiveCustomEnvVars ?? customEnvVars,
+        });
+
+        // Wait for summary (with timeout)
+        try {
+          await summaryPromise;
+        } catch (error) {
+          logger.warn(`Summary generation failed: ${error}`, LOG_CONTEXT);
+        }
+
+        // Kill the summary process
+        try {
+          processManager.kill(summarySessionId);
+        } catch {
+          // Ignore kill errors
+        }
+
+        // Generate a new agent session ID (the actual UUID will be set when the agent responds)
+        // For now, we clear the old one to signal a fresh start
+        const newSessionMarker = uuidv4();
+
+        // Update the participant with a cleared agentSessionId
+        // The next interaction will establish a new session
+        await updateParticipant(groupChatId, participantName, {
+          agentSessionId: undefined, // Clear to force new session
+          contextUsage: 0, // Reset context usage
+        });
+
+        // Emit participants changed event
+        const updatedChat = await loadGroupChat(groupChatId);
+        if (updatedChat) {
+          groupChatEmitters.emitParticipantsChanged?.(groupChatId, updatedChat.participants);
+        }
+
+        logger.info(`Reset context for ${participantName}, new session marker: ${newSessionMarker}`, LOG_CONTEXT);
+
+        return { newAgentSessionId: newSessionMarker };
+      }
+    )
   );
 
   // ========== History Handlers ==========

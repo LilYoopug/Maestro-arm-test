@@ -18,10 +18,11 @@
   "scripts": {
     "dev": "concurrently \"npm run dev:main\" \"npm run dev:renderer\"",
     "dev:demo": "MAESTRO_DEMO_DIR=/tmp/maestro-demo npm run dev",
-    "dev:main": "tsc -p tsconfig.main.json && NODE_ENV=development electron .",
+    "dev:main": "npm run build:prompts && tsc -p tsconfig.main.json && NODE_ENV=development electron .",
     "dev:renderer": "vite",
     "dev:web": "vite --config vite.config.web.mts",
-    "build": "npm run build:main && npm run build:renderer && npm run build:web && npm run build:cli",
+    "build": "npm run build:prompts && npm run build:main && npm run build:renderer && npm run build:web && npm run build:cli",
+    "build:prompts": "node scripts/generate-prompts.mjs",
     "build:main": "tsc -p tsconfig.main.json",
     "build:cli": "node scripts/build-cli.mjs",
     "build:renderer": "vite build",
@@ -97,10 +98,6 @@
         {
           "from": "src/prompts/speckit",
           "to": "prompts/speckit"
-        },
-        {
-          "from": "src/prompts/group-chat-*.md",
-          "to": "prompts"
         }
       ]
     },
@@ -129,10 +126,6 @@
         {
           "from": "src/prompts/speckit",
           "to": "prompts/speckit"
-        },
-        {
-          "from": "src/prompts/group-chat-*.md",
-          "to": "prompts"
         }
       ]
     },
@@ -170,10 +163,6 @@
         {
           "from": "src/prompts/speckit",
           "to": "prompts/speckit"
-        },
-        {
-          "from": "src/prompts/group-chat-*.md",
-          "to": "prompts"
         }
       ]
     },

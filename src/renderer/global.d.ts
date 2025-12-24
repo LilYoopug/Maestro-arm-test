@@ -1023,6 +1023,7 @@ interface MaestroAPI {
     }>;
     sendToParticipant: (id: string, name: string, message: string, images?: string[]) => Promise<void>;
     removeParticipant: (id: string, name: string) => Promise<void>;
+    resetParticipantContext: (id: string, name: string, cwd?: string) => Promise<{ newAgentSessionId: string }>;
     // History
     getHistory: (id: string) => Promise<Array<{
       id: string;

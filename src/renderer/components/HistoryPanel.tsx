@@ -399,6 +399,9 @@ interface HistoryPanelProps {
   onResumeSession?: (agentSessionId: string) => void;
   onOpenSessionAsTab?: (agentSessionId: string) => void;
   onOpenAboutModal?: () => void;  // For opening About/achievements panel from history entries
+  // File linking props for history detail modal
+  fileTree?: any[];
+  onFileClick?: (path: string) => void;
 }
 
 export interface HistoryPanelHandle {
@@ -414,7 +417,7 @@ const LOAD_MORE_COUNT = 50;         // Entries to add when scrolling
 // Module-level storage for scroll positions (persists across session switches)
 const scrollPositionCache = new Map<string, number>();
 
-export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPanelProps>(function HistoryPanel({ session, theme, onJumpToAgentSession, onResumeSession, onOpenSessionAsTab, onOpenAboutModal }, ref) {
+export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPanelProps>(function HistoryPanel({ session, theme, onJumpToAgentSession, onResumeSession, onOpenSessionAsTab, onOpenAboutModal, fileTree, onFileClick }, ref) {
   const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
   const [activeFilters, setActiveFilters] = useState<Set<HistoryEntryType>>(new Set(['AUTO', 'USER']));
   const [isLoading, setIsLoading] = useState(true);
@@ -1120,6 +1123,11 @@ export const HistoryPanel = React.memo(forwardRef<HistoryPanelHandle, HistoryPan
               setDisplayCount(Math.min(index + LOAD_MORE_COUNT, allFilteredEntries.length));
             }
           }}
+          // File linking props for markdown rendering
+          fileTree={fileTree}
+          cwd={session.cwd}
+          projectRoot={session.projectRoot}
+          onFileClick={onFileClick}
         />
       )}
 
