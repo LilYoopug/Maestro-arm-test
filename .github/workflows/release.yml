@@ -150,9 +150,9 @@ jobs:
         run: mkdir -p release
         shell: bash
 
-      # Import Apple certificate for code signing
+      # Import Apple certificate for code signing (only if secrets are available)
       - name: Import Apple certificate
-        if: matrix.platform == 'mac'
+        if: matrix.platform == 'mac' && secrets.APPLE_CERTIFICATE != ''
         continue-on-error: true
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -178,12 +178,18 @@ jobs:
       - name: Package for macOS
         if: matrix.platform == 'mac'
         continue-on-error: true
-        run: npx electron-builder --mac --publish never --config.extraMetadata.version=${{ steps.version.outputs.VERSION }}
+        run: |
+          # Set environment variables only if secrets are available
+          if [ "${{ secrets.APPLE_CERTIFICATE }}" != "" ]; then
+            export APPLE_ID="${{ secrets.APPLE_ID }}"
+            export APPLE_APP_SPECIFIC_PASSWORD="${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}"
+            export APPLE_TEAM_ID="${{ secrets.APPLE_TEAM_ID }}"
+          fi
+
+          # Package for macOS (with or without signing based on available secrets)
+          npx electron-builder --mac --publish never --config.extraMetadata.version=${{ steps.version.outputs.VERSION }}
         env:
           DEBUG: electron-builder
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Package for Windows
         if: matrix.platform == 'win'
