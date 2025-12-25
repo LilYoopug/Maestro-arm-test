@@ -313,13 +313,6 @@ jobs:
 
     steps:
       # Download each platform's artifacts separately to handle partial failures
-      - name: Download macOS artifacts
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: maestro-macos
-          path: artifacts/maestro-macos
-
       - name: Download Windows artifacts
         uses: actions/download-artifact@v4
         continue-on-error: true
@@ -363,7 +356,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/maestro-macos/*
             artifacts/maestro-windows/*
             artifacts/maestro-linux-x64/*
             artifacts/maestro-linux-arm64/*
