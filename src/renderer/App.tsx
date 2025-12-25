@@ -2725,7 +2725,7 @@ export default function MaestroConsole() {
     startSummarize,
     cancel: cancelSummarize,
     canSummarize,
-    minLogsRequired: summarizeMinLogs,
+    minContextUsagePercent,
   } = useSummarizeAndContinue(activeSession ?? null);
 
   // State for summarize progress modal visibility
@@ -2738,11 +2738,11 @@ export default function MaestroConsole() {
     const targetTabId = tabId || activeSession.activeTabId;
     const targetTab = activeSession.aiTabs.find(t => t.id === targetTabId);
 
-    if (!targetTab || !canSummarize(targetTab)) {
+    if (!targetTab || !canSummarize(activeSession.contextUsage)) {
       addToast({
         type: 'warning',
         title: 'Cannot Summarize',
-        message: `Tab needs at least ${summarizeMinLogs} log entries to summarize.`,
+        message: `Context usage too low. Need at least ${minContextUsagePercent}% to summarize.`,
       });
       return;
     }
@@ -2764,7 +2764,7 @@ export default function MaestroConsole() {
         });
       }
     });
-  }, [activeSession, canSummarize, summarizeMinLogs, startSummarize, setSessions, addToast, summarizeResult?.reductionPercent]);
+  }, [activeSession, canSummarize, minContextUsagePercent, startSummarize, setSessions, addToast, summarizeResult?.reductionPercent]);
 
   // Combine built-in slash commands with custom AI commands, spec-kit commands, AND agent-specific commands for autocomplete
   const allSlashCommands = useMemo(() => {
@@ -6631,8 +6631,7 @@ export default function MaestroConsole() {
     // Summarize and continue
     canSummarizeActiveTab: (() => {
       if (!activeSession || !activeSession.activeTabId) return false;
-      const tab = activeSession.aiTabs.find(t => t.id === activeSession.activeTabId);
-      return tab ? canSummarize(tab) : false;
+      return canSummarize(activeSession.contextUsage);
     })(),
     summarizeAndContinue: handleSummarizeAndContinue,
 
@@ -7042,7 +7041,7 @@ export default function MaestroConsole() {
             setCreatePRModalOpen(true);
           }}
           onSummarizeAndContinue={() => handleSummarizeAndContinue()}
-          canSummarizeActiveTab={activeTab ? canSummarize(activeTab) : false}
+          canSummarizeActiveTab={activeSession ? canSummarize(activeSession.contextUsage) : false}
           onToggleRemoteControl={async () => {
             await toggleGlobalLive();
             // Show flash notification based on the NEW state (opposite of current)

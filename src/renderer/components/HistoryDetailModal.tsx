@@ -417,6 +417,7 @@ export function HistoryDetailModal({
             cwd={cwd}
             projectRoot={projectRoot}
             onFileClick={onFileClick}
+            allowRawHtml
           />
         </div>
 

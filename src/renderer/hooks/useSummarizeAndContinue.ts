@@ -13,10 +13,10 @@
  */
 
 import { useState, useRef, useCallback } from 'react';
-import type { Session, AITab } from '../types';
+import type { Session } from '../types';
 import type { SummarizeProgress, SummarizeResult } from '../types/contextMerge';
 import { contextSummarizationService } from '../services/contextSummarizer';
-import { createTabAtPosition, getActiveTab } from '../utils/tabHelpers';
+import { createTabAtPosition } from '../utils/tabHelpers';
 
 /**
  * State type for the summarization process.
@@ -42,10 +42,10 @@ export interface UseSummarizeAndContinueResult {
   } | null>;
   /** Cancel the current summarization operation */
   cancel: () => void;
-  /** Check if a tab can be summarized (has enough content) */
-  canSummarize: (tab: AITab) => boolean;
-  /** Get the minimum number of logs required for summarization */
-  minLogsRequired: number;
+  /** Check if summarization is allowed based on context usage */
+  canSummarize: (contextUsage: number) => boolean;
+  /** Get the minimum context usage percentage required for summarization */
+  minContextUsagePercent: number;
 }
 
 /**
@@ -68,7 +68,7 @@ export interface UseSummarizeAndContinueResult {
  *
  *   const handleSummarize = async () => {
  *     const activeTab = getActiveTab(session);
- *     if (activeTab && canSummarize(activeTab)) {
+ *     if (activeTab && canSummarize(session.contextUsage)) {
  *       const result = await startSummarize(activeTab.id);
  *       if (result) {
  *         // Switch to the new tab
@@ -112,9 +112,9 @@ export function useSummarizeAndContinue(
       return null;
     }
 
-    // Check if tab has enough content
-    if (!contextSummarizationService.canSummarize(sourceTab)) {
-      setError(`Context too small to summarize. Need at least ${contextSummarizationService.getMinLogsForSummarize()} log entries.`);
+    // Check if context usage is high enough to warrant summarization
+    if (!contextSummarizationService.canSummarize(session.contextUsage)) {
+      setError(`Context usage too low to summarize. Need at least ${contextSummarizationService.getMinContextUsagePercent()}% context usage.`);
       setState('error');
       return null;
     }
@@ -219,10 +219,10 @@ export function useSummarizeAndContinue(
   }, []);
 
   /**
-   * Check if a tab can be summarized.
+   * Check if summarization is allowed based on context usage.
    */
-  const canSummarize = useCallback((tab: AITab): boolean => {
-    return contextSummarizationService.canSummarize(tab);
+  const canSummarize = useCallback((contextUsage: number): boolean => {
+    return contextSummarizationService.canSummarize(contextUsage);
   }, []);
 
   return {
@@ -233,7 +233,7 @@ export function useSummarizeAndContinue(
     startSummarize,
     cancel,
     canSummarize,
-    minLogsRequired: contextSummarizationService.getMinLogsForSummarize(),
+    minContextUsagePercent: contextSummarizationService.getMinContextUsagePercent(),
   };
 }
 

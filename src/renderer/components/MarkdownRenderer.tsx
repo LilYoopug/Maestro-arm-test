@@ -184,6 +184,8 @@ interface MarkdownRendererProps {
   projectRoot?: string;
   /** Callback when a file link is clicked */
   onFileClick?: (path: string) => void;
+  /** Allow raw HTML passthrough via rehype-raw (can break table/bold rendering) */
+  allowRawHtml?: boolean;
 }
 
 /**
@@ -198,7 +200,7 @@ interface MarkdownRendererProps {
  * Note: Prose styles are injected at the TerminalOutput container level for performance.
  * This component assumes those styles are already present in a parent container.
  */
-export const MarkdownRenderer = memo(({ content, theme, onCopy, className = '', fileTree, cwd, projectRoot, onFileClick }: MarkdownRendererProps) => {
+export const MarkdownRenderer = memo(({ content, theme, onCopy, className = '', fileTree, cwd, projectRoot, onFileClick, allowRawHtml = false }: MarkdownRendererProps) => {
   // Memoize remark plugins to avoid recreating on every render
   const remarkPlugins = useMemo(() => {
     const plugins: any[] = [
@@ -221,7 +223,7 @@ export const MarkdownRenderer = memo(({ content, theme, onCopy, className = '', 
     >
       <ReactMarkdown
         remarkPlugins={remarkPlugins}
-        rehypePlugins={[rehypeRaw]}
+        rehypePlugins={allowRawHtml ? [rehypeRaw] : undefined}
         components={{
           a: ({ node, href, children, ...props }) => {
             // Check for maestro-file:// protocol OR data-maestro-file attribute

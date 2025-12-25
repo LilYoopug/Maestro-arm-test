@@ -28,8 +28,8 @@ export interface SummarizationConfig {
   timeoutMs?: number;
   /** Default agent type for summarization session */
   defaultAgentType?: ToolType;
-  /** Minimum number of logs to require for summarization */
-  minLogsForSummarize?: number;
+  /** Minimum context usage percentage to allow summarization (0-100) */
+  minContextUsagePercent?: number;
 }
 
 /**
@@ -38,7 +38,7 @@ export interface SummarizationConfig {
 const DEFAULT_CONFIG: Required<SummarizationConfig> = {
   timeoutMs: 120000, // 2 minutes
   defaultAgentType: 'claude-code',
-  minLogsForSummarize: 5,
+  minContextUsagePercent: 25, // Don't allow summarization under 25% context usage
 };
 
 /**
@@ -348,20 +348,21 @@ Please provide a comprehensive but compacted summary of the above conversation, 
   }
 
   /**
-   * Check if a tab has enough content to warrant summarization.
+   * Check if a session has enough context to warrant summarization.
+   * Summarization is only worthwhile when context usage is above the minimum threshold.
    *
-   * @param tab - The AI tab to check
-   * @returns True if the tab has enough content for summarization
+   * @param contextUsage - The current context usage percentage (0-100)
+   * @returns True if context usage is high enough for summarization
    */
-  canSummarize(tab: AITab): boolean {
-    return tab.logs.length >= this.config.minLogsForSummarize;
+  canSummarize(contextUsage: number): boolean {
+    return contextUsage >= this.config.minContextUsagePercent;
   }
 
   /**
-   * Get the minimum log count required for summarization.
+   * Get the minimum context usage percentage required for summarization.
    */
-  getMinLogsForSummarize(): number {
-    return this.config.minLogsForSummarize;
+  getMinContextUsagePercent(): number {
+    return this.config.minContextUsagePercent;
   }
 
   /**
