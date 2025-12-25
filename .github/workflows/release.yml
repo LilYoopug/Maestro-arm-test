@@ -147,9 +147,19 @@ jobs:
         run: mkdir -p release
         shell: bash
 
-      # Import Apple certificate for code signing
-      - name: Import Apple certificate
+      # Import Apple certificate for code signing (skip if no secrets)
+      - name: Check for Apple certificate
+        id: check_secrets
         if: matrix.platform == 'mac'
+        run: |
+          if [ "${{ secrets.APPLE_CERTIFICATE }}" != "" ]; then
+            echo "has_certificate=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_certificate=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Import Apple certificate
+        if: matrix.platform == 'mac' && steps.check_secrets.outputs.has_certificate == 'true'
         continue-on-error: true
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
