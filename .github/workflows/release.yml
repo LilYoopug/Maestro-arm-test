@@ -206,9 +206,6 @@ jobs:
           sudo apt-get install -y ruby ruby-dev build-essential
           sudo gem install fpm
 
-          # Set npm configuration for ARM64 architecture
-          npm config set arch arm64
-
           # Rebuild native modules for ARM64 architecture
           npx electron-rebuild --arch=arm64 --version=28.3.3 --force
 
