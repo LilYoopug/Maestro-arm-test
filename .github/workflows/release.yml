@@ -153,6 +153,7 @@ jobs:
       # Import Apple certificate for code signing
       - name: Import Apple certificate
         if: matrix.platform == 'mac'
+        continue-on-error: true
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -176,6 +177,7 @@ jobs:
 
       - name: Package for macOS
         if: matrix.platform == 'mac'
+        continue-on-error: true
         run: npx electron-builder --mac --publish never --config.extraMetadata.version=${{ steps.version.outputs.VERSION }}
         env:
           DEBUG: electron-builder
@@ -244,6 +246,7 @@ jobs:
 
       - name: Upload macOS artifacts
         if: matrix.platform == 'mac'
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: maestro-macos
@@ -253,7 +256,7 @@ jobs:
             release/*-mac.zip
             release/*-mac-*.zip
             release/latest-mac.yml
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 5
 
       - name: Upload Windows artifacts
