@@ -197,11 +197,48 @@ jobs:
           DEBUG: electron-builder
 
       # ARM64 Linux: Build on native ARM64 runner to properly compile node-pty
+      # Critical: Install system fpm and use it to avoid x86_64 fpm binary issues
       - name: Package for Linux ARM64
         if: matrix.platform == 'linux-arm64'
-        run: npx electron-builder --linux --arm64 --publish never --config.extraMetadata.version=${{ steps.version.outputs.VERSION }}
+        run: |
+          # Install system fpm to avoid architecture mismatch (x86_64 vs ARM64)
+          sudo apt-get update
+          sudo apt-get install -y ruby ruby-dev build-essential
+          sudo gem install fpm
+
+          # Set npm configuration for ARM64 architecture
+          npm config set arch arm64
+
+          # Rebuild native modules for ARM64 architecture
+          npx electron-rebuild --arch=arm64 --version=28.3.3 --force
+
+          # Verify node-pty binary was built correctly for ARM64
+          echo "Checking node-pty binary architecture..."
+          PTY_PATH=$(find node_modules/node-pty -name "pty.node" -type f 2>/dev/null | head -1)
+          if [ -n "$PTY_PATH" ]; then
+            echo "Found pty.node at: $PTY_PATH"
+            file "$PTY_PATH"
+            # Verify it's ARM64, not x86_64
+            if file "$PTY_PATH" | grep -q "ARM\|aarch64"; then
+              echo "✓ node-pty is correctly built for ARM64"
+            else
+              echo "✗ ERROR: node-pty is NOT built for ARM64!"
+              file "$PTY_PATH"
+              exit 1
+            fi
+          else
+            echo "✗ ERROR: node-pty binary not found!"
+            find node_modules/node-pty -type f -name "*.node" 2>/dev/null || echo "No .node files found in node-pty"
+            exit 1
+          fi
+
+          # Package with ARM64 target, using system fpm to avoid binary architecture issues
+          npx electron-builder --linux --arm64 --publish never --config.extraMetadata.version=${{ steps.version.outputs.VERSION }}
         env:
           DEBUG: electron-builder
+          npm_config_arch: arm64
+          npm_config_target_arch: arm64
+          USE_SYSTEM_FPM: "true"
 
       # List what was built for debugging
       - name: List release artifacts
